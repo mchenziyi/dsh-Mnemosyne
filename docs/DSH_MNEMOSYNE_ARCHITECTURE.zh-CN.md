@@ -982,7 +982,7 @@ M0 只有同时满足以下条件才算完成：
 
 ## 19. M0.5：核心价值纵向验证
 
-> 状态：M0.5A 已完成并通过 Sol 验收；M0.5B/C 尚未开始。
+> 状态：M0.5A 已完成并通过 Sol 验收；M0.5B 设计已冻结并允许实现；M0.5C 尚未开始。
 
 ### 19.1 目标
 
@@ -1296,3 +1296,206 @@ M0.5A 于 2026-08-14 完成实现并由 Sol 独立复核：
 - 报告 Gate 与 Recommendation 只由冻结阈值确定性派生；负的 Tool-only 成功率差值可被如实记录并判为失败，不会因 Schema 范围错误而丢失；
 - 本地锁定依赖下 TypeScript、33 项测试、构建、包白名单与 `git diff --check` 全部通过；`pnpm install --frozen-lockfile` 仍被 pnpm 11 `minimumReleaseAge` 对 41 个新发布依赖的供应链时间窗阻断，未绕过、未伪报通过；
 - 本阶段没有实现文件存储、生产采集、检索 Tool、Disclosure、自动注入或模型调用，不构成 M0.5 GO 结论。
+
+### 19.12 M0.5B：固定 Fixture 检索、渐进式披露与 Tool-only 重放
+
+状态：Approved，允许实现本节；禁止进入 M0.5C 的真实模型、三组配对运行和自动注入。
+
+#### 19.12.1 目标与成功标准
+
+M0.5B 在 M0.5A 的固定 Fixture 世界上交付最薄的真实插件读取链路：
+
+```text
+固定 Memory Catalog
+  → 确定性本地索引
+  → mnemosyne_search（L0/L1/L2）
+  → mnemosyne_open（显式 L3）
+  → 带 Hash 的 Disclosure Envelope
+  → 从已记录 Envelope 重放，不重新执行检索
+```
+
+成功标准：
+
+1. 15 条固定 Retrieval Case 全部可由程序运行，困难 Case 的 expected Memory 必须进入 Top 5；
+2. frozen/excluded Memory 永不进入 search 结果，且不能被 open；
+3. 同一 Catalog、请求与配置产生逐字节一致的 Request、Candidate Universe、排序和 Disclosure；
+4. `mnemosyne_search` 只披露标题、摘要、组件、操作、标签、alias 和结构化分数，不披露完整 body；
+5. `mnemosyne_open` 只能对 search 返回的 active Memory 执行显式 L3 读取，并产生新的 Disclosure Envelope；
+6. 已记录 Disclosure Envelope 可直接严格解码并重放相同内容，不再次调用分词、BM25、Librarian 或模型；
+7. Tool 经真实 `ctx.tools` 注册表调用，插件 dispose/HMR 后零残留；
+8. 本阶段不声明任务质量提升，也不产生 M0.5 GO/ADJUST/STOP 裁决。
+
+#### 19.12.2 范围与真实边界
+
+本阶段允许：
+
+- 把 M0.5A 的 `memory-catalog.json` 作为只读构建输入嵌入插件；
+- 在插件实例内构建确定性内存索引；
+- 增加内部检索/披露协议和两个公开 Tool：`mnemosyne_search`、`mnemosyne_open`；
+- 增加只用于测试的显式 Acquisition Registry seam，验证 Candidate 的 exact-event / exact-content 幂等与 `duplicate_candidate` 不自动跳过；
+- 通过 dsh 标准 Tool result 路径返回 Disclosure Envelope，并在测试中验证离线 replay。
+
+本阶段禁止：
+
+- 监听或伪造不存在的 durable task-completion 事件；M0 审计只证明公开 `session/event`，未证明独立任务完成事件；
+- 写入用户 Session、Workspace、Profile 或正式记忆目录；
+- 创建生产 Fact Store、SQLite/FTS、向量数据库、Embedding、后台任务或文件锁；
+- 调用 Librarian、真实模型、私有 dsh API 或自动注入；
+- 把内存 Registry、Tool result 或 Fixture 当作生产长期记忆已完成的证据。
+
+Tool-only 重放边界固定为：标准 Tool result 中携带完整、带 Hash 的 Disclosure Envelope；重放读取已记录 Envelope，不重新执行检索。M0.5B 只验证协议级和真实 Tool 注册表路径；dsh Desktop/Session 的跨进程持久重放留给 M0.5C 真实联调，未验证前不得宣称完成。
+
+#### 19.12.3 模块与文件计划
+
+```text
+src/
+├── protocol/
+│   └── retrieval.ts
+├── retrieval/
+│   ├── normalize.ts
+│   ├── index.ts
+│   ├── rank.ts
+│   └── runtime.ts
+├── search-tool.ts
+└── open-tool.ts
+tests/
+├── retrieval-protocol.spec.ts
+├── retrieval-rank.spec.ts
+├── retrieval-fixture.spec.ts
+├── disclosure-replay.spec.ts
+└── retrieval-tools.spec.ts
+```
+
+只创建解决本阶段所需的最小文件；若两个模块不足 50 行且没有独立不变量，应合并，禁止为了目录图机械拆层。
+
+#### 19.12.4 Retrieval Request 与 Candidate Universe
+
+Retrieval Request v1：
+
+```yaml
+schema_version: 1
+retrieval_id: retrieval_<stable-id>
+query_fingerprint: sha256_<hex>
+component_hint: controlled-id | null
+operation_hint: controlled-id | null
+top_k: 1..5
+catalog_sha256: sha256_<hex>
+content_sha256: sha256_<hex>
+```
+
+原始 query 不进入永久 Envelope；`retrieval_id` 由 query 规范表示、hint、top_k 与 Catalog Hash 的稳定摘要生成，不使用随机数或墙钟。查询入口必须拒绝空文本、超长文本、绝对路径、凭据、私钥、完整命令与控制字符。
+
+Candidate Universe v1 对每条 active Memory 固定记录：`memory_id`、结构化字段命中、alias 命中、词项统计、BM25 分数的定点整数表示、最终总分与排序位置。它必须包含本轮全部 active 候选，而不只包含 Top K；frozen/excluded 不进入候选世界。Candidate Universe 只保存受控词项 ID/计数/分数，不保存原始 query、body 或模型解释。
+
+所有分数禁止直接以平台浮点字符串作为规范事实。v1 使用整数定点分：先把各部分分数乘 `1_000_000`，以明确定义的四舍五入规则转为安全整数，再按 `score_fixed desc → memory_id Unicode code point asc` 排序。排序稳定 tie-break 不使用 `localeCompare`。
+
+#### 19.12.5 确定性检索算法 v1
+
+检索管线固定为：
+
+1. query 执行 Unicode NFKC、Unicode lowercase 与空白折叠；规范化只用于检索，不修改 M0.5A Canonical JSON；
+2. 英文/数字按 Unicode letter/number 连续片段分词；CJK 连续片段生成单字、2-gram 与 3-gram；长度和总词项数有硬上限；
+3. Memory 的 title、summary、component、operation、tags、aliases、body 分字段建立内存倒排；body 只参与检索，不进入 search 披露；
+4. alias 完整短语命中、component/operation hint 精确命中给予冻结权重；hint 是 boost，不是 hard filter，避免跨组件召回被截断；
+5. 文本相关性使用简化 BM25，v1 冻结 `k1=1.2`、`b=0.75`；字段权重冻结为 title=4、summary=3、component=4、operation=4、tags=2、aliases=5、body=1，完整 alias 短语额外加 6 分，component/operation hint 各额外加 3 分；总分乘 `1_000_000` 后用 `floor(x + 0.5)` 转为安全整数，全部常量由 golden 测试锁定；
+6. 不做模型查询改写；v1 查询扩展只允许由 Catalog alias 与受控 component/operation 词表确定性生成；
+7. 空候选合法返回，不能为了满足 Fixture 强行补 active Memory。
+
+Fixture 验收按 M0.5A Case 直接执行，不为单个 Case 写特殊分支或 memory_id 白名单。若某 Case 未过，允许调整统一算法/冻结权重并记录差异；禁止在测试中伪造结果。
+
+#### 19.12.6 渐进式披露协议
+
+Search Disclosure v1（L0/L1/L2）固定包含：
+
+- `disclosure_id`、`retrieval_ref`、`candidate_universe_sha256`、`level: 2`、`result_count`；
+- 每项的 `memory_id`、`title`、`summary`、`component`、`operation`、`tags`、`aliases`、`score_fixed`、`rank`；
+- `content_sha256`。
+
+Open Disclosure v1（L3）固定包含：
+
+- `disclosure_id`、`retrieval_ref`、`parent_disclosure_sha256`、`level: 3`；
+- 一个 active Memory 的全部 Fixture 内容与 `memory_content_sha256`；
+- `content_sha256`。
+
+`mnemosyne_open` 输入必须同时携带 `memory_id`、Search Disclosure Hash 和 Retrieval ID；Runtime 必须在当前实例的已验证 Disclosure Registry 中确认该 Memory 确实由对应 search 返回。仅知道 active `memory_id` 不能绕过渐进式披露直接 open。Registry 是评测期内存状态，dispose 后清空，不是生产事实源。
+
+Envelope 严格拒绝未知字段、错误 Hash、重复 Memory、rank 断裂、非降序 score、父 Disclosure 错配和 frozen/excluded 内容。`replayDisclosure(bytes)` 只做严格解码、Hash 和引用自洽校验并返回原内容，不访问 Catalog 或索引；同一字节重复 replay 必须一致。
+
+#### 19.12.7 Acquisition Registry seam
+
+为了验证纵向链路中的“录制”语义，但不伪造 dsh 任务完成能力，本阶段只提供内部、测试可见的显式 Registry：
+
+- 输入必须先通过 M0.5A `validateCandidate` 与 `validateSkipDecision`；
+- `skip_exact_event` / `skip_exact_content` 返回稳定 `skipped`，Registry 零变化；
+- `eligible` 新增 Candidate；同 candidate_id + 同 Hash 返回 `noop`，同 identity + 异 Hash fail closed；
+- `duplicate_candidate` 记录 overlap 关系但仍新增 Candidate；
+- Registry 只保存在插件实例内，dispose 清空；不会自动转成 active Memory，不进入固定 Catalog 检索，也不写文件；
+- Acquisition 失败不得影响已有 search/open Tool，也不得修改固定 Fixture。
+
+该 seam 只证明 Schema、幂等和失败隔离，真正的 Episode/Memory 提取与持久化仍属于 M2/M3。
+
+#### 19.12.8 Tool 契约与生命周期
+
+`mnemosyne_search` 参数固定为：`query`、可选 `component_hint`、可选 `operation_hint`、可选 `top_k`（默认 5）。输出为 Search Disclosure Envelope；描述必须明确“返回合成评测记忆，不是用户长期记忆”。
+
+`mnemosyne_open` 参数固定为：`retrieval_id`、`search_disclosure_sha256`、`memory_id`。输出为 Open Disclosure Envelope。两个 Tool 的 parameter/output schema 都必须关闭未知字段，错误返回稳定、脱敏的插件错误，不回显 query、路径、凭据或 Memory body。
+
+插件 `enabled=false` 时三个 Tool（status/search/open）均不注册；启用时恰好各一份；dispose/HMR 后全部撤销，Disclosure/Acquisition Registry 清空。M0 的公开 Status 契约不得被静默改写；若要表示 M0.5B 能力，新增向后兼容字段需要先修改 M0 Status 协议和测试，本阶段默认不改。
+
+#### 19.12.9 失败测试先行矩阵
+
+实现前必须让下列测试在缺少产品代码时失败，完成后转绿：
+
+1. Query 空值、超长、控制字符、路径、凭据、完整命令与未知字段拒绝；
+2. Unicode NFKC/lowercase、英文词元、CJK 1/2/3-gram 与 alias 扩展 golden；
+3. 同输入 Request、Candidate Universe、排序和 Disclosure 字节/Hash 一致；
+4. 15 条 Retrieval Case，困难 Case expected 进入 Top 5，negative control 不伪造命中；
+5. frozen/excluded search leakage 为 0，直接 open/伪造父 Disclosure/未知 Memory 均拒绝；
+6. search 只到 L2 且不含 body，open 才含 L3 body；
+7. rank 连续、分数非升序、tie-break 稳定，篡改分数/rank/hash 后 replay 拒绝；
+8. replay 不调用 tokenizer/ranker/Catalog，原字节得到同一语义输出；
+9. exact-event/exact-content skip、eligible/noop/conflict、duplicate-candidate 不跳过；
+10. 真实 `ctx.tools` 执行 search→open，Tool output schema 闭合；
+11. enabled=false、dispose、HMR、多实例隔离和 Registry 清理；
+12. build/tarball/Profile smoke 中 search/open 可执行且移除插件后不存在。
+
+#### 19.12.10 自动门禁与交付边界
+
+M0.5B 必须运行：
+
+```bash
+corepack pnpm install --frozen-lockfile
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+corepack pnpm pack
+node tests/pack-check.mjs
+git diff --check
+```
+
+若供应链时间窗仍阻断安装，沿用 19.11.9 的诚实降级规则，不放宽 pnpm 策略。另需在隔离临时 Profile 经真实 Tool registry 执行 `mnemosyne_search → mnemosyne_open`，校验 L2/L3 和 dispose/remove。
+
+完成报告必须给出：实际模块、冻结算法常量、15 Case 结果、泄漏数、Disclosure Hash/replay 证据、真实 Tool smoke、包内容、门禁和环境限制。不得调用真实模型、创建生产持久化、启用自动注入、输出任务质量提升结论或进入 M0.5C。
+
+#### 19.12.11 Luna 实现任务书
+
+```text
+在 /Users/czy/Desktop/demo/dsh-Mnemosyne 实现 M0.5B。
+
+唯一设计依据：docs/DSH_MNEMOSYNE_ARCHITECTURE.zh-CN.md 第 19.12 节。
+先完整读取 19.11 已冻结协议与 19.12；检查 git status，保留已有提交。
+
+按 TDD 执行：先添加 19.12.9 的失败测试并证明失败，再实现最小产品代码。优先合并小模块，不机械照目录图制造抽象。只用 dsh 现有公开 Tool/Context/Bundle 能力，不调用私有 API，不修改 dsh，不监听未审计的任务完成事件。
+
+必须：
+- 从固定 Fixture 构建确定性索引；
+- 实现统一算法而非按 Case 特判；
+- search 只披露 L2，open 必须验证父 search 后才披露 L3；
+- frozen/excluded 全链路隔离；
+- Disclosure 严格 Hash 与离线 replay；
+- Acquisition Registry 只做内存 seam；
+- Tool 经真实 ctx.tools 执行并覆盖 dispose/HMR/Profile smoke；
+- 不调用模型、不自动注入、不写用户文件。
+
+全部门禁完成后做一次 review 与 security review；修复范围内真实问题。最终只交付报告，不提交、不推送、不创建 Tag，等待 Sol 验收。
+```
