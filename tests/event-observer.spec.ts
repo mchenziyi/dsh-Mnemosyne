@@ -5,6 +5,12 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { Config } from '../src/index.js'
 import { install } from '../src/observer.js'
 
+function expectTools(ctx: Context, enabled: boolean): void {
+  for (const name of ['mnemosyne_status', 'mnemosyne_search', 'mnemosyne_open']) {
+    expect(ctx.tools.get(name) !== undefined).toBe(enabled)
+  }
+}
+
 describe('M0 event observer', () => {
   it('observes session/event without retaining or printing payload', async () => {
     const ctx = new Context()
@@ -17,9 +23,11 @@ describe('M0 event observer', () => {
       apply(inner: Context) { install(inner, () => { observedEvents += 1 }) },
     }
     const fiber = await ctx.plugin(plugin)
+    expectTools(ctx, true)
     ctx.emit('session/event', {} as never, { type: 'user/message', seq: 1, data: { message: { role: 'user', content: 'secret' } } } as never)
     expect(observedEvents).toBe(1)
     await fiber.dispose()
+    expectTools(ctx, false)
     ctx.emit('session/event', {} as never, { type: 'user/message', seq: 2, data: { message: { role: 'user', content: 'after-dispose' } } } as never)
     expect(observedEvents).toBe(1)
   })
@@ -39,14 +47,18 @@ describe('M0 event observer', () => {
       },
     }
     const fiber = await ctx.plugin(plugin, { enabled: true })
+    expectTools(ctx, true)
     ctx.emit('session/event', {} as never, { type: 'user/message', seq: 1 } as never)
     expect(observedEvents).toBe(1)
     await fiber.update({ enabled: false })
+    expectTools(ctx, false)
     ctx.emit('session/event', {} as never, { type: 'user/message', seq: 2 } as never)
     expect(observedEvents).toBe(1)
     await fiber.update({ enabled: true })
+    expectTools(ctx, true)
     ctx.emit('session/event', {} as never, { type: 'user/message', seq: 3 } as never)
     expect(observedEvents).toBe(2)
     await fiber.dispose()
+    expectTools(ctx, false)
   })
 })

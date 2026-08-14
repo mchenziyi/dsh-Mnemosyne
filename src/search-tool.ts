@@ -1,0 +1,9 @@
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { RetrievalRuntime } from './retrieval/runtime.js'
+
+const SEARCH_PARAMETERS = { query: { type: 'string', required: true }, component_hint: { type: 'string' }, operation_hint: { type: 'string' }, top_k: { type: 'integer' } } as const
+const DISCLOSURE_SCHEMA = { type: 'object', additionalProperties: false, properties: { schema_version: { type: 'integer', required: true }, disclosure_id: { type: 'string', required: true }, retrieval_ref: { type: 'string', required: true }, candidate_universe_sha256: { type: 'string', required: true }, level: { type: 'integer', required: true }, result_count: { type: 'integer', required: true }, items: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: { memory_id: { type: 'string', required: true }, title: { type: 'string', required: true }, summary: { type: 'string', required: true }, component: { type: 'string', required: true }, operation: { type: 'string', required: true }, tags: { type: 'array', required: true, items: { type: 'string' } }, aliases: { type: 'array', required: true, items: { type: 'string' } }, score_fixed: { type: 'integer', required: true }, rank: { type: 'integer', required: true } } } }, content_sha256: { type: 'string', required: true } } } as const
+
+export function createSearchTool(runtime: RetrievalRuntime): ReturnType<typeof defineTool> {
+  return defineTool({ name: 'mnemosyne_search', description: 'Search synthetic evaluation memories and return an L2 disclosure; this is not user long-term memory.', parameters: SEARCH_PARAMETERS, output: { schema: DISCLOSURE_SCHEMA as never, render: (_args: unknown, value: unknown) => [{ type: 'text', text: JSON.stringify(value) }] }, execute: async (args: unknown) => runtime.search(args as never) } as never)
+}

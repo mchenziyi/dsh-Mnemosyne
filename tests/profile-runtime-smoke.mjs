@@ -51,9 +51,33 @@ if (JSON.stringify(result.value) !== JSON.stringify(plugin.STATUS_OUTPUT)) {
   throw new Error('profile-installed status tool returned an unexpected result')
 }
 
+const searchResult = await ctx.tools.execute({
+  signal: new AbortController().signal,
+  callId: CallId('m0-profile-search'),
+  name: 'mnemosyne_search',
+  arguments: { query: 'compiler cache targeted rebuild' },
+})
+if (searchResult.isError || !searchResult.value?.items?.length || searchResult.value.level !== 2) {
+  throw new Error('profile-installed search tool did not return an L2 disclosure')
+}
+const search = searchResult.value
+const openResult = await ctx.tools.execute({
+  signal: new AbortController().signal,
+  callId: CallId('m0-profile-open'),
+  name: 'mnemosyne_open',
+  arguments: {
+    retrieval_id: search.retrieval_ref,
+    search_disclosure_sha256: search.content_sha256,
+    memory_id: search.items[0].memory_id,
+  },
+})
+if (openResult.isError || openResult.value?.level !== 3 || typeof openResult.value?.body !== 'string') {
+  throw new Error('profile-installed open tool did not return an L3 disclosure')
+}
+
 await fiber.dispose()
-if (ctx.tools.get('mnemosyne_status') !== undefined) {
-  throw new Error('profile-installed status tool survived plugin disposal')
+for (const name of ['mnemosyne_status', 'mnemosyne_search', 'mnemosyne_open']) {
+  if (ctx.tools.get(name) !== undefined) throw new Error(`profile-installed ${name} survived plugin disposal`)
 }
 
 process.stdout.write(`${JSON.stringify(result.value)}\n`)

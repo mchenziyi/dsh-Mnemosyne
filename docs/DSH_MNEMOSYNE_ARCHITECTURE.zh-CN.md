@@ -1299,7 +1299,7 @@ M0.5A 于 2026-08-14 完成实现并由 Sol 独立复核：
 
 ### 19.12 M0.5B：固定 Fixture 检索、渐进式披露与 Tool-only 重放
 
-状态：Approved，允许实现本节；禁止进入 M0.5C 的真实模型、三组配对运行和自动注入。
+状态：✅ M0.5B 已完成并通过 Sol 独立验收；禁止把本节结果外推为真实模型收益或生产长期记忆已完成。
 
 #### 19.12.1 目标与成功标准
 
@@ -1499,3 +1499,17 @@ git diff --check
 
 全部门禁完成后做一次 review 与 security review；修复范围内真实问题。最终只交付报告，不提交、不推送、不创建 Tag，等待 Sol 验收。
 ```
+
+#### 19.12.12 M0.5B 验收记录
+
+状态：✅ M0.5B 已完成并通过 Sol 独立验收；未进入 M0.5C，未调用模型、未自动注入、未写入用户文件或生产记忆。
+
+- 实际模块：`src/protocol/retrieval.ts`、`src/retrieval/{normalize,index,rank,runtime,fixture}.ts`、`src/search-tool.ts`、`src/open-tool.ts`；`observer.ts` 注册三 Tool 并在 Fiber dispose 时清理实例 Registry。
+- 检索常量：BM25 `k1=1.2`、`b=0.75`；字段权重 `title=4`、`summary=3`、`component=4`、`operation=4`、`tags=2`、`aliases=5`、`body=1`；alias 短语 `+6`，hint 各 `+3`；分数按 `floor(score*1_000_000+0.5)`，再按 Unicode code point 的 Memory ID 排序。
+- Fixture：15 条 Retrieval Case（含 4 alias、4 cross-component、4 rephrase、1 exact、2 negative control），15/15 通过；5 条 active Memory 全部可召回，frozen/excluded 泄漏为 0。
+- Disclosure：Search 为 L2 且不含 body；Open 必须绑定当前实例已登记的 Search Disclosure、Retrieval ID 和 Memory ID；tampered rank/hash、伪造 parent、frozen/excluded 和 malformed JSON 均拒绝。清理 Registry 后，已记录 Envelope 仍可脱离 Catalog/index 严格 replay，Canonical Bytes 保持一致。
+- Acquisition Registry seam：exact skip、eligible/create、同 Hash noop、同事件异候选 fail-closed 且零变化、`duplicate_candidate` 仍创建、实例清理均有测试；不连接 durable task 事件、不持久化。
+- 测试：17 个测试文件、53 个测试全部通过；覆盖真实 `ctx.tools` search→open、非法参数 fail-closed、enabled=false、多实例隔离和 dispose，以及冻结 Retrieval Case、Unicode 规范化、严格输入、审计 seam 和 Registry 可变对象隔离。
+- 构建/包：TypeScript typecheck、tsdown build、`npm pack --ignore-scripts`、`node tests/pack-check.mjs`、`git diff --check` 通过；隔离 Profile 通过真实 Tool registry 执行 status/search/open 并验证 dispose 后无残留。
+- 环境限制：`corepack pnpm install --frozen-lockfile` 仍受 pnpm 11 `minimumReleaseAge` 供应链时间窗阻断，未放宽策略；其余验证使用此前锁定的本地依赖执行，不能将冻结安装标记为通过。
+- Sol 独立验收：重新运行 TypeScript typecheck、17 文件/53 测试、tsdown build、pack 白名单和 `git diff --check`；另从最新 tarball 创建隔离临时 Profile，经真实 `ctx.tools` 执行 `mnemosyne_status → mnemosyne_search → mnemosyne_open`，并验证 Fiber dispose 后三个 Tool 均撤销。
