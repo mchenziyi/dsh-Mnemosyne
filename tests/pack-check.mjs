@@ -14,4 +14,6 @@ const entries = stdout.trim().split('\n').filter(Boolean)
 const allowed = /^(package\/(dist\/|cordis\.patch\.yml$|README\.md$|package\.json$))/
 const forbidden = entries.filter((entry) => !allowed.test(entry))
 if (forbidden.length) throw new Error(`pack:check: unexpected files: ${forbidden.join(', ')}`)
+const { stdout: bundled } = await execFileAsync('tar', ['-xOzf', join(artifactDir.pathname, tarball), 'package/dist/index.mjs'])
+if (bundled.includes('mnemosyne_eval_recall_context') || bundled.includes('createRecallContextTool')) throw new Error('pack:check: evaluation-only recall tool leaked into production bundle')
 console.log(`pack:check: PASS (${entries.length} files)`)

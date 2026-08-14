@@ -982,7 +982,7 @@ M0 只有同时满足以下条件才算完成：
 
 ## 19. M0.5：核心价值纵向验证
 
-> 状态：M0.5A、M0.5B 已完成并通过 Sol 验收；M0.5C 设计已冻结并允许实现；M0.5D 尚未开始。
+> 状态：M0.5A、M0.5B、M0.5C 已完成并通过 Sol 独立验收；M0.5D 尚未开始。
 
 ### 19.1 目标
 
@@ -1517,7 +1517,7 @@ git diff --check
 
 ### 19.13 M0.5C：三组执行骨架与公开上下文链路验证
 
-状态：Approved，允许 Luna 实现本节；禁止进入 M0.5D 的真实模型调用、质量裁决和生产自动注入。
+状态：✅ 已完成并通过 Sol 独立验收；禁止把本阶段结果解释为真实模型质量证据，禁止据此提前形成 M0.5 GO 结论。
 
 #### 19.13.1 阶段目标与拆分决议
 
@@ -1702,6 +1702,8 @@ seed_honored: false
 adapter_kind: scripted_fixture
 tool_calls: [mnemosyne_search | mnemosyne_open | mnemosyne_eval_recall_context]
 context_source: none | plugin_recall
+recall_context_sha256: sha256_<hex> | null
+recall_replay_verified: boolean
 retrieved_memory_ids: [memory_<id>]
 opened_memory_ids: [memory_<id>]
 visible_memory_ids: [memory_<id>]
@@ -1710,12 +1712,13 @@ assertion_results:
     passed: boolean
 success: boolean
 failure_code: controlled-id | null
+disposal_clean: boolean
 content_sha256: sha256_<hex>
 ```
 
 `run_id` 由 `{evaluation_id, fixture_manifest_sha256, task_id, group, requested_seed, adapter_kind}` 的 Canonical Hash 前缀稳定生成；`content_sha256` 对含 `run_id`、仅排除自身 Hash 的完整 Receipt 计算。同一 run identity 的不同内容必须 fail closed，不能覆盖或任选其一。
 
-`PlumbingSummary v1` 固定记录：`schema_version`、稳定 `summary_id`、Fixture Manifest Hash、三组各 30 个 receipt、90 个唯一 receipt Hash、group isolation、Tool ordering、Recall source、replay consistency、excluded leakage、disposal cleanliness 六个布尔不变量、`status: pass|fail` 与 `content_sha256`。Summary ID 与 Hash 使用同样的先 Identity、后完整内容两阶段规则。它不得包含 `recommendation`，不得输出 GO/ADJUST/STOP，也不得生成 M0.5A SummaryReport。
+`PlumbingSummary v1` 固定记录：`schema_version`、稳定 `summary_id`、Fixture Manifest Hash、三组各 30 个 receipt、90 个唯一 receipt Hash、group isolation、Tool ordering、Recall source、replay consistency、excluded leakage、disposal cleanliness、scripted outcomes 七个布尔不变量、`status: pass|fail` 与 `content_sha256`。Summary ID 与 Hash 使用同样的先 Identity、后完整内容两阶段规则。它不得包含 `recommendation`，不得输出 GO/ADJUST/STOP，也不得生成 M0.5A SummaryReport。
 
 所有集合字段稳定排序并拒绝重复；Tool call 顺序保留执行顺序。相同固定输入、固定 Adapter 与固定执行策略必须产生逐字节一致的 Receipt/Summary。协议中不记录墙钟、真实延迟或 Token；这些只由 M0.5D 的真实运行记录。
 
@@ -1774,7 +1777,7 @@ git diff --check
 验收要求：
 
 - 90 个 Plumbing Receipt 与 1 个 Summary 严格通过；
-- 六个 Plumbing 不变量全部为 true；
+- 七个 Plumbing 不变量全部为 true；
 - 真实 ToolRuntime 的 `additionalContexts` 行为经测试证明；
 - 生产插件仍只注册 status/search/open，evaluation-only Tool 不进入 tarball 公共行为；
 - 包内容仍为白名单 5 文件，生产 Config 和包根导出不扩张；
@@ -1802,5 +1805,23 @@ git diff --check
 - 不访问网络、API Key、用户 Session/Workspace、文件系统或私有 dsh API；
 - 不修改 dsh 上游，不增加 dsh-agent-loop 依赖。
 
-全部门禁完成后做 review 与 security review，只修复本节真实问题。最终报告实际模块、90-run 结果、六项不变量、additionalContexts 证据、包内容、环境限制；不提交、不推送、不创建 Tag，等待 Sol 验收。
+全部门禁完成后做 review 与 security review，只修复本节真实问题。最终报告实际模块、90-run 结果、七项不变量、additionalContexts 证据、包内容、环境限制；不提交、不推送、不创建 Tag，等待 Sol 验收。
 ```
+
+#### 19.13.13 Luna 实现与 Sol 验收报告
+
+状态：✅ 实现完成并通过 Sol 独立验收；本节只证明 M0.5C 的执行骨架和公开上下文链路，不代表 M0.5 已获得真实模型证据。
+
+- 实际模块：`src/protocol/recall.ts`、`src/recall-tool.ts`、`src/m05c/plumbing.ts`；测试：`tests/m05c-protocol.spec.ts`、`tests/m05c-plumbing.spec.ts`。
+- `RecallContextEnvelope`、`RecallContextReceipt` 支持严格字段、父子 Disclosure 引用、稳定 ID、Canonical Bytes、Hash 与 canonical replay；Replay 不访问 Runtime、Catalog、Tokenizer、Ranker 或模型。
+- `validateRecallExecution` 要求真实 `ToolExecutionResult` 恰好一条 additional context，并闭合检查 source、前缀、Envelope canonical replay、Receipt identity/hash 和 memory IDs；zero、duplicate、wrong source/prefix/hash 均 fail closed。
+- evaluation-only Tool 名为 `mnemosyne_eval_recall_context`，未在生产 `apply()` 注册、未从包根导出；输入先完成所有 JSON/Disclosure/Envelope/Receipt 校验，最后才调用 `deferContext`。消息使用固定前缀和 `plugin + recall` source；真实 `ctx.tools` 观察到成功恰好一个 `additionalContexts`，校验失败为零。
+- Scripted Fixture Adapter 只读取对应组真实可见材料，不读取 `required_memory_ids`、`forbidden_memory_ids` 或 `success_assertions.expected`；no-memory 组不加载 Memory Catalog，tool-only 通过真实 `ctx.tools` search→open，auto-inject 只通过 Recall UserMessage。
+- Adapter 接收 `{prompt, visible}`，prompt 仅作任务输入/审计，所有断言字段只从 `visible` 派生；注入事实与任务 success 独立，注入后任务失败仍保留完整 plugin/recall/replay 证据，注入前失败只允许合法 Tool 前缀。
+- 6 Task × 3 Group × 5 Seed 产生 90 个唯一 `PlumbingRunReceipt`，并聚合为独立 `PlumbingSummary`；Summary 不含 M0.5A `RunResult/SummaryReport`、真实模型指标或 recommendation。
+- 七个 Plumbing 不变量均由程序从 Receipt/Fixture 派生：`group_isolation=true`、`tool_ordering=true`、`recall_source=true`、`replay_consistency=true`、`excluded_leakage=true`、`disposal_cleanliness=true`、`scripted_outcomes=true`。
+- 本地 Vitest 门禁为 19 个测试文件、67 个测试全通过；其中 Plumbing 运行实际生成 90 个唯一 Receipt，重复 Summary 的 Canonical Bytes 稳定一致。
+- 本轮回归覆盖 `validateRecallExecution` 的 zero/duplicate/wrong-source/wrong-prefix/receipt-mismatch、注入后任务失败与注入前失败前缀、prompt-only Adapter 隔离、Envelope parent/retrieval/memory/open-set 篡改、Summary 缺失/替换/重复 identity，以及两次独立 90-run 的字节稳定性。
+- `tests/pack-check.mjs` 额外断言 evaluation-only recall Tool 名称不进入生产 tarball/dist。
+- 本轮使用已锁定的本地依赖完成 typecheck、Vitest、tsdown、pack 白名单、`git diff --check`；`corepack pnpm install --frozen-lockfile` 仍被 pnpm `minimumReleaseAge` 阻断，未绕过策略、未伪报通过。无真实模型、API Key、网络、用户文件或 dsh-agent-loop 依赖。
+- Sol 独立验收重新运行 TypeScript typecheck、19 文件/67 测试、tsdown build、tarball 白名单与 `git diff --check`，并直接扫描生产 `dist/`，未发现 evaluation-only Recall Tool、Plumbing Runner 或 Scripted Adapter；冻结安装仍仅受同一 `minimumReleaseAge` 时间窗阻断。
