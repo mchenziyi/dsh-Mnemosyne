@@ -982,7 +982,7 @@ M0 只有同时满足以下条件才算完成：
 
 ## 19. M0.5：核心价值纵向验证
 
-> 状态：Draft，M0 实现与真实 Smoke 通过后开始。
+> 状态：M0.5A 已完成并通过 Sol 验收；M0.5B/C 尚未开始。
 
 ### 19.1 目标
 
@@ -1083,3 +1083,216 @@ Gate 决议、原始结果 Hash、环境、模型版本与被批准的后续范�
 自动门禁至少覆盖：同输入候选与排序字节稳定、严格重复跳过、近似文本不被自动跳过、敏感输出拒绝、提取失败不影响任务、三组配置隔离、Disclosure Fact 重放一致、插件禁用零残留。
 
 真实联调只使用临时 `DSH_HOME`、临时 Profile、固定 Fixture 和受控模型配置，不读取用户正式 Session 或项目记忆。M0.5 的具体文件计划、测试命令和安装步骤在 M0 验收后追加，不能在接口证据不足时预设。
+
+### 19.11 M0.5A：评测协议与 Acquisition Schema 冻结
+
+状态：Completed；协议、Fixture、Canonical 编码与结果/报告 Schema 已实现并通过自动门禁，尚未产生模型质量结论。
+
+#### 19.11.1 成功标准
+
+M0.5A 只交付一套可由程序严格读取、确定性编码和完整性校验的评测输入世界：
+
+1. 评测协议版本、三组对照、模型请求参数、重复次数和 Gate 阈值固定；
+2. 固定 Memory Catalog、Retrieval Case 与 Paired Task Fixture 可互相闭合引用；
+3. Acquisition Candidate 与 Skip Decision Schema 固定，严格重复和近似重复语义分离；
+4. 评测运行结果与汇总报告 Schema 固定，但本阶段不产生模型质量结论；
+5. 所有规范 JSON 拒绝未知字段、非有限数、路径字段、疑似凭据和未声明自由对象；
+6. 相同语义输入产生相同 Canonical Bytes 与 SHA-256；任何 Fixture 改动必须创建新版本和新 Hash。
+
+#### 19.11.2 固定目录与模块边界
+
+```text
+src/
+├── protocol/
+│   ├── canonical.ts
+│   ├── validation.ts
+│   ├── acquisition.ts
+│   └── evaluation.ts
+fixtures/
+└── m0.5/
+    └── v1/
+        ├── protocol.json
+        ├── memory-catalog.json
+        ├── retrieval-cases.json
+        ├── paired-tasks.json
+        └── fixture-manifest.json
+tests/
+├── protocol-canonical.spec.ts
+├── acquisition-schema.spec.ts
+├── evaluation-schema.spec.ts
+└── fixture-integrity.spec.ts
+```
+
+这些模块是插件内部协议，不从 `dsh-mnemosyne` 包根导出；M0 公开导出保持不变。Fixture 是合成数据，不读取用户 Session、Workspace、环境变量或正式记忆。
+
+#### 19.11.3 Canonical JSON v1
+
+Canonical 编码规则固定为：
+
+- UTF-8、无 BOM、无尾随换行；
+- Object key 按 Unicode code point 升序；
+- Array 默认保序，只有 Schema 明确声明为集合的字段才先按稳定标识排序并拒绝重复；
+- String 保留原始 Unicode，不做语义同义归一；
+- Number 必须有限；`-0` 编码为 `0`；禁止 `NaN`、Infinity 和指数形式漂移；
+- `undefined`、函数、BigInt、Date 和自定义原型对象拒绝；
+- Hash 格式固定为 `sha256_<64 lowercase hex>`，由程序对不含自身 Hash 字段的 Canonical Bytes 计算。
+
+所有 decoder 必须先检查精确键集合，再检查字段类型、枚举、上限、引用与 Hash；不得依赖 Schemastery 的未知字段保留行为完成严格协议校验。
+
+#### 19.11.4 Acquisition Candidate v1
+
+```yaml
+schema_version: 1
+candidate_id: candidate_<stable-id>
+source_event_id: event_<stable-id>
+source_kind: task_completed | checkpoint | explicit_request
+scope_id: scope_<stable-id>
+task_fingerprint: sha256_<hex>
+component: controlled-id
+operation: controlled-id
+title: bounded-redacted-text
+summary: bounded-redacted-text
+applies_when: [bounded-redacted-text]
+failure_boundaries: [bounded-redacted-text]
+tags: [controlled-id]
+aliases: [bounded-redacted-text]
+redaction_status: passed
+content_sha256: sha256_<hex>
+```
+
+硬约束：
+
+- `content_sha256` 由排除 `candidate_id` 与自身 Hash 字段后的 Candidate 规范 payload 计算；`candidate_id` 再由 `source_event_id + task_fingerprint + content_sha256` 的稳定摘要生成，不使用随机数或墙钟，避免身份与内容 Hash 循环依赖；
+- title ≤ 120 字符、summary ≤ 1000 字符；条件、边界和 alias 单项 ≤ 200 字符，集合各 ≤ 16 项；tags ≤ 16；
+- `scope_id` 是不透明标识，不得存绝对路径；禁止出现 `cwd`、`path`、Prompt、完整命令、思考过程或环境变量字段；
+- 文本经过同一保守脱敏扫描；命中常见凭据赋值、Bearer token、私钥头或绝对用户目录时整体拒绝，不做静默替换；
+- `tags` 按稳定 ID 排序；`aliases`、`applies_when`、`failure_boundaries` 先去精确重复再按 Canonical Bytes 排序；输入含重复项直接拒绝，不代替调用方修复；
+- M0.5A 只验证已给出的结构化候选，不调用模型提取候选。
+
+Skip Decision v1：
+
+```yaml
+schema_version: 1
+candidate_id: candidate_<stable-id>
+decision: eligible | skip_exact_event | skip_exact_content | duplicate_candidate
+basis_ids: [controlled-id]
+content_sha256: sha256_<hex>
+```
+
+只有 `skip_exact_event` 与 `skip_exact_content` 会阻止后续 Acquisition；`duplicate_candidate` 只记录近似/重叠关系，仍允许候选进入后续验证。`basis_ids` 非空、排序、拒绝重复。
+`content_sha256` 必须由程序对排除自身 Hash 后的规范字段重算；调用方提供的 Hash 只要与重算结果不一致就拒绝。
+
+#### 19.11.5 Fixture Set v1
+
+Fixture Set 固定为四个协议/数据文档和一个独立 Manifest：
+
+- `protocol.json`：协议与 Gate；
+- `memory-catalog.json`：合成记忆条目；
+- `retrieval-cases.json`：只测候选召回和排序；
+- `paired-tasks.json`：供 M0.5C 三组运行。
+- `fixture-manifest.json`：只记录上述四个文档的相对名与内容 Hash，自身不进入输入列表，解除自引用循环。
+
+Memory Fixture 最小字段：`memory_id`、`title`、`summary`、`component`、`operation`、`tags`、`aliases`、`body`、`lifecycle`、`content_sha256`。`lifecycle` 仅允许 `active|frozen|excluded`；frozen/excluded 用于泄漏 Gate，不代表生产 Lifecycle 已实现。
+
+Retrieval Case 最小字段：
+
+```yaml
+case_id: retrieval_<stable-id>
+difficulty: exact | rephrase | alias | cross_component | negative_control
+query: bounded-text
+component_hint: controlled-id | null
+operation_hint: controlled-id | null
+expected_memory_ids: [memory_<stable-id>]
+forbidden_memory_ids: [memory_<stable-id>]
+```
+
+v1 固定至少 15 个 Retrieval Case：`rephrase`、`alias`、`cross_component` 各不少于 4 个，另含 exact 与 negative control；每条有效记忆至少被一个 Case 引用，所有 frozen/excluded 条目至少被一个 `forbidden_memory_ids` 引用。困难 Fixture 定义为 rephrase、alias、cross_component 三类。
+
+Paired Task 最小字段：`task_id`、`task_family`、`prompt`、`required_memory_ids`、`forbidden_memory_ids`、`success_assertions`、`max_steps`。`success_assertions` 是严格联合 Schema，不接受自然语言字符串：`{assertion_id, kind: exit_code, expected: 0..255}` 或 `{assertion_id, kind: result_equals, field: controlled-id, expected: JSON scalar}`；`assertion_id` 不得重复，数组按其稳定 ID 排序。v1 固定至少 6 个任务，覆盖不少于 3 个 task family；全部使用合成临时 Workspace，成功断言必须是可由程序执行的退出码或结构化结果字段比较，不允许人工主观打分作为唯一判定。
+
+#### 19.11.6 Evaluation Protocol v1
+
+```yaml
+schema_version: 1
+evaluation_id: m05_v1
+fixture_version: 1
+groups: [no_memory, tool_only, auto_inject]
+model:
+  provider: deepseek-official
+  model: deepseek-v4-flash
+  temperature: 0
+  requested_seeds: [101, 202, 303, 404, 505]
+repetitions_per_task: 5
+thresholds:
+  difficult_recall_at_5_min: 0.80
+  context_precision_at_5_min: 0.70
+  excluded_leakage_max: 0
+  replay_consistency_min: 1
+  wrong_memory_adoption_max: 0.05
+  tool_only_success_delta_points_min: 10
+  non_memory_regression_points_max: 0
+  overhead_token_ratio_median_max: 0.15
+  retrieval_latency_p95_ms_max: 1000
+  acquisition_critical_path_blocking_max: 0
+```
+
+`groups` 的集合必须恰好为上述三值；运行顺序由 `(task_id, seed)` 的稳定 Hash 生成平衡排列并写入运行记录，避免固定组序偏差。若 Provider 不支持 seed，运行记录必须标记 `seed_honored=false`，不得伪称确定性；五次重复仍保留。
+
+`fixture-manifest.json` 的 entries 必须恰好覆盖四个文档并按 `relative_name` 排序；每项 Hash 对应文件经严格解码、规范化后的 Canonical Bytes。该 Manifest 自身的 Canonical Hash 才是 Run/Report 使用的 `fixture_manifest_sha256`。任何 Fixture 或阈值修改必须增加 `fixture_version/evaluation_id`，不得原地覆盖 v1。
+
+#### 19.11.7 Result 与 Report Schema
+
+Single Run Result v1 固定记录：`run_id`、`evaluation_id`、`task_id`、`group`、`requested_seed`、`seed_honored`、`model_provider`、`model_id`、`started_at`、`duration_ms`、`success`、`failure_code|null`、`retrieved_memory_ids`、`opened_memory_ids`、`adopted_memory_ids`、`input_tokens`、`output_tokens`、`acquisition_tokens`、`retrieval_tokens`、`retrieval_latency_ms`、`disclosure_sha256|null`、`content_sha256`。
+
+Run Result 校验必须携带并严格验证当前 Fixture Set；不得省略 Fixture 参数。`evaluation_id`、任务 ID、随机种子、Provider/Model ID 及所有 Memory 引用必须来自该 Fixture，缺失、伪造或 Manifest 不完整均拒绝。
+
+Summary Report v1 固定记录：协议/Fixture Hash、环境版本、每组样本数、预注册指标、每项 Gate 的 `pass|fail|insufficient_evidence`、原始 Run Result Hash 列表、最终建议 `go|adjust|stop|insufficient_evidence`。`sample_counts` 的键必须恰好为 `no_memory|tool_only|auto_inject`；`metrics` 与 `gates` 的键必须恰好为 `difficult_recall_at_5`、`context_precision_at_5`、`excluded_leakage`、`replay_consistency`、`wrong_memory_adoption`、`tool_only_success_delta_points`、`non_memory_regression_points`、`overhead_token_ratio_median`、`retrieval_latency_p95_ms`、`acquisition_critical_path_blocking`。程序只能按冻结阈值计算建议；不得输出“模型能力提升”或统计显著性结论。M0.5A 只实现 Schema 与空/合成结果校验，不运行真实模型。
+
+其中 `tool_only_success_delta_points` 是带方向的成功率差值，允许 `-100..100`；负值表示记忆路径相对 tool-only 下降，并按阈值计算为失败，不得因负值无法落盘而掩盖回归。
+
+报告裁决函数固定为：指标缺失时对应 Gate 必须为 `insufficient_evidence`；指标存在时 Gate 必须由协议阈值计算，调用方不得自报状态。任一 Gate 证据不足 → `insufficient_evidence`；全部通过 → `go`；`excluded_leakage`、`replay_consistency`、`wrong_memory_adoption`、`non_memory_regression_points` 或 `acquisition_critical_path_blocking` 任一失败 → `stop`；其余质量/成本 Gate 失败 → `adjust`。`run_result_hashes` 数量必须等于三组 `sample_counts` 总和并拒绝重复。
+
+隐私约束：Result/Report 不保存完整 Prompt、Memory body、模型输出、工具参数、绝对路径、环境变量或隐藏思考；只保存受控 ID、计数、布尔、稳定错误码和 Hash。
+
+#### 19.11.8 失败测试先行矩阵
+
+实现前必须证明以下测试失败：
+
+1. Canonical key 顺序、`-0`、非法数、非 plain object；
+2. 所有 Schema 的未知字段、错误联合、超长文本、重复集合项与错误 Hash；
+3. Candidate 路径、凭据、私钥、Bearer token 和命令/Prompt 字段拒绝；
+4. strict exact skip 与 `duplicate_candidate` 不跳过的语义；
+5. Fixture 重复 ID、悬空 expected/forbidden ref、active/frozen 集合冲突；
+6. 困难 Case 数量不足、task family/paired task 数量不足；
+7. 协议缺组、重复组、阈值漂移、非五次重复；
+8. Fixture Manifest Hash 漂移；
+9. Run Result 泄漏 Prompt/路径/凭据或引用未知 task/memory；
+10. 相同输入重复编码和 Hash 完全一致。
+
+#### 19.11.9 自动门禁与交付边界
+
+```bash
+corepack pnpm install --frozen-lockfile
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+node tests/pack-check.mjs
+git diff --check
+```
+
+若 `minimumReleaseAge` 仍阻止安装，必须在隔离副本记录原始错误；允许使用已锁定且此前验证过的本地依赖执行其余代码门禁，但不得把冻结安装标为通过。
+
+M0.5A 完成报告必须给出 Fixture 数量、四个输入文档 Hash、Manifest Hash、Schema 兼容策略、失败测试证据和所有环境限制。不得实现文件存储、生产采集、BM25、search/open Tool、Disclosure、自动注入、模型调用或 GO/ADJUST/STOP 实际裁决。
+
+#### 19.11.10 M0.5A 验收记录
+
+M0.5A 于 2026-08-14 完成实现并由 Sol 独立复核：
+
+- Fixture 包含 7 条合成 Memory（5 active、1 frozen、1 excluded）、15 条 Retrieval Case 与 6 条 Paired Task；困难 Case 覆盖 rephrase、alias、cross-component 各 4 条；
+- 四个输入文档的规范 Hash 分别为：`protocol.json = sha256_62fc6353c4ea09979b8e8243d44df374d232c824287f41601aafd0e27a5c6f67`、`memory-catalog.json = sha256_9d335b99ec7a1c9578ad2c7df1c5e15f9588ecf27d92276d722759b9165ab5c8`、`retrieval-cases.json = sha256_561d204a2be27256165adf63d1b190d2f441dc18a2910797b8b5f2ae9b783ce5`、`paired-tasks.json = sha256_9e7f8c27450acb04b760b74092ee068ccb6e5e200d7bac8aa871a71b3aa84ccb`；
+- 独立 Manifest 的规范 Hash 为 `sha256_982b502287eceb4f509a1af6cbcd1e48e769cda39455152a3dff38b3579c762c`；Manifest 绑定严格解码并规范化后的四个文档，不绑定 JSON 排版字节；
+- Candidate、Skip Decision、Fixture、Run Result 与 Summary Report 均执行精确键、引用闭合、重算 Hash、边界和敏感文本校验；Run Result 必须绑定完整 Fixture Set；
+- Paired Task 的成功断言为 `exit_code` / `result_equals` 严格联合，不接受自然语言自由断言；
+- 报告 Gate 与 Recommendation 只由冻结阈值确定性派生；负的 Tool-only 成功率差值可被如实记录并判为失败，不会因 Schema 范围错误而丢失；
+- 本地锁定依赖下 TypeScript、33 项测试、构建、包白名单与 `git diff --check` 全部通过；`pnpm install --frozen-lockfile` 仍被 pnpm 11 `minimumReleaseAge` 对 41 个新发布依赖的供应链时间窗阻断，未绕过、未伪报通过；
+- 本阶段没有实现文件存储、生产采集、检索 Tool、Disclosure、自动注入或模型调用，不构成 M0.5 GO 结论。

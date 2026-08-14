@@ -1,0 +1,21 @@
+{
+  "cases": [
+    {"case_id":"retrieval_alias_cache","difficulty":"alias","query":"incremental compiler rebuild","component_hint":"compiler","operation_hint":"build","expected_memory_ids":["memory_build_cache"],"forbidden_memory_ids":["memory_unverified_hook"]},
+    {"case_id":"retrieval_alias_hook","difficulty":"alias","query":"desktop hook resolution","component_hint":"hooks","operation_hint":"executable_resolution","expected_memory_ids":["memory_hook_executable"],"forbidden_memory_ids":["memory_unverified_hook"]},
+    {"case_id":"retrieval_alias_path","difficulty":"alias","query":"private var alias","component_hint":"filesystem","operation_hint":"path_normalization","expected_memory_ids":["memory_macos_path"],"forbidden_memory_ids":["memory_stale_scope"]},
+    {"case_id":"retrieval_alias_tokens","difficulty":"alias","query":"token cost breakdown","component_hint":"evaluation","operation_hint":"token_accounting","expected_memory_ids":["memory_token_accounting"],"forbidden_memory_ids":["memory_unverified_hook"]},
+    {"case_id":"retrieval_cross_cache","difficulty":"cross_component","query":"compiler cache after configuration change","component_hint":null,"operation_hint":null,"expected_memory_ids":["memory_build_cache"],"forbidden_memory_ids":["memory_unverified_hook"]},
+    {"case_id":"retrieval_cross_hook","difficulty":"cross_component","query":"desktop process cannot find installed hook","component_hint":null,"operation_hint":null,"expected_memory_ids":["memory_hook_executable"],"forbidden_memory_ids":["memory_unverified_hook"]},
+    {"case_id":"retrieval_cross_scope","difficulty":"cross_component","query":"switching project tabs reads the wrong state","component_hint":null,"operation_hint":null,"expected_memory_ids":["memory_workspace_scope"],"forbidden_memory_ids":["memory_stale_scope"]},
+    {"case_id":"retrieval_cross_tokens","difficulty":"cross_component","query":"measure memory overhead separately from completion","component_hint":null,"operation_hint":null,"expected_memory_ids":["memory_token_accounting"],"forbidden_memory_ids":["memory_unverified_hook"]},
+    {"case_id":"retrieval_exact_cache","difficulty":"exact","query":"preserve compiler cache targeted rebuild","component_hint":"compiler","operation_hint":"build","expected_memory_ids":["memory_build_cache"],"forbidden_memory_ids":["memory_unverified_hook"]},
+    {"case_id":"retrieval_negative_command","difficulty":"negative_control","query":"database migration rollback","component_hint":"database","operation_hint":"migration","expected_memory_ids":[],"forbidden_memory_ids":["memory_unverified_hook"]},
+    {"case_id":"retrieval_negative_network","difficulty":"negative_control","query":"network retry policy","component_hint":"network","operation_hint":"retry","expected_memory_ids":[],"forbidden_memory_ids":["memory_stale_scope"]},
+    {"case_id":"retrieval_rephrase_cache","difficulty":"rephrase","query":"compiler settings changed, rebuild only what is needed","component_hint":"compiler","operation_hint":"build","expected_memory_ids":["memory_build_cache"],"forbidden_memory_ids":["memory_unverified_hook"]},
+    {"case_id":"retrieval_rephrase_path","difficulty":"rephrase","query":"macOS path comparison sees two names for one system directory","component_hint":"filesystem","operation_hint":"path_normalization","expected_memory_ids":["memory_macos_path"],"forbidden_memory_ids":["memory_stale_scope"]},
+    {"case_id":"retrieval_rephrase_scope","difficulty":"rephrase","query":"task monitor follows the selected project tab","component_hint":"workspace","operation_hint":"scope_resolution","expected_memory_ids":["memory_workspace_scope"],"forbidden_memory_ids":["memory_stale_scope"]},
+    {"case_id":"retrieval_rephrase_tokens","difficulty":"rephrase","query":"count retrieval and acquisition cost apart from model usage","component_hint":"evaluation","operation_hint":"token_accounting","expected_memory_ids":["memory_token_accounting"],"forbidden_memory_ids":["memory_unverified_hook"]}
+  ],
+  "fixture_version": 1,
+  "schema_version": 1
+}
