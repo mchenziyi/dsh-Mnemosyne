@@ -2130,3 +2130,152 @@ D0/D1 完成标准：
 - 本阶段未访问网络、API Key、用户 DSH_HOME、Session 或 Workspace，也未生成 GO/ADJUST/STOP 质量结论。
 
 D0/D1 只证明公开链路、协议、隔离、计量与离线可重放性。真实模型效果、真实 Token/延迟分布以及最终 M0.5 裁决仍必须由 D2/D3 产生；在用户明确批准真实 Provider 调用前保持 pending。
+
+### 19.15 M0.5E：D2 Canary 离线预检执行器
+
+#### 19.15.1 阶段边界
+
+M0.5E 只实现并验证 D2 Canary 的安全编排，不连接真实 Provider，不读取 API Key，也不生成真实模型证据。完成后的唯一状态是：
+
+```text
+canary_preflight_ready, user_approval_and_real_provider_pending
+```
+
+本阶段继续由 Sol 设计和验收、Luna 实现；不把编码任务交给 DSH Agent。真实 D2 运行必须在用户明确批准后单独执行，批准 M0.5E 代码不等于批准任何模型调用或费用。
+
+#### 19.15.2 固定 Canary Plan
+
+Canary 固定使用 v2 Fixture，不允许调用者改变样本以改善结果：
+
+- 每组各 1 个 `memory_dependent` Task 与 1 个 `non_memory_control` Task，共 6 个 Task Run；
+- 三组固定为 `no_memory|tool_only|auto_inject`；
+- 固定 requested seed `101`，Receipt 继续记录 Provider 是否实际支持 seed；
+- 每个 Task Run 最多 4 次 Task Provider 调用；
+- seed 101 对应 `novel_candidate`，每个 Run 最多 1 次 Acquisition Provider 调用；
+- Task 调用上限 24，Acquisition 调用上限 6，总 Provider 调用硬上限 30；
+- 不自动重试，不以新的 seed 或替代 Task 补齐失败样本。
+
+Canary Plan 自身必须是严格、可 Canonical 编码的对象，包含 v2 Manifest Hash、6 个 run identity、provider/model identity、预算、超时和隔离根引用。执行前与执行后均验证 Plan Hash，防止运行中漂移。
+
+#### 19.15.3 Provider 与凭据边界
+
+项目当前没有锁定官方 DeepSeek Provider Adapter 包，M0.5E 不新增或猜测私有 Provider 实现。执行器只接受基于公开 `@deepseek-ai/dsh-llm` `LlmAdapter` 契约的显式 Adapter Factory：
+
+- Factory 由未来获批的真实运行入口提供；M0.5E 测试只传 adversarial Fake Adapter；
+- 核心执行器不读取 `process.env`、默认 DSH 配置、Keychain、用户 Home 或已有 Profile；
+- Adapter Factory 只能得到受控 provider/model 配置和单次调用上下文，不得得到 Fixture 的 expected、required/forbidden Memory 或最终 Assertion；
+- 凭据不得进入 Plan、Receipt、错误、日志、canonical bytes 或部分结果；
+- Provider/model 不匹配、缺 usage、未知 stream event、重复 finish/usage、非法回执均 fail closed；
+- Provider 不支持 seed 时只记录 `seed_honored=false`，不得伪造支持。
+
+真实连接方式只有在用户批准 D2 时，依据当时已安装 DSH 的公开 Provider 能力另行冻结；若公开能力不足，停止并报告缺口，不读取私有实现、不回退 shell 驱动 Desktop。
+
+#### 19.15.4 隔离与生命周期
+
+每次 Canary 执行器调用创建新的临时根，并在其下创建：
+
+```text
+<temp-root>/dsh-home/
+<temp-root>/workspace/
+<temp-root>/receipts/
+```
+
+约束：
+
+- 路径必须位于本次临时根真实路径内；拒绝 symlink、路径穿越和已有非空目录；
+- 不读取或写入用户默认 DSH_HOME、真实 Workspace、Session、Profile 或 credential 文件；
+- 每个 Run 仍创建全新的 Context、Session、Agent 与 Tool Registry，并在 finally 中释放；
+- Receipt 只允许写入本次临时 `receipts/`，采用 no-overwrite 语义；
+- 正常完成后可删除临时运行态，但返回的内存 Summary 必须先通过严格验证；失败时保留的合法前缀也只能存在于本次临时根；
+- 清理失败只报告受控诊断，不把原任务/Provider 结果改写为成功。
+
+#### 19.15.5 Budget Ledger、超时与熔断
+
+Provider 调用必须先在进程内 Budget Ledger 原子 claim，再调用 Adapter；未 claim 不得产生副作用。Ledger 固定记录：
+
+```text
+task_calls_claimed
+acquisition_calls_claimed
+total_calls_claimed
+completed_calls
+failed_calls
+consecutive_provider_or_protocol_errors
+```
+
+规则：
+
+- 任一 claim 会使 Task>24、Acquisition>6 或 Total>30 时，在调用前返回 `budget_exhausted`；
+- 单调用 timeout 30 秒，整批 timeout 10 分钟；timeout 不自动重试；
+- 连续 2 次 Provider 或协议错误立即熔断，后续计划项不再 claim；
+- Assertion 失败属于合法任务结果，不计为 Provider/协议错误；
+- 每个 stream 必须恰好一个 terminal finish 和至少一个合法 usage；
+- 部分结果只保存已经完整验证的 Receipt，当前失败 Run 与未开始 Run 不伪造空 Receipt；
+- 熔断 Summary 的状态为 `canary_aborted`，包含受控 reason code、合法前缀数量和 Ledger，不包含原始模型文本。
+
+#### 19.15.6 Canary 回执与结论边界
+
+Canary Run Receipt 复用 M0.5D 的严格模型、Tool、Recall、Usage 与 Acquisition 校验，但新增：
+
+- `evidence_kind=real_provider_canary|adversarial_preflight`；
+- Plan Hash、provider/model identity；
+- claim sequence 与调用类别；
+- seed requested/honored；
+- 单调时钟派生的调用持续时间；
+- 受控失败码与脱敏标志。
+
+M0.5E 只能生成 `adversarial_preflight`。即使 6 个离线 Run 全部通过，也只能证明预算、隔离、熔断、严格验证和清理逻辑可用，不能写成 real-provider plumbing pass，更不能形成 GO/ADJUST/STOP。
+
+未来获批的 D2 真实运行恰好完成 6 个已验证 Receipt 后，只能输出：
+
+```text
+real_provider_plumbing_pass
+real_provider_plumbing_fail
+canary_aborted
+```
+
+仍不计算 M0.5 最终质量建议；D3 保持第二次单独批准。
+
+#### 19.15.7 TDD 失败矩阵
+
+Luna 必须先写失败测试，至少覆盖：
+
+1. Plan 少/多 Run、组/Task/seed 漂移、Manifest Hash 错配、重复 identity 拒绝；
+2. 调用第 31 次前拒绝，Task 第 25 次与 Acquisition 第 7 次分别拒绝；
+3. claim 失败时 Adapter 调用计数不增加；
+4. 单调用 timeout、整批 timeout 均停止且不重试；
+5. 连续 2 次 Provider/协议错误熔断，合法前缀保留，未开始 Run 无 Receipt；
+6. Assertion failure 不误触 Provider 熔断；
+7. usage 缺失/重复/负数、未知 stream event、重复 finish、超大/非 JSON/未知字段模型回执拒绝；
+8. Key、绝对路径、原始回答和 Fixture 私有字段不会进入错误、Receipt、Summary；
+9. symlink、路径穿越、已有非空隔离目录拒绝，用户 DSH_HOME/Workspace 零读写；
+10. dispose/清理后 Provider、Tool、Session 注册不残留；
+11. 相同 adversarial 输入产生相同 Plan/Receipt canonical bytes；真实 duration 不进入确定性 golden；
+12. evaluation-only Canary Runner、Adapter seam 与 Fixture 不进入生产 export、dist 或 tarball。
+
+#### 19.15.8 自动门禁与完成标准
+
+```bash
+corepack pnpm install --frozen-lockfile
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+corepack pnpm pack
+node tests/pack-check.mjs
+git diff --check
+```
+
+完成标准：固定 6-run Plan、30-call Budget Ledger、两错熔断、两级 timeout、临时根隔离、严格回执、脱敏、确定性前缀和包边界全部由 adversarial Fake Adapter 测试证明；无网络、无 API Key、无用户状态访问。完成后停在 `canary_preflight_ready`，等待用户对真实 D2 调用的明确批准。
+
+#### 19.15.9 Luna 实现任务书
+
+```text
+在 /Users/czy/Desktop/demo/dsh-Mnemosyne 实现 M0.5E：D2 Canary 离线预检执行器。
+
+唯一设计依据是 docs/DSH_MNEMOSYNE_ARCHITECTURE.zh-CN.md 第 19.15 节；先完整读取 19.14～19.15 与提交 c8b942c，检查 git status。实现模型必须使用 Luna，不调用 DSH Agent 编码。
+
+严格按 TDD 先写 19.15.7 的失败测试，再做最小实现。只使用已锁定 rc.6 公开 API；不增加真实 Provider 包，不读取 process.env/API Key/默认 DSH_HOME/用户 Session/Workspace，不联网，不产生费用。
+
+实现 evaluation-only 的固定 Canary Plan、Adapter Factory seam、Budget Ledger、timeout、连续两错熔断、临时根隔离、严格 Receipt/Summary 验证与脱敏。复用 M0.5D 已签收的严格模型/Usage/Recall/Acquisition验证，不复制第二套宽松协议。所有调用必须先 claim；失败只保留完整验证的合法前缀。输出只能标记 adversarial_preflight/canary_preflight_ready，禁止伪造 real-provider 或 GO/ADJUST/STOP。
+
+Runner/Fake/Fixture 不从 src/index.ts 导出，pack-check 必须证明不进入 dist/tarball。运行冻结安装、typecheck、完整 test、build、pack、pack-check、git diff --check。完成后做 review/security review，报告失败测试证据、调用上限、熔断、隔离、包内容与剩余真实 D2 授权边界；不要提交、推送或创建 Tag，等待 Sol 验收。
+```
