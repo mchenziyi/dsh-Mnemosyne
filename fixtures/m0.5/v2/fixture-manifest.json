@@ -1,0 +1,11 @@
+{
+  "files":[
+    {"relative_name":"acquisition-cases.json","content_sha256":"sha256_44c218a98784327367766b0a8b90916349fe39880697196a777e6799b8286d82"},
+    {"relative_name":"memory-catalog.json","content_sha256":"sha256_9d335b99ec7a1c9578ad2c7df1c5e15f9588ecf27d92276d722759b9165ab5c8"},
+    {"relative_name":"paired-tasks.json","content_sha256":"sha256_5058a03e97f88ec3ece3a61080bea28bbf84e9f1ca353cf0e308d4238c1029b5"},
+    {"relative_name":"protocol.json","content_sha256":"sha256_af86dbdc6d9f29e35ef14dfbc0caf626e54ea714d6fed96a428a3f4038c86b66"},
+    {"relative_name":"retrieval-cases.json","content_sha256":"sha256_561d204a2be27256165adf63d1b190d2f441dc18a2910797b8b5f2ae9b783ce5"}
+  ],
+  "fixture_version":2,
+  "schema_version":1
+}

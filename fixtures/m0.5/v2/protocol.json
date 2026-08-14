@@ -1,0 +1,8 @@
+{
+  "evaluation_id":"m05_v2","fixture_version":2,"schema_version":1,
+  "groups":["no_memory","tool_only","auto_inject"],
+  "model":{"model":"deepseek-v4-flash","provider":"deepseek-official","requested_seeds":[101,202,303,404,505],"temperature":0},
+  "repetitions_per_task":5,
+  "thresholds":{"acquisition_critical_path_blocking_max":0,"context_precision_at_5_min":0.7,"difficult_recall_at_5_min":0.8,"excluded_leakage_max":0,"non_memory_regression_points_max":0,"overhead_token_ratio_median_max":0.15,"replay_consistency_min":1,"retrieval_latency_p95_ms_max":1000,"tool_only_success_delta_points_min":10,"wrong_memory_adoption_max":0.05},
+  "runner_limits":{"max_model_calls_per_task":4,"max_acquisition_calls_per_run":1,"call_timeout_ms":30000,"batch_timeout_ms":600000}
+}

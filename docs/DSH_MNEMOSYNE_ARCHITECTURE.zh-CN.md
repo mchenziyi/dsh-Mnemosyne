@@ -2116,3 +2116,17 @@ D0/D1 完成标准：
 
 完成全部门禁后做 review/security review，只修本节真实问题。最终报告 v1 golden、v2 Fixture、120-run 结果、Agent/Session/Tool/usage 证据、Acquisition 时序、包内容、环境限制；不提交、不推送、不创建 Tag，等待 Sol 验收。
 ```
+
+#### 19.14.13 D0/D1 Sol 验收记录
+
+状态：**已通过（offline ready, real evidence pending）**。
+
+- v1 Fixture 未修改；v2 中的 Memory Catalog 与 Retrieval Case 是不可变 v1 子 Fixture，继续使用 v1 validator 的规范化 Canonical Identity，v2 Manifest 不重新定义其语义 Hash；
+- v2 固定为 6 个记忆依赖 Task、2 个非记忆控制 Task、3 组、5 个 repetition，共 120 个唯一离线 Run；
+- Fake Provider 经公开 Agent Loop、Session、LLM stream 与 Tool Registry 执行；tool-only 观测到 `search → open`，auto-inject 观测到 source 为 `plugin/dsh-mnemosyne/recall` 的 Recall UserMessage；
+- Acquisition 的确定性预筛覆盖 novel、duplicate、external failure 与 sensitive 四类；只有 novel 调用 Fake Acquisition Provider，120 个 Run 共 24 次调用，其余 96 次为零调用；回执记录受控 reason code 与 Candidate Canonical Hash；
+- 模型回执、Usage、observed/retrieved/opened/adopted 集合闭包、Recall Envelope/Receipt、Acquisition 时序和 canonical hash 均由严格验证器复核；
+- 冻结安装、类型检查、20 个测试文件中的 86 项测试、构建、打包、包内容检查与 `git diff --check` 全部通过；tarball 仅包含 5 个生产文件，D0/D1 evaluation-only Runner 与 Fake Provider 未进入生产导出或发布包；
+- 本阶段未访问网络、API Key、用户 DSH_HOME、Session 或 Workspace，也未生成 GO/ADJUST/STOP 质量结论。
+
+D0/D1 只证明公开链路、协议、隔离、计量与离线可重放性。真实模型效果、真实 Token/延迟分布以及最终 M0.5 裁决仍必须由 D2/D3 产生；在用户明确批准真实 Provider 调用前保持 pending。

@@ -1,0 +1,10 @@
+{
+  "schema_version":1,
+  "fixture_version":2,
+  "cases":[
+    {"case_id":"novel_candidate","episode_summary":"A new deterministic build rule was verified.","outcome_class":"success","overlap_memory_ids":[],"sensitive":false,"expected_decision":"novel_candidate","provider_output":{"title":"Offline synthetic candidate","summary":"A new deterministic build rule was verified.","redaction_status":"passed"}},
+    {"case_id":"duplicate_skip","episode_summary":"The existing compiler cache rule was repeated.","outcome_class":"success","overlap_memory_ids":["memory_build_cache"],"sensitive":false,"expected_decision":"duplicate_skip","provider_output":null},
+    {"case_id":"external_failure_skip","episode_summary":"A third-party service failed during the task.","outcome_class":"external_failure","overlap_memory_ids":[],"sensitive":false,"expected_decision":"external_failure_skip","provider_output":null},
+    {"case_id":"sensitive_reject","episode_summary":"A synthetic sensitive value was present and must be rejected.","outcome_class":"success","overlap_memory_ids":[],"sensitive":true,"expected_decision":"sensitive_reject","provider_output":null}
+  ]
+}
