@@ -1,0 +1,5 @@
+- insert:
+    - id: dsh-mnemosyne
+      name: dsh-mnemosyne
+      config:
+        enabled: true
