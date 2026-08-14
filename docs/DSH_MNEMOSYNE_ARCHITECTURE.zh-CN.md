@@ -1825,3 +1825,294 @@ git diff --check
 - `tests/pack-check.mjs` 额外断言 evaluation-only recall Tool 名称不进入生产 tarball/dist。
 - 本轮使用已锁定的本地依赖完成 typecheck、Vitest、tsdown、pack 白名单、`git diff --check`；`corepack pnpm install --frozen-lockfile` 仍被 pnpm `minimumReleaseAge` 阻断，未绕过策略、未伪报通过。无真实模型、API Key、网络、用户文件或 dsh-agent-loop 依赖。
 - Sol 独立验收重新运行 TypeScript typecheck、19 文件/67 测试、tsdown build、tarball 白名单与 `git diff --check`，并直接扫描生产 `dist/`，未发现 evaluation-only Recall Tool、Plumbing Runner 或 Scripted Adapter；冻结安装仍仅受同一 `minimumReleaseAge` 时间窗阻断。
+
+### 19.14 M0.5D：评测协议 v2 与真实 Agent Loop 执行器
+
+#### 19.14.1 阶段决议
+
+M0.5D 不直接用 v1 Fixture 启动 90 次真实模型调用。Sol 对 v1 做 readiness audit 后确认两个协议缺口：
+
+1. v1 的 6 个 Paired Task 全部依赖记忆，无法真实计算 `non_memory_regression_points`；
+2. v1 只有 Acquisition Registry seam，没有执行最小 Acquisition Pipeline，若把 `acquisition_tokens` 固定为 0 会伪造成本门禁。
+
+因此 v1 保持不可变，作为 M0.5A～C 的历史验证输入。M0.5D 新增 `fixtures/m0.5/v2/`，在不改变 v1 Canonical Bytes、Hash、测试和验收记录的前提下补齐上述证据。禁止原地升级或静默解释 v1。
+
+M0.5D 分为四个顺序 Gate：
+
+```text
+D0：v2 Schema / Fixture 冻结
+→ D1：公开 Agent Loop 离线执行器（Fake Provider）
+→ D2：用户授权的真实 Provider Canary
+→ D3：用户再次授权的完整配对评测
+```
+
+D0/D1 由 Luna 实现并由 Sol 验收，不使用 DSH Agent 作为编码执行者。D2/D3 会产生真实模型调用，必须在运行前得到用户明确批准；未批准时阶段停在“offline ready”，不能把离线结果写成模型质量证据。
+
+#### 19.14.2 目标与非目标
+
+目标：
+
+- 冻结可完整计算十项 M0.5 指标的 v2 Fixture；
+- 只使用 dsh `0.1.0-rc.6` 公开 Agent、Session、Tool、Provider 与 Token Usage 接口；
+- 证明 no-memory、tool-only、auto-inject 三组能在真实 Agent Loop 中隔离执行；
+- 对真实模型输出做严格结构化解析，并把模型声明与运行时观察分开；
+- 使用最小 Acquisition Slice 真实记录 token、延迟、skip/novelty 与 critical-path blocking；
+- 真实执行前提供预检、调用上限、超时、熔断和隐私边界。
+
+非目标：
+
+- 不改 dsh 上游，不读取私有实现，不给 dsh 提 PR；
+- 不读、不复制用户现有 `~/.dsh/.credentials.yaml`、Session 或 Workspace；
+- 不自动寻找、打印或持久化 API Key；
+- 不把请求 seed 当作 Provider 已采纳，未确认支持时固定记录 `seed_honored=false`；
+- 不保存完整 System Prompt、用户 Prompt、模型思考、Tool value 或模型原始回答；
+- 不在 D0/D1 生成 GO/ADJUST/STOP，不运行真实 Provider；
+- 不把 v2 evaluation-only Runner、Fake Provider 或 Recall Tool 打入生产插件。
+
+#### 19.14.3 Fixture v2
+
+v2 新目录至少包含：
+
+```text
+fixtures/m0.5/v2/
+  protocol.json
+  memory-catalog.json
+  retrieval-cases.json
+  paired-tasks.json
+  acquisition-cases.json
+  fixture-manifest.json
+```
+
+v2 复用 v1 的 6 个记忆依赖 Task、Memory Catalog 与 Retrieval Case，并新增 2 个不需要任何记忆即可完成的控制 Task。控制 Task 必须：
+
+- `task_kind = non_memory_control`；记忆依赖 Task 为 `memory_dependent`；
+- `required_memory_ids=[]`；
+- 三组看到完全相同的业务输入与断言；
+- 不通过隐藏 Fixture 字段向 Adapter 或模型泄露答案；
+- 覆盖至少两个不同 task family；
+- no-memory 基线在 Fake Provider 中可确定完成，真实模型结果只由同一严格 Assertion Evaluator 判定。
+
+v2 的冻结矩阵为：
+
+```text
+8 Task × 3 Group × 5 Repetition = 120 RunResult
+```
+
+请求 seed 仍为 `101/202/303/404/505`，但仅作为重复运行标识。Provider Adapter 若没有公开 seed 能力，Receipt 必须明确 `seed_honored=false`，不得声称随机性受控。
+
+`EvaluationProtocol v2` 规则：
+
+- `schema_version=1`，联合验证器显式支持 `evaluation_id=m05_v1|m05_v2`；
+- `fixture_version=2`；
+- model 与阈值继续沿用 v1，防止观察结果后调门槛；
+- 新增冻结的 `runner_limits`：`max_model_calls_per_task=4`、`max_acquisition_calls_per_run=1`、单调用与整批超时；
+- v2 Manifest 新增 `acquisition-cases.json`，文件集合与 Hash 严格闭合；
+- v1 的 validator、fixture count、Manifest 及 golden 全部保持可用。
+
+#### 19.14.4 Minimal Acquisition Slice
+
+`acquisition-cases.json` 固定一组短 Episode 摘要，至少覆盖：
+
+- `novel_candidate`：应生成一个结构化 Acquisition Candidate；
+- `duplicate_skip`：确定性预筛命中已知内容，跳过模型提取；
+- `external_failure_skip`：第三方失败，不沉淀为策略记忆；
+- `sensitive_reject`：含伪造凭据/路径的输入被脱敏或拒绝，原文不得进入结果。
+
+Acquisition 分为两个层次：
+
+1. 确定性 novelty/skip 预筛，输出受控 `decision` 与 `reason_code`；
+2. 仅 `novel_candidate` 进入 Provider 的严格结构化提取请求。
+
+每个真实 Run 的 Acquisition 独立执行，但不得阻塞业务 Task 的关键路径：Task 结束并记录结果后才可启动；`acquisition_critical_path_blocking` 由事件顺序计算，不能由调用者直接传值。记录：
+
+- 提取调用的输入/输出 Token Usage；
+- 提取持续时间；
+- skip/novelty 决议；
+- Candidate canonical hash；
+- 是否发生在任务完成事件之后。
+
+不保存 Episode 全文或提取原始回答。Fake Provider 必须覆盖全部四类 Acquisition Case，但它只证明协议与计量管线，不证明真实模型的提取质量。
+
+Acquisition Case 与 repetition 的绑定由 Protocol 固定，不由 Runner 选择：seed `101/202/303/404/505` 依次绑定 `novel_candidate/duplicate_skip/external_failure_skip/sensitive_reject/duplicate_skip`。因此完整 v2 评测包含 120 次 Task Agent 调用，其中最多 24 次 Run 会额外发生 Acquisition Provider 调用；其余 96 次必须在确定性预筛阶段结束。Runner 不得通过改变映射减少成本或改善指标。
+
+#### 19.14.5 公开 Agent Loop 边界
+
+D1 Runner 使用已安装并锁定的公开包版本：
+
+- `@deepseek-ai/dsh-agent-loop@0.1.0-rc.6` 的公开 Agent Registry / Agent API；
+- `@deepseek-ai/dsh-llm@0.1.0-rc.6` 的流事件与 `TokenUsage`；
+- `@deepseek-ai/dsh-session@0.1.0-rc.6` 的持久事件流；
+- 现有公开 Tool Registry 与 `ToolRunContext.deferContext`。
+
+每个 Run 创建全新的隔离 Context、Session、Agent、Tool Registry 与临时 Workspace，结束后 dispose。三组执行流：
+
+```text
+no_memory:
+  仅注册任务 Fixture Tool；不加载 Catalog，不注册 search/open/recall
+
+tool_only:
+  注册任务 Fixture Tool + mnemosyne_search + mnemosyne_open；
+  Agent 必须通过实际 Tool call 获取记忆
+
+auto_inject:
+  Runner 先执行与 tool_only 完全相同的确定性 search/open；
+  构建并验证 Recall Context Envelope；
+  通过公开 agent.inject(UserMessage) 注入，再用公开 send/followup 唤醒；
+  Agent 不得获得 search/open Tool
+```
+
+auto-inject 的 durable Session 必须观测到 Recall UserMessage 位于任务执行前，且 source 精确为 `plugin/dsh-mnemosyne/recall`。重放时使用已落盘 Disclosure Fact/Recall Envelope，不再次调用 Librarian。Runner 不保存 Librarian 思考链。
+
+#### 19.14.6 严格模型回执
+
+模型最终回复只能是一个 JSON 对象，禁止 Markdown fence、前后解释和未知字段：
+
+```json
+{
+  "schema_version": 1,
+  "task_id": "task_...",
+  "exit_code": 0,
+  "result": {"controlled_field": "controlled scalar"},
+  "adopted_memory_ids": ["memory_..."],
+  "failure_code": null
+}
+```
+
+约束：
+
+- `result` 只允许当前 Task Assertion 声明的字段和 JSON scalar；
+- `adopted_memory_ids` 只是模型声明，必须是运行时已打开或已披露集合的子集；
+- no-memory 必须为空；
+- success 只能由 Assertion Evaluator 从严格回执计算，模型不能自报 success；
+- Tool call、检索、打开、披露集合来自 Session/Tool 事件，不能从模型文本推断；
+- JSON 解析失败、字段越界、引用未观察 Memory、输出过大或控制字符均产生稳定脱敏 failure code。
+
+`RunResult` 只记录现有协议字段与 canonical hash；完整模型回答不落盘。必要的调试信息只记录受控错误码和事件 Hash。
+
+#### 19.14.7 Token、延迟与指标归因
+
+模型 Token 只累计公开 LLM stream 的 `usage` 事件。`TokenUsage.inputTokens` 是未缓存输入，缓存读写单列；M0.5 指标中的总输入应按公开语义计算：
+
+```text
+billed_input = inputTokens + cacheReadTokens + cacheWriteTokens
+```
+
+`outputTokens` 单独记录；`reasoningTokens` 仅作非持久化诊断，不能重复加入 output。若 Provider 没有 usage 事件，该 Run fail closed，不能用字符数伪造真实 Token。
+
+检索 Token 使用公开 Token Meter 对 search/open/Recall message 的可见消息估算；真实 Provider usage 与估算值必须分开命名。检索延迟从发起 Retrieval Request 到 Disclosure 完成的单调时钟差计算。Acquisition Token 只计 Acquisition Provider 调用。
+
+十项 Summary 指标全部由 120 个已验证 RunResult、Acquisition Receipt 与固定 Fixture 派生：
+
+- 非记忆回归只使用两个 `non_memory_control` Task，比较 memory 组与 no-memory；
+- Tool-only success delta 只使用 `memory_dependent` Task；
+- Acquisition critical-path blocking 使用事件顺序；
+- 任一预期样本缺失、重复、损坏或组间模型/任务不一致，相关 Gate 为 `insufficient_evidence`，不能用 0 填充。
+
+#### 19.14.8 D1 离线 Runner 与 Fake Provider
+
+Fake Provider 必须实现公开 LLM Provider/stream 契约并经过真实 Agent Loop，不能绕过 Agent 直接调用 Adapter。它根据模型实际可见消息和 Tool 结果返回结构化回执；不可读取 Fixture 的 required/forbidden/expected 私有字段。
+
+D1 必须证明：
+
+1. 三组 Agent/Session/Registry 完全隔离；
+2. tool-only 真实产生 search→open Tool 事件；
+3. auto-inject 真实产生 durable Recall UserMessage 且不注册 search/open；
+4. no-memory 不加载 Catalog；
+5. usage 事件、模型回执、Task Assertion 与 RunResult 的闭合转换；
+6. Minimal Acquisition 在任务结束后执行，skip 不调用 Provider；
+7. 120 个离线 Run identity 唯一、重复执行 canonical bytes 一致；
+8. 离线 Summary 明确标识 `evidence_kind=offline_fake_provider`，禁止输出真实 GO/ADJUST/STOP。
+
+Fake Provider 模块与 Runner 只能由测试或显式 evaluation 子路径导入，不能从生产包根导出或进入 tarball。
+
+#### 19.14.9 真实 Provider 安全门禁
+
+真实联调只能使用隔离临时目录：
+
+```text
+DSH_HOME=<temporary directory>
+workspace=<temporary synthetic workspace>
+profile=<evaluation-only profile>
+```
+
+Credential 只能由用户在运行时显式提供 `DEEPSEEK_API_KEY`，或由用户手动写入该临时 `DSH_HOME`。Runner 不读取、不复制、不探测默认 DSH_HOME 的 credential 文件；日志、Receipt、错误和 Summary 禁止出现 Key。
+
+D2 Canary 在用户第一次明确授权后执行 6 个 Task Agent Run：每组各一个 memory-dependent Task 与一个 non-memory control Task。每个 Run 最多 4 次模型调用；若 Canary 使用 `novel_candidate` seed，还会发生最多 6 次 Acquisition Provider 调用，因此 Provider 调用硬上限为 30。还需设置：
+
+- 最大调用次数、单调用超时和整批 wall-clock 上限；
+- 连续 2 次 Provider/协议错误即熔断；
+- Provider/model 身份与公开 usage 事件预检；
+- 任一隔离、Tool 顺序、Recall source、严格回执或脱敏失败立即停止；
+- Canary 只给“real-provider plumbing pass/fail”，不产生 M0.5 recommendation。
+
+D3 只有 Canary 通过且用户第二次明确批准后才运行 120 个完整 Task Agent Run。按 `max_model_calls_per_task=4` 与冻结 seed 映射，Provider 调用硬上限为 504（最多 480 次 Task Agent 模型调用 + 24 次 Acquisition）；实际调用次数、预计费用上限和超时必须在命令执行前打印并等待确认。达到上限即停止，保留合法前缀并输出 `insufficient_evidence`，不得自动续费或重试扩大预算。
+
+#### 19.14.10 失败测试矩阵
+
+至少先写以下失败测试：
+
+1. v1 Fixture/Canonical Hash 全部不变；
+2. v2 缺少两个 non-memory control、错误 task_kind、控制 Task 带 required memory 时拒绝；
+3. v2 Manifest 缺 Acquisition 文件或任一 Hash 错配时拒绝；
+4. Acquisition 四类 Case、partial/unknown/secret/path/oversize 输入拒绝；
+5. skip Case 零 Provider 调用，novel Case 恰好一次且发生在 Task 完成后；
+6. Fake Provider 不能访问断言 expected、required/forbidden memory IDs；
+7. 模型回执 prose/fence/unknown field/错 task/非法 result/未观察 adopted memory 拒绝；
+8. tool-only 无 search/open 或顺序错误拒绝；auto-inject 缺 Recall durable event、source 错误或同时暴露 Tool 拒绝；
+9. no-memory 加载 Catalog 或产生 Memory 事件拒绝；
+10. usage 缺失、负数、重复计数或把 reasoning 重复加入 output 时拒绝；
+11. 120 Run 缺失/重复/跨组配置漂移时 Summary 为 insufficient 或拒绝；
+12. 非记忆回归只由 control Task 派生，不能由 caller 注入；
+13. Canary 超调用、超时、连续错误、凭据字符串进入错误时熔断；
+14. evaluation-only 代码不进入生产 export、dist 或 tarball。
+
+#### 19.14.11 自动门禁与成功标准
+
+D0/D1 自动门禁：
+
+```bash
+corepack pnpm install --frozen-lockfile
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+corepack pnpm pack
+node tests/pack-check.mjs
+git diff --check
+```
+
+冻结安装若仍受 `minimumReleaseAge` 阻断，原样记录，不得降低策略；已锁定依赖的其他门禁仍须通过。
+
+D0/D1 完成标准：
+
+- v1 golden 不变，v2 Fixture 与 Acquisition Schema 完整冻结；
+- 120 个 Fake Provider Run 与全部派生不变量通过；
+- 公开 Agent Loop、Session、Tool、Recall injection、usage 事件均有进程内证据；
+- 生产插件公共命令仍只有 status/search/open，包白名单不变；
+- 无网络、API Key、用户 DSH_HOME/Session/Workspace 写入；
+- 独立 review 与 security review 无阻塞问题。
+
+完成 D0/D1 后状态只能是 `offline ready, real evidence pending`。D2/D3 的成功标准必须由真实调用产生；未执行时保持 pending。
+
+#### 19.14.12 Luna 实现任务书
+
+```text
+在 /Users/czy/Desktop/demo/dsh-Mnemosyne 实现 M0.5D 的 D0/D1。
+
+唯一设计依据：docs/DSH_MNEMOSYNE_ARCHITECTURE.zh-CN.md 第 19.14 节。先完整读取 19.11～19.14，检查 git status，保留 v1 与提交 a899f4c 之前的全部历史。
+
+实现者必须使用 Luna；不要调用 dsh Agent 编码。严格按 TDD，先写 19.14.10 的失败测试并记录失败，再实现最小代码。
+
+核心边界：
+- 新建 fixtures/m0.5/v2，绝不修改 v1 Canonical Bytes/Hash；
+- v2 必须有 6 个 memory-dependent + 2 个 non-memory-control Task 与 Acquisition Case；
+- Fake Provider 必须走公开 Agent Loop/Session/LLM stream，不可直接调用 Scripted Adapter；
+- 只使用公开 rc.6 包；不得读取私有实现、用户 credential/Session/Workspace；
+- 不进行网络或真实 Provider 调用，不要求 API Key；
+- strict model receipt、observed memory closure、usage 计量、120-run completeness、acquisition-after-task 必须 fail closed；
+- evaluation-only Runner/Fake Provider/Recall Tool 不从生产包根导出，不进入 dist/tarball；
+- 不生成真实模型 GO/ADJUST/STOP，只报告 offline_fake_provider。
+
+若公开 Agent Loop 在当前锁定依赖中无法从插件测试安全构造，停止并提供精确公开 API 缺口证据，不得回退私有 API 或伪造 Agent Loop。
+
+完成全部门禁后做 review/security review，只修本节真实问题。最终报告 v1 golden、v2 Fixture、120-run 结果、Agent/Session/Tool/usage 证据、Acquisition 时序、包内容、环境限制；不提交、不推送、不创建 Tag，等待 Sol 验收。
+```
