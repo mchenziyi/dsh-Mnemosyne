@@ -982,7 +982,7 @@ M0 只有同时满足以下条件才算完成：
 
 ## 19. M0.5：核心价值纵向验证
 
-> 状态：M0.5A 已完成并通过 Sol 验收；M0.5B 设计已冻结并允许实现；M0.5C 尚未开始。
+> 状态：M0.5A、M0.5B 已完成并通过 Sol 验收；M0.5C 设计已冻结并允许实现；M0.5D 尚未开始。
 
 ### 19.1 目标
 
@@ -997,7 +997,8 @@ M0 只有同时满足以下条件才算完成：
 ```text
 M0.5A 评测协议与 Acquisition Schema 冻结
   → M0.5B 最小录制/检索/披露/重放纵向链路
-  → M0.5C 三组配对评测
+  → M0.5C 三组执行骨架与公开上下文链路验证（Fake Adapter）
+  → M0.5D 真实模型三组配对评测
   → GO / ADJUST / STOP 评审 Gate
 ```
 
@@ -1343,7 +1344,7 @@ M0.5B 在 M0.5A 的固定 Fixture 世界上交付最薄的真实插件读取链�
 - 调用 Librarian、真实模型、私有 dsh API 或自动注入；
 - 把内存 Registry、Tool result 或 Fixture 当作生产长期记忆已完成的证据。
 
-Tool-only 重放边界固定为：标准 Tool result 中携带完整、带 Hash 的 Disclosure Envelope；重放读取已记录 Envelope，不重新执行检索。M0.5B 只验证协议级和真实 Tool 注册表路径；dsh Desktop/Session 的跨进程持久重放留给 M0.5C 真实联调，未验证前不得宣称完成。
+Tool-only 重放边界固定为：标准 Tool result 中携带完整、带 Hash 的 Disclosure Envelope；重放读取已记录 Envelope，不重新执行检索。M0.5B 只验证协议级和真实 Tool 注册表路径；M0.5C 验证公开 `additionalContexts` 消息形态，dsh Desktop/Session 的跨进程持久重放留给 M0.5D 真实联调，未验证前不得宣称完成。
 
 #### 19.12.3 模块与文件计划
 
@@ -1513,3 +1514,293 @@ git diff --check
 - 构建/包：TypeScript typecheck、tsdown build、`npm pack --ignore-scripts`、`node tests/pack-check.mjs`、`git diff --check` 通过；隔离 Profile 通过真实 Tool registry 执行 status/search/open 并验证 dispose 后无残留。
 - 环境限制：`corepack pnpm install --frozen-lockfile` 仍受 pnpm 11 `minimumReleaseAge` 供应链时间窗阻断，未放宽策略；其余验证使用此前锁定的本地依赖执行，不能将冻结安装标记为通过。
 - Sol 独立验收：重新运行 TypeScript typecheck、17 文件/53 测试、tsdown build、pack 白名单和 `git diff --check`；另从最新 tarball 创建隔离临时 Profile，经真实 `ctx.tools` 执行 `mnemosyne_status → mnemosyne_search → mnemosyne_open`，并验证 Fiber dispose 后三个 Tool 均撤销。
+
+### 19.13 M0.5C：三组执行骨架与公开上下文链路验证
+
+状态：Approved，允许 Luna 实现本节；禁止进入 M0.5D 的真实模型调用、质量裁决和生产自动注入。
+
+#### 19.13.1 阶段目标与拆分决议
+
+M0.5C 只回答两个工程问题：
+
+1. 同一批冻结 Paired Task 能否由一个严格隔离的执行器按 `no_memory`、`tool_only`、`auto_inject` 三组完整跑通；
+2. 自动披露内容能否只使用 dsh 已公开的 Tool 上下文通道，作为带明确来源的 `UserMessage` 进入可持久化消息链，而不是伪装成用户原话或调用私有接口。
+
+M0.5C 使用确定性的 `scripted_fixture` Fake Adapter。它用于验证协议、Tool 调度、Disclosure、上下文封装、断言计算和报告聚合，不代表真实模型，也不能形成任务质量结论。真实 provider/model、5 次重复的统计结果、Token/延迟成本和 GO/ADJUST/STOP 裁决全部留给 M0.5D。
+
+因此阶段结论固定分层：
+
+```text
+M0.5C PASS
+  = 三组执行与公开上下文链路正确
+  ≠ 记忆提高真实 Agent 能力
+  ≠ M0.5 GO
+
+M0.5D 才允许
+  = 生成冻结 RunResult / SummaryReport
+  = 对真实模型结果应用预注册 Gate
+```
+
+不得为了提前得到 GO，把 Fake Adapter 的结果填入 M0.5A `RunResult`。该 Schema 的 `model_provider` / `model_id` 必须描述真正执行任务的模型，脚本化适配器冒充 `deepseek-official/deepseek-v4-flash` 属于伪造证据。
+
+#### 19.13.2 dsh 公开能力证据与使用边界
+
+本阶段只依赖已安装并在 M0 锁定的公开 rc.6 契约：
+
+- `@deepseek-ai/dsh-tools` 的 `ToolRunContext.deferContext(UserMessage)`：把插件生成的上下文附加到当前 Tool 最终结果，形成 `additionalContexts`，由 Agent Loop 在 `tool/result` 后按 FIFO 处理；
+- `@deepseek-ai/dsh-session` 的 `tool/result` 与 `user/message`：二者属于 durable Session Event；`UserMessage.source` 是区分用户输入和合成注入的权威字段；
+- `@deepseek-ai/dsh-llm/message` 的 `createUserMessage`：创建带稳定消息身份、深冻结内容和类型化来源的消息值；
+- `MessageSource` 内建 `plugin` 来源与 `form: recall`：表达“由 dsh-Mnemosyne 生成的记忆召回材料”，不新增私有来源类型；
+- `agent.inject()` 是公开但非唤醒的 next-step 队列能力；M0.5C 不直接使用它，以避免在尚未引入真实 Agent Loop 时伪造持久执行结果。
+
+M0.5C 必须通过真实 `ToolRuntime` 观察 `additionalContexts`，但当前项目未声明 `dsh-agent-loop` 依赖，因此本阶段不宣称完成跨进程 Session reload。M0.5D 在隔离 Profile 中使用完整公开 Agent Loop 后，才验证 `tool/result → user/message → replay` 的 durable 顺序。
+
+#### 19.13.3 三组执行流
+
+```text
+固定 FixtureSet + PairedTask + requested_seed
+  → 创建隔离 Cordis Context / ToolRuntime
+  → 按组安装能力
+      no_memory: 不安装 Mnemosyne 插件，不存在 search/open
+      tool_only: 安装插件，Fake Adapter 显式调用 search → open
+      auto_inject: 安装插件，评测编排器调用 search → open
+                   → evaluation-only recall context Tool
+                   → exec.deferContext(plugin/recall UserMessage)
+  → Scripted Adapter 只读取该组真实可见输入
+  → 独立 Assertion Evaluator 计算 success_assertions
+  → PlumbingRunReceipt
+  → PlumbingSummary
+```
+
+隔离规则：
+
+- 每个 run 使用全新 Context、ToolRuntime 和插件实例，不跨 run 复用 Retrieval Registry；
+- run 结束必须 dispose，三个生产 Tool 和评测期 Tool 均零残留；
+- `no_memory` 不得实例化、导入或间接读取固定 Memory Catalog；
+- `tool_only` 的 Fake Adapter 只能经真实 `ctx.tools.execute` 获得 Search/Open Disclosure；
+- `auto_inject` 的 Fake Adapter 只能收到 `additionalContexts` 中的 UserMessage，不能同时获得 Runtime、Search/Open 返回值或任务的 expected Memory；
+- Assertion Evaluator 可以读取任务的 `success_assertions`，但 Adapter 不得读取 `required_memory_ids`、`forbidden_memory_ids` 或 expected 值。
+
+#### 19.13.4 统一检索与披露策略
+
+两种记忆组使用完全相同的冻结策略，避免通过组间不同检索配置制造结果差异：
+
+- query = Paired Task 的原始 `prompt`；
+- `component_hint = null`；
+- `operation_hint = null`；
+- `top_k = 5`；
+- 按 Search Disclosure 排名依次尝试 open，最多打开前 2 条；
+- 只接受 `score_fixed > 0` 的 Search Item；
+- 任一 search/open 协议错误使该 run 以稳定 `retrieval_protocol_error` 失败，不回退到直接 Catalog 读取；
+- frozen/excluded 泄漏立即使整个 M0.5C 失败，不降级为单次普通失败。
+
+若固定任务中所需的两条 Memory 不能同时进入统一策略的前 2 名，只能调整统一策略并在本节记录新常量；禁止按 `task_id`、`required_memory_ids` 或 Memory 白名单分支。
+
+#### 19.13.5 Recall Context Envelope v1
+
+自动披露消息的模型可见文本固定为：
+
+```text
+[Mnemosyne Recall v1 — plugin generated; not user authored]
+<RecallContextEnvelope 的 Canonical JSON>
+```
+
+`RecallContextEnvelope`：
+
+```yaml
+schema_version: 1
+context_id: context_<stable-id>
+source: plugin_memory
+not_user_authored: true
+retrieval_id: retrieval_<id>
+search_disclosure: <完整且已验证的 SearchDisclosure v1>
+open_disclosures:
+  - <完整且已验证的 OpenDisclosure v1>
+memory_ids: [memory_<id>]
+content_sha256: sha256_<hex>
+```
+
+硬约束：
+
+- `context_id` 由 Identity Payload `{source, not_user_authored, retrieval_id, search_disclosure, open_disclosures, memory_ids}` 的 Canonical Hash 前缀稳定生成；`content_sha256` 再对已含 `context_id`、仅排除 `content_sha256` 的完整对象计算，二者都不使用墙钟或随机数，禁止循环依赖；
+- `source` 与 `not_user_authored` 固定值，不提供调用方自定义入口；
+- Search Disclosure 必须通过 M0.5B validator；
+- 每个 Open Disclosure 必须通过 M0.5B validator，且 `retrieval_ref`、`parent_disclosure_sha256` 和 `memory_id` 精确指向该 Search Disclosure；
+- `memory_ids` 必须等于 Open Disclosure 的唯一、稳定排序 ID 集合；
+- 只允许 1..2 个 Open Disclosure；不得生成空自动上下文；
+- Envelope 严格拒绝未知字段、错误 Hash、重复 Memory、错误父引用、非 active 内容、敏感字段名、控制字符和超限 body；
+- `replayRecallContext(bytes)` 只能对已记录字节执行严格解码与引用校验，不调用 Runtime、Catalog、Tokenizer、Ranker 或模型。
+
+对应 `UserMessage` 必须由 `createUserMessage` 创建：
+
+```yaml
+role: user
+source:
+  kind: plugin
+  plugin: dsh-mnemosyne
+  form: recall
+content:
+  - type: text
+    text: <固定前缀 + Canonical Envelope>
+```
+
+禁止使用 `source.kind=user`，禁止把前缀省略，禁止在 source 或正文中声称内容由用户提供。消息 ID 由 dsh 创建，不参与 Envelope 的确定性 Hash；重放权威是 Session 中已落盘的完整 UserMessage，离线协议重放权威是 Envelope Canonical Bytes。
+
+#### 19.13.6 Evaluation-only Recall Tool
+
+新增内部 `createRecallContextTool()`，只供 M0.5C 测试/评测运行器使用，不在插件 `apply()` 中注册、不从包根导出、不加入生产 Config。
+
+输入：
+
+```yaml
+search_disclosure_json: string
+open_disclosure_jsons: [string] # 1..2
+```
+
+执行顺序：
+
+1. 分别调用 `replayDisclosure` 严格验证输入；
+2. 构造并验证 Recall Context Envelope；
+3. 构造并严格验证不含 Memory body 的 `RecallContextReceipt`；
+4. 创建 `plugin + recall` UserMessage；
+5. 以最后一个有意副作用调用当前 `ToolRunContext.deferContext(message)`，随后直接返回已验证 Receipt。
+
+Receipt 固定包含：`schema_version`、`context_id`、`retrieval_id`、`memory_ids`、`context_content_sha256`、`content_sha256`。Receipt 只证明某条上下文已附加到该 Tool 结果，不是 Memory Fact，不进入生产 Catalog。
+
+Tool 的参数/output schema 必须关闭未知字段。失败错误固定、脱敏，不回显 Disclosure JSON、Memory body、路径、凭据或消息内容。所有可预见的输入、引用、Envelope 与 Receipt 校验必须发生在 `deferContext` 之前，因此这些失败路径的 `additionalContexts` 必须为空。dsh 的公开契约规定已 defer 的上下文在随后取消或抛错时仍会保留；本阶段不伪造相反语义，而是通过“先完成全部可失败校验、最后 defer、立即返回”把插件自身的后置失败面降为零。
+
+#### 19.13.7 Scripted Fixture Adapter
+
+`ScriptedFixtureAdapter` 只验证信息是否通过正确通道到达：
+
+- 输入仅为 `task.prompt`、requested seed 和该组真实可见的 Tool/Recall 内容；
+- 不读取 Paired Task 的 `required_memory_ids`、`forbidden_memory_ids`、`success_assertions.expected`；
+- 不直接读取 Fixture Catalog；
+- Tool-only 组由 Adapter 通过 ToolInvoker 显式调用 search/open；
+- Auto-inject 组只解析已验证的 Recall Context UserMessage；
+- No-memory 组没有 ToolInvoker 或 Recall Context；
+- 输出为一个有限 JSON Object，字段只能由可见文本中的受控行动语句确定性派生；不调用模型、不执行 shell、不访问网络或文件；
+- requested seed 被记录但 `seed_honored=false`，因为脚本适配器没有随机采样。
+
+该 Adapter 可以让含必要结构化记忆的合成任务通过、让缺少材料的任务失败，以验证断言链路；这些成功率不得进入 `tool_only_success_delta_points` 或任何真实模型指标。
+
+#### 19.13.8 Plumbing Run Receipt 与 Summary
+
+M0.5C 新建独立协议，不能复用/伪装 M0.5A `RunResult`。
+
+`PlumbingRunReceipt v1`：
+
+```yaml
+schema_version: 1
+run_id: plumbing_<stable-id>
+evaluation_id: m05_v1
+fixture_manifest_sha256: sha256_<hex>
+task_id: task_<id>
+group: no_memory | tool_only | auto_inject
+requested_seed: integer
+seed_honored: false
+adapter_kind: scripted_fixture
+tool_calls: [mnemosyne_search | mnemosyne_open | mnemosyne_eval_recall_context]
+context_source: none | plugin_recall
+retrieved_memory_ids: [memory_<id>]
+opened_memory_ids: [memory_<id>]
+visible_memory_ids: [memory_<id>]
+assertion_results:
+  - assertion_id: assert_<id>
+    passed: boolean
+success: boolean
+failure_code: controlled-id | null
+content_sha256: sha256_<hex>
+```
+
+`run_id` 由 `{evaluation_id, fixture_manifest_sha256, task_id, group, requested_seed, adapter_kind}` 的 Canonical Hash 前缀稳定生成；`content_sha256` 对含 `run_id`、仅排除自身 Hash 的完整 Receipt 计算。同一 run identity 的不同内容必须 fail closed，不能覆盖或任选其一。
+
+`PlumbingSummary v1` 固定记录：`schema_version`、稳定 `summary_id`、Fixture Manifest Hash、三组各 30 个 receipt、90 个唯一 receipt Hash、group isolation、Tool ordering、Recall source、replay consistency、excluded leakage、disposal cleanliness 六个布尔不变量、`status: pass|fail` 与 `content_sha256`。Summary ID 与 Hash 使用同样的先 Identity、后完整内容两阶段规则。它不得包含 `recommendation`，不得输出 GO/ADJUST/STOP，也不得生成 M0.5A SummaryReport。
+
+所有集合字段稳定排序并拒绝重复；Tool call 顺序保留执行顺序。相同固定输入、固定 Adapter 与固定执行策略必须产生逐字节一致的 Receipt/Summary。协议中不记录墙钟、真实延迟或 Token；这些只由 M0.5D 的真实运行记录。
+
+#### 19.13.9 失败矩阵
+
+| 场景 | 结果 | 禁止行为 |
+|---|---|---|
+| no_memory 出现 search/open Tool | 整体 fail | 静默忽略 |
+| Tool-only 未经 search 直接 open | run fail | 直接读 Catalog |
+| Auto-inject Adapter 收到 Runtime/Tool value | 测试 fail | 双通道喂入 |
+| Recall UserMessage source 非 plugin/recall | 整体 fail | 当作用户消息 |
+| Recall 前缀缺失或变更 | fail closed | 猜测内容类型 |
+| Disclosure/Envelope/Receipt Hash 漂移 | fail closed | 自动修复 |
+| frozen/excluded 出现在任一可见集合 | 整体 fail | 只计一次普通错误 |
+| Evaluation-only Tool 在 defer 前校验失败 | 无 additionalContexts | 提前 defer 半成品 |
+| 同 run identity 异内容 | identity conflict | 覆盖既有 receipt |
+| Context/Tool dispose 后残留 | 整体 fail | 继续下一 run |
+| Fake Adapter 缺少信息 | assertion fail | 读取 expected 字段补答案 |
+
+#### 19.13.10 TDD 与测试矩阵
+
+实现前必须先写失败测试并确认缺少产品代码时失败：
+
+1. Recall Envelope strict schema、stable ID、Hash、父子 Disclosure、1..2 上限；
+2. Recall message 固定前缀、`plugin + recall` source、`not_user_authored=true`；
+3. `replayRecallContext` 不访问 Runtime/Catalog 且字节稳定；
+4. 真实 ToolRuntime 执行 evaluation-only Tool，成功恰好产生一个 additionalContext，所有 defer 前校验失败产生零个；
+5. no_memory 的 registry 中不存在 Mnemosyne Tool；
+6. tool_only 必须真实执行 search→open，Auto 组 Adapter 看不到 Tool value；
+7. 两个记忆组检索配置与 top/open 策略逐字段相同；
+8. 6 Task × 3 Group × 5 Seed = 90 个唯一 Receipt；
+9. 同输入重复运行 Receipt/Summary Canonical Bytes 相同；
+10. Adapter 访问 expected/required/forbidden 字段的接口在类型和运行时均不存在；
+11. 断言 evaluator 覆盖 `exit_code` 与 `result_equals`，未知字段/类型拒绝；
+12. frozen/excluded leakage=0，Recall/Tool-only 可见集合闭合；
+13. 三组 Context、Registry、Tool、Disclosure 完全隔离，dispose 后零残留；
+14. 恶意 Disclosure JSON、路径、凭据、控制字符和超大 payload 返回静态脱敏错误；
+15. PlumbingSummary 不含真实模型指标、recommendation 或 GO/ADJUST/STOP。
+
+#### 19.13.11 自动门禁与验收
+
+M0.5C 必须运行：
+
+```bash
+corepack pnpm install --frozen-lockfile
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+corepack pnpm pack
+node tests/pack-check.mjs
+git diff --check
+```
+
+冻结安装若仍受 pnpm `minimumReleaseAge` 阻断，必须记录原命令和错误，不能降低供应链策略。其余门禁使用已锁定本地依赖执行。
+
+验收要求：
+
+- 90 个 Plumbing Receipt 与 1 个 Summary 严格通过；
+- 六个 Plumbing 不变量全部为 true；
+- 真实 ToolRuntime 的 `additionalContexts` 行为经测试证明；
+- 生产插件仍只注册 status/search/open，evaluation-only Tool 不进入 tarball 公共行为；
+- 包内容仍为白名单 5 文件，生产 Config 和包根导出不扩张；
+- 无 API Key、无真实模型、无网络、无用户文件读写；
+- 独立 review/security review 无阻塞问题。
+
+完成后只能把 M0.5C 标为“执行骨架和公开上下文链路通过”。M0.5 总体状态仍为 `insufficient_evidence`，下一步才是 M0.5D 的真实模型设计与用户环境联调。
+
+#### 19.13.12 Luna 实现任务书
+
+```text
+在 /Users/czy/Desktop/demo/dsh-Mnemosyne 实现 M0.5C。
+
+唯一设计依据：docs/DSH_MNEMOSYNE_ARCHITECTURE.zh-CN.md 第 19.13 节。先完整读取 19.11～19.13，检查 git status，保留提交 48b9f96 及之前历史。
+
+严格按 TDD：先写 19.13.10 的失败测试并记录预期失败，再实现最小代码。实现工作由 Luna 完成；不要调用 dsh Agent 执行任务。
+
+关键边界：
+- Fake Adapter 只证明执行管线，绝不伪装真实模型；
+- 不生成 M0.5A RunResult/SummaryReport，不给 GO/ADJUST/STOP；
+- 只用公开 ToolRunContext.deferContext、createUserMessage、plugin/recall source；
+- evaluation-only Recall Tool 不注册到生产插件、不从包根导出；
+- no_memory/tool_only/auto_inject 每 run 全隔离；
+- Adapter 不得读取 required_memory_ids、forbidden_memory_ids 或 success_assertions.expected；
+- 不访问网络、API Key、用户 Session/Workspace、文件系统或私有 dsh API；
+- 不修改 dsh 上游，不增加 dsh-agent-loop 依赖。
+
+全部门禁完成后做 review 与 security review，只修复本节真实问题。最终报告实际模块、90-run 结果、六项不变量、additionalContexts 证据、包内容、环境限制；不提交、不推送、不创建 Tag，等待 Sol 验收。
+```
