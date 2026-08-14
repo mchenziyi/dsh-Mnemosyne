@@ -1,45 +1,39 @@
 # dsh-Mnemosyne
 
-> Long-term memory and progressive disclosure for DeepSeek Harness.
+> 面向 DeepSeek Harness 的长期记忆与渐进式披露插件。
 
-`dsh-Mnemosyne` is a native DeepSeek Harness plugin for organizing durable agent
-memory as an OKF-style knowledge graph and revealing only the context needed for
-the current task.
+`dsh-Mnemosyne` 是一个 DeepSeek Harness 原生插件，用于将 Agent 的工程经验
+组织为 OKF 风格的知识图谱，并只向当前任务披露必要的上下文。
 
-This project is independent of `oh-my-reasonix` (OMR). It does not depend on OMR
-code, configuration, CLI commands, or release versions.
+## 项目目标
 
-## Goals
+- 将长期工程经验保存为结构化、可审查的记忆；
+- 通过 OKF Wiki 页面和确定性索引组织记忆关系；
+- 通过渐进式披露避免把整个记忆库注入单轮上下文；
+- 保留来源、生命周期、健康度和冻结语义；
+- 通过 DeepSeek Harness 的插件与 Session/Event 扩展点完成集成。
 
-- store durable engineering experience as structured, reviewable memory;
-- organize relationships through OKF Wiki pages and deterministic indexes;
-- use progressive disclosure to avoid injecting the entire memory corpus into a turn;
-- preserve provenance, lifecycle, health, and freeze semantics;
-- integrate through DeepSeek Harness's plugin and session/event extension points.
+## 第一阶段范围
 
-## Scope
-
-The first milestone focuses on memory only:
+第一阶段只实现记忆能力：
 
 ```text
-Harness session/events
-  -> memory extraction
-  -> OKF storage and indexing
-  -> librarian retrieval
-  -> progressive disclosure
-  -> model-context injection
+Harness Session/Event
+  -> 记忆提取
+  -> OKF 存储与索引
+  -> Librarian 检索
+  -> 渐进式披露
+  -> 模型上下文注入
 ```
 
-Plugin self-evolution is a later milestone. It will be designed as a governed
-loop for proposing, sandboxing, canarying, observing, promoting, freezing, and
-rolling back plugins. The plugin must never directly modify the Harness security
-core or silently rewrite canonical memory facts.
+插件自进化属于后续阶段。届时将设计一套受治理的闭环，用于插件提案、沙箱验证、
+Canary 运行、观测、晋升、冻结和回滚。插件不得直接修改 Harness 安全核心，也不得
+静默重写规范记忆事实。
 
-## Status
+## 当前状态
 
-Early design and implementation stage. Protocols and plugin integration points
-will be documented before production behavior is enabled.
+项目处于早期设计与实现阶段。在启用生产行为前，会先完成协议和插件集成点文档。
 
-## License
+## 许可证
 
-License selection is pending.
+许可证待定。
