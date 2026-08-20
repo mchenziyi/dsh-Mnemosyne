@@ -95,10 +95,12 @@ function memoryIds(value: unknown): string[] {
   if (result.some((item) => !/^memory_[a-z0-9][a-z0-9._-]{0,63}$/.test(item))) throw new ProtocolValidationError()
   return result
 }
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+export class M05DAgentTimeoutError extends ProtocolValidationError {}
+export class M05DBatchTimeoutError extends ProtocolValidationError {}
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorFactory: () => Error = () => new M05DAgentTimeoutError()): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    return await Promise.race([promise, new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new ProtocolValidationError()), timeoutMs) })])
+    return await Promise.race([promise, new Promise<T>((_, reject) => { timer = setTimeout(() => reject(errorFactory()), timeoutMs) })])
   } finally {
     if (timer !== undefined) clearTimeout(timer)
   }
@@ -288,12 +290,181 @@ export function validateUsage(value: unknown): Usage {
 export interface OfflineReceipt { run_id: string; task_id: string; group: M05DGroup; requested_seed: number; seed_honored: false; evidence_kind: 'offline_fake_provider'; tool_calls: string[]; memory_events: string[]; recall_source: { kind: 'plugin'; plugin: 'dsh-mnemosyne'; form: 'recall' } | null; recall_context: RecallContextEnvelope | null; recall_receipt: RecallContextReceipt | null; observed_memory_ids: string[]; retrieved_memory_ids: string[]; opened_memory_ids: string[]; adopted_memory_ids: string[]; model_exit_code: number; model_result: Record<string, string | number | boolean | null>; model_failure_code: ModelReceipt['failure_code']; model_call_count: number; usage: { model: Usage; retrieval_estimated_tokens: number; acquisition_tokens: number }; acquisition: { case_id: AcquisitionCase['case_id']; provider_calls: number; after_task_completed: boolean; decision: AcquisitionCase['case_id']; reason_code: AcquisitionReasonCode; candidate_content_sha256: string | null }; disposal_clean: boolean; success: boolean; canonical_hash: string }
 export interface OfflineSummary { evidence_kind: 'offline_fake_provider'; receipts: OfflineReceipt[]; canonical_bytes: string; invariants: { run_count: boolean; group_isolation: boolean; tool_ordering: boolean; recall_source: boolean; replay_consistency: boolean; excluded_leakage: boolean; disposal_cleanliness: boolean; scripted_outcomes: boolean; acquisition_after_task: boolean; skip_zero_provider: boolean }; recommendation?: never }
 
+export interface M05DAgentCallContext { provider: string; model: string; run_id: string; task_id: string; kind: 'task' | 'acquisition'; requested_seed: number; sequence: number }
+export type M05DAgentAdapterFactory = (context: M05DAgentCallContext) => LlmAdapter
+export interface M05DAgentLoopOptions {
+  adapterFactory?: M05DAgentAdapterFactory
+  claim?: (kind: 'task' | 'acquisition', context: Omit<M05DAgentCallContext, 'sequence'>) => number
+  onTransportFinished?: (sequence: number) => void
+  onComplete?: (sequence: number) => void
+  onFail?: (sequence: number, error: unknown) => void
+  run_id?: string
+  requested_seed?: number
+  provider?: string
+  model?: string
+  batchTimeoutMs?: number
+  getBatchRemaining?: () => number
+}
+
+export class ProviderIdentityMismatchError extends ProtocolValidationError {}
+
+class ClaimingAdapter extends LlmAdapter {
+  constructor(
+    private readonly factory: M05DAgentAdapterFactory,
+    private readonly claim: (kind: 'task' | 'acquisition', context: Omit<M05DAgentCallContext, 'sequence'>) => number,
+    private readonly kind: 'task' | 'acquisition',
+    private readonly runId: string,
+    private readonly taskId: string,
+    private readonly requestedSeed: number,
+    private readonly timeoutMs: number,
+    private readonly callCounter: { value: number },
+    private readonly factoryProvider?: string,
+    private readonly factoryModel?: string,
+    private readonly onTransportFinished?: (sequence: number) => void,
+    private readonly onComplete?: (sequence: number) => void,
+    private readonly onFail?: (sequence: number, error: unknown) => void,
+    private readonly timeoutState?: { callTimedOut: boolean; batchTimedOut: boolean; protocolError: unknown },
+    private readonly getBatchRemaining?: () => number,
+  ) {
+    super()
+  }
+
+  providerInfo(provider: string): { id: string; name: string } {
+    return { id: provider, name: 'M0.5 evaluation adapter seam' }
+  }
+
+  async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    const remainingBatch = this.getBatchRemaining ? this.getBatchRemaining() : this.timeoutMs
+    if (remainingBatch <= 0) {
+      if (this.timeoutState) this.timeoutState.batchTimedOut = true
+      throw new M05DBatchTimeoutError()
+    }
+    const targetProvider = this.factoryProvider ?? options.provider
+    const targetModel = this.factoryModel ?? options.model
+    const context = {
+      provider: targetProvider,
+      model: targetModel,
+      run_id: this.runId,
+      task_id: this.taskId,
+      kind: this.kind,
+      requested_seed: this.requestedSeed,
+    }
+    const sequence = this.claim(this.kind, context)
+    this.callCounter.value++
+    let settledFail = false
+    let isCallTimeout = false
+    let isBatchTimeout = false
+    const controller = new AbortController()
+
+    const effectiveTimeoutMs = Math.min(this.timeoutMs, remainingBatch)
+    const isBatchExpiringFirst = remainingBatch < this.timeoutMs
+
+    let timeoutTimer: NodeJS.Timeout | undefined
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutTimer = setTimeout(() => {
+        if (isBatchExpiringFirst) {
+          isBatchTimeout = true
+          if (this.timeoutState) this.timeoutState.batchTimedOut = true
+          const err = new M05DBatchTimeoutError()
+          controller.abort(err)
+          reject(err)
+        } else {
+          isCallTimeout = true
+          if (this.timeoutState) this.timeoutState.callTimedOut = true
+          const err = new M05DAgentTimeoutError()
+          controller.abort(err)
+          reject(err)
+        }
+      }, effectiveTimeoutMs)
+    })
+
+    const onParentAbort = () => {
+      controller.abort(options.signal?.reason ?? new Error('aborted by parent signal'))
+    }
+    if (options.signal) {
+      if (options.signal.aborted) {
+        onParentAbort()
+      } else {
+        options.signal.addEventListener('abort', onParentAbort, { once: true })
+      }
+    }
+
+    let iterator: AsyncIterator<StreamChunk> | undefined
+    try {
+      const adapter = this.factory({ ...context, sequence })
+      if (!(adapter instanceof LlmAdapter)) {
+        throw new ProtocolValidationError()
+      }
+      const info = adapter.providerInfo(targetProvider)
+      if (!info || typeof info !== 'object' || info.id !== targetProvider) {
+        throw new ProviderIdentityMismatchError()
+      }
+      const streamIterable = adapter.stream({
+        ...options,
+        provider: targetProvider,
+        model: targetModel,
+        signal: controller.signal,
+      })
+      iterator = streamIterable[Symbol.asyncIterator]()
+
+      let isToolCall = false
+      while (true) {
+        const nextResult = await Promise.race([
+          iterator.next(),
+          timeoutPromise,
+        ])
+        if (nextResult.done) {
+          break
+        }
+        if (isBatchTimeout) {
+          throw new M05DBatchTimeoutError()
+        }
+        if (isCallTimeout) {
+          throw new M05DAgentTimeoutError()
+        }
+        const chunk = nextResult.value
+        if ((chunk.type === 'block-start' && chunk.blockType === 'tool-call') || (chunk.type === 'finish' && chunk.reason.kind === 'tool-calls')) {
+          isToolCall = true
+        }
+        yield chunk
+      }
+      clearTimeout(timeoutTimer)
+      this.onTransportFinished?.(sequence)
+      if (isToolCall && this.kind === 'task') {
+        this.onComplete?.(sequence)
+      }
+    } catch (error) {
+      clearTimeout(timeoutTimer)
+      if (!settledFail) {
+        settledFail = true
+        this.onFail?.(sequence, error)
+      }
+      if (iterator?.return) {
+        try {
+          void Promise.race([
+            iterator.return(),
+            new Promise((resolve) => setTimeout(resolve, 10)),
+          ]).catch(() => {})
+        } catch {}
+      }
+      throw error
+    } finally {
+      clearTimeout(timeoutTimer)
+      if (options.signal) {
+        options.signal.removeEventListener('abort', onParentAbort)
+      }
+      controller.abort()
+    }
+  }
+}
+
 export class FakeProvider extends LlmAdapter {
-  private calls = 0
-  get callCount(): number { return this.calls }
+  private readonly state: { calls: number }
+  constructor(...states: [{ calls: number }?]) { super(); this.state = states[0] ?? { calls: 0 } }
+  get callCount(): number { return this.state.calls }
   providerInfo(provider: string): { id: string; name: string } { return { id: provider, name: 'M0.5D offline fake provider' } }
   async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    this.calls += 1
+    this.state.calls += 1
     const toolNames = new Set((options.tools ?? []).map((tool) => tool.name))
     let block: StreamChunk extends infer _ ? ({ type: 'text'; text: string } | { type: 'tool-call'; id: ReturnType<typeof CallId>; name: string; arguments: string }) : never
     const messageText = (message: GenerateOptions['messages'][number]) => message.content.flatMap((content) => content.type === 'text' ? [content.text] : content.type === 'tool-result' ? content.content.flatMap((block) => block.type === 'text' ? [block.text] : []) : [])
@@ -304,14 +475,17 @@ export class FakeProvider extends LlmAdapter {
     const recalledContext = recallText ? replayRecallContext(recallText.slice(RECALL_PREFIX.length).trimStart().split('\n')[0]) : undefined
     const recalledMemoryIds = recalledContext?.memory_ids ?? []
     const visibleMemoryIds = recalledMemoryIds.length > 0 ? recalledMemoryIds : [...new Set([...visibleMemorySource.matchAll(/"memory_id":"(memory_[a-z0-9][a-z0-9._-]{0,63})"/g)].map((match) => match[1]))]
-    if (this.calls === 1 && toolNames.has('m05d_task_fixture')) {
+    const hasFixtureResult = visible.includes('"fixture_id"')
+    const hasSearchDisclosure = visible.includes('"items"') && visible.includes('"retrieval_ref"')
+    const hasOpenDisclosure = visible.includes('"body"') && visible.includes('"memory_id"')
+    if (!hasFixtureResult && toolNames.has('m05d_task_fixture')) {
       block = { type: 'tool-call', id: CallId('m05d-task-fixture'), name: 'm05d_task_fixture', arguments: JSON.stringify({ task_id: visible.match(/task_id:(task_[a-z0-9][a-z0-9._-]{0,63})/)?.[1] ?? 'task_missing' }) }
     }
-    else if (this.calls === 2 && toolNames.has('mnemosyne_search')) {
+    else if (hasFixtureResult && !hasSearchDisclosure && toolNames.has('mnemosyne_search')) {
       const query = visibleUserText.split('\n').filter((line) => !line.startsWith('M05D_TASK_SHAPE') && !line.startsWith('task_id:')).at(-1) ?? 'offline synthetic task'
       block = { type: 'tool-call', id: CallId('m05d-search'), name: 'mnemosyne_search', arguments: JSON.stringify({ query }) }
     }
-    else if (this.calls === 3 && toolNames.has('mnemosyne_open')) {
+    else if (hasSearchDisclosure && !hasOpenDisclosure && toolNames.has('mnemosyne_open')) {
       const searchText = visibleUserText.split('\n').reverse().find((line) => line.includes('"items"') && line.includes('"retrieval_ref"'))
       if (!searchText) throw new ProtocolValidationError()
       const searchDisclosure = validateSearchDisclosure(JSON.parse(searchText))
@@ -325,25 +499,29 @@ export class FakeProvider extends LlmAdapter {
       const outcome = deterministicResult(shape, `${visible}\n${recalledContext ? JSON.stringify(recalledContext) : ''}`, adopted.length > 0)
       block = { type: 'text', text: JSON.stringify({ schema_version: 1, task_id: taskId, exit_code: outcome.exitCode, result: outcome.result, adopted_memory_ids: adopted, failure_code: outcome.failureCode }) }
     }
-    yield { type: 'block-start', index: 0, blockType: block.type }
-    if (block.type === 'text') yield { type: 'text-delta', index: 0, text: block.text }
-    else yield { type: 'tool-call-delta', index: 0, id: block.id, name: block.name, argumentsDelta: block.arguments }
-    yield { type: 'block-end', index: 0, block: block.type === 'text' ? block : { ...block, arguments: block.arguments } } as StreamChunk
-    yield { type: 'usage', usage: { inputTokens: 10, outputTokens: 8 } }
+    if (block.type === 'tool-call') {
+      yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+      yield { type: 'tool-call-delta', index: 0, id: block.id, name: block.name, argumentsDelta: block.arguments }
+      yield { type: 'block-end', index: 0, block }
+      yield { type: 'usage', usage: { inputTokens: 10, outputTokens: 8 } }
+      yield { type: 'finish', reason: { kind: 'tool-calls' } }
+      return
+    }
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'text-delta', index: 0, text: block.text }
+    yield { type: 'block-end', index: 0, block }
+    yield { type: 'usage', usage: { inputTokens: 12, outputTokens: 10 } }
     yield { type: 'finish', reason: { kind: 'stop' } }
   }
 }
 
-function createTaskFixtureTool(taskId: string): ReturnType<typeof defineTool> {
-  return defineTool({ name: 'm05d_task_fixture', description: 'Return the public synthetic task fixture identity; it is not a memory or expected-answer source.', parameters: { task_id: { type: 'string', required: true } }, output: { schema: { type: 'object', additionalProperties: false, properties: { schema_version: { type: 'integer', required: true }, fixture_id: { type: 'string', required: true }, task_id: { type: 'string', required: true } } } as never, render: (_args: unknown, value: unknown) => [{ type: 'text', text: JSON.stringify(value) }] }, execute: async (args: unknown) => { const input = object(args); exactKeys(input, ['task_id']); if (input.task_id !== taskId) throw new ProtocolValidationError(); return { schema_version: 1, fixture_id: `fixture_${taskId}`, task_id: taskId } } } as never)
-}
-
 class FakeAcquisitionProvider extends LlmAdapter {
-  private calls = 0
-  get callCount(): number { return this.calls }
-  providerInfo(provider: string): { id: string; name: string } { return { id: provider, name: 'M0.5D offline fake acquisition provider' } }
+  private readonly state: { calls: number }
+  constructor(...states: [{ calls: number }?]) { super(); this.state = states[0] ?? { calls: 0 } }
+  get callCount(): number { return this.state.calls }
+  providerInfo(provider: string): { id: string; name: string } { return { id: provider, name: 'M0.5D offline acquisition provider' } }
   async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    this.calls += 1
+    this.state.calls += 1
     const episode = options.messages.flatMap((message) => message.content.flatMap((content) => content.type === 'text' ? [content.text] : [])).join(' ').trim()
     const output = { title: 'Offline synthetic candidate', summary: episode, redaction_status: 'passed' as const }
     const text = JSON.stringify(output)
@@ -355,16 +533,23 @@ class FakeAcquisitionProvider extends LlmAdapter {
   }
 }
 
-async function runAgentLoopEvidence(task: M05DTask, group: M05DGroup, catalog: MemoryCatalog, acquisitionCase: AcquisitionCase, callTimeoutMs: number): Promise<{ toolCalls: string[]; memoryEvents: string[]; recallSource: OfflineReceipt['recall_source']; recallContext: RecallContextEnvelope | null; recallReceipt: RecallContextReceipt | null; usage: Usage; receipt: ModelReceipt; acquisition: OfflineReceipt['acquisition']; acquisitionTokens: number; observedMemoryIds: string[]; retrievedMemoryIds: string[]; openedMemoryIds: string[]; disposalClean: boolean; retrievalEstimatedTokens: number; modelCallCount: number }> {
+function createTaskFixtureTool(taskId: string): ReturnType<typeof defineTool> {
+  return defineTool({ name: 'm05d_task_fixture', description: 'Return the public synthetic task fixture identity; it is not a memory or expected-answer source.', parameters: { task_id: { type: 'string', required: true } }, output: { schema: { type: 'object', additionalProperties: false, properties: { schema_version: { type: 'integer', required: true }, fixture_id: { type: 'string', required: true }, task_id: { type: 'string', required: true } } } as never, render: (_args: unknown, value: unknown) => [{ type: 'text', text: JSON.stringify(value) }] }, execute: async (args: unknown) => { const input = object(args); exactKeys(input, ['task_id']); if (input.task_id !== taskId) throw new ProtocolValidationError(); return { schema_version: 1, fixture_id: `fixture_${taskId}`, task_id: taskId } } } as never)
+}
+
+export async function runAgentLoopEvidence(task: M05DTask, group: M05DGroup, catalog: MemoryCatalog, acquisitionCase: AcquisitionCase, callTimeoutMs: number, options: M05DAgentLoopOptions = {}): Promise<{ toolCalls: string[]; memoryEvents: string[]; recallSource: OfflineReceipt['recall_source']; recallContext: RecallContextEnvelope | null; recallReceipt: RecallContextReceipt | null; usage: Usage; receipt: ModelReceipt; acquisition: OfflineReceipt['acquisition']; acquisitionTokens: number; observedMemoryIds: string[]; retrievedMemoryIds: string[]; openedMemoryIds: string[]; disposalClean: boolean; retrievalEstimatedTokens: number; modelCallCount: number; duration_ms: number }> {
   const ctx = new Context()
   const fibers = [] as Array<{ dispose(): Promise<void> }>
   const registrations = [] as Array<() => void>
-  let result: Omit<Awaited<ReturnType<typeof runAgentLoopEvidence>>, 'disposalClean'> | undefined
+  let result: Omit<Awaited<ReturnType<typeof runAgentLoopEvidence>>, 'disposalClean' | 'duration_ms'> | undefined
   let llmRuntime: LlmRuntime | undefined
   let toolRuntime: ToolRuntime | undefined
   let recallContext: RecallContextEnvelope | null = null
   let recallReceipt: RecallContextReceipt | null = null
   let recallSource: OfflineReceipt['recall_source'] = null
+  const runStarted = performance.now()
+  const taskSequences: number[] = []
+  let acquisitionSequence: number | undefined
   try {
     for (const plugin of [SessionStore, AgentRegistry, LlmRuntime, SystemPrompt, ToolRuntime]) fibers.push(await ctx.plugin(plugin))
     fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
@@ -373,8 +558,15 @@ async function runAgentLoopEvidence(task: M05DTask, group: M05DGroup, catalog: M
     registrations.push(ctx.tools.register(createTaskFixtureTool(task.task_id)))
     const runtime = group === 'no_memory' ? undefined : new RetrievalRuntime(catalog)
     if (group === 'tool_only' && task.task_kind === 'memory_dependent' && runtime !== undefined) { registrations.push(ctx.tools.register(createSearchTool(runtime)), ctx.tools.register(createOpenTool(runtime))) }
-    const fakeProvider = new FakeProvider()
-    registrations.push(ctx.llm.registerAdapter(['m05d-fake'], fakeProvider))
+    const fakeProvider = new FakeProvider(); const taskCallCounter = { value: 0 }; const runId = options.run_id ?? `m05d-${group}-${task.task_id}`; const requestedSeed = options.requested_seed ?? 0
+    const timeoutState = { callTimedOut: false, batchTimedOut: false, protocolError: undefined as unknown }
+    const claimTask = (kind: 'task' | 'acquisition', c: Omit<M05DAgentCallContext, 'sequence'>) => {
+      const seq = options.claim!(kind, c)
+      taskSequences.push(seq)
+      return seq
+    }
+    const taskAdapter = options.adapterFactory && options.claim ? new ClaimingAdapter(options.adapterFactory, claimTask, 'task', runId, task.task_id, requestedSeed, callTimeoutMs, taskCallCounter, options.provider, options.model, options.onTransportFinished, options.onComplete, (seq, err) => { if (err instanceof M05DBatchTimeoutError) timeoutState.batchTimedOut = true; if (err instanceof M05DAgentTimeoutError) timeoutState.callTimedOut = true; if (err instanceof ProtocolValidationError) timeoutState.protocolError = err; options.onFail?.(seq, err) }, timeoutState, options.getBatchRemaining) : fakeProvider
+    registrations.push(ctx.llm.registerAdapter(['m05d-fake'], taskAdapter))
     const agent = (ctx as Context & { agentLoop: AgentLoop }).agentLoop.create(SessionId(`m05d-${group}-${task.task_id}`), { provider: 'm05d-fake', model: 'offline' })
     if (group === 'auto_inject' && task.task_kind === 'memory_dependent') {
       if (runtime === undefined) throw new ProtocolValidationError()
@@ -387,21 +579,14 @@ async function runAgentLoopEvidence(task: M05DTask, group: M05DGroup, catalog: M
     const resultFields = task.success_assertions.filter((assertion) => assertion.kind === 'result_equals').map((assertion) => assertion.field as string)
     agent.inject(createUserMessage({ content: [{ type: 'text', text: `M05D_TASK_SHAPE\n${JSON.stringify({ task_id: task.task_id, result_fields: resultFields })}` }], source: { kind: 'plugin', plugin: 'dsh-mnemosyne', form: 'notice', summary: 'offline task fixture' } }))
     agent.followup(createUserMessage({ content: [{ type: 'text', text: `task_id:${task.task_id}\n${task.prompt}` }], source: { kind: 'user' } }))
-    await withTimeout(agent.whenIdle(), callTimeoutMs)
-    if (fakeProvider.callCount < 1 || fakeProvider.callCount > 4) throw new ProtocolValidationError()
-    const taskComplete = agent.session.events.some((event) => event.type === 'turn/end')
-    let acquisitionTokens = 0; let providerCalls = 0
-    let candidateContentSha256: string | null = null
-    const decision = acquisitionDecision(acquisitionCase)
-    if (decision === 'novel_candidate') {
-      const acquisitionProvider = new FakeAcquisitionProvider(); registrations.push(ctx.llm.registerAdapter(['m05d-acquisition'], acquisitionProvider))
-      const chunks = await withTimeout((async () => { const collected: StreamChunk[] = []; for await (const chunk of ctx.llm.stream({ provider: 'm05d-acquisition', model: 'offline', messages: [createUserMessage({ content: [{ type: 'text', text: acquisitionCase.episode_summary }], source: { kind: 'user' } })] })) collected.push(chunk); return collected })(), callTimeoutMs)
-      const usages = chunks.filter((chunk): chunk is Extract<StreamChunk, { type: 'usage' }> => chunk.type === 'usage').map((chunk) => validateUsage(chunk.usage)); if (usages.length !== 1) throw new ProtocolValidationError()
-      const candidateText = chunks.filter((chunk): chunk is Extract<StreamChunk, { type: 'text-delta' }> => chunk.type === 'text-delta').map((chunk) => chunk.text).join(' ')
-      const candidate = object(JSON.parse(candidateText)); exactKeys(candidate, ['title', 'summary', 'redaction_status']); if (candidate.redaction_status !== 'passed') throw new ProtocolValidationError(); assertSafeText(candidate.title, 200); assertSafeText(candidate.summary, 1000)
-      if (acquisitionProvider.callCount !== 1 || acquisitionCase.provider_output === null || canonicalBytes(candidate) !== canonicalBytes(acquisitionCase.provider_output)) throw new ProtocolValidationError()
-      providerCalls = acquisitionProvider.callCount; candidateContentSha256 = canonicalHash(candidate); acquisitionTokens = usages[0].inputTokens + usages[0].outputTokens + (usages[0].cacheReadTokens ?? 0) + (usages[0].cacheWriteTokens ?? 0)
-    }
+    const batchTimeoutMs = options.getBatchRemaining ? options.getBatchRemaining() : (options.batchTimeoutMs ?? callTimeoutMs)
+    if (batchTimeoutMs <= 0) throw new M05DBatchTimeoutError()
+    await withTimeout(agent.whenIdle(), batchTimeoutMs, () => new M05DBatchTimeoutError())
+    if (timeoutState.protocolError) throw timeoutState.protocolError
+    if (timeoutState.batchTimedOut) throw new M05DBatchTimeoutError()
+    if (timeoutState.callTimedOut) throw new M05DAgentTimeoutError()
+    const actualTaskCalls = options.adapterFactory && options.claim ? taskCallCounter.value : fakeProvider.callCount
+    if (actualTaskCalls < 1 || actualTaskCalls > 4) throw new ProtocolValidationError()
     const events = agent.session.events
     const toolCalls = events.filter((event: (typeof events)[number]) => event.type === 'tool/call').map((event: (typeof events)[number] & { type: 'tool/call' }) => event.data.name)
     const memoryEvents = events.filter((event: (typeof events)[number]) => event.type === 'user/message').map((event: (typeof events)[number] & { type: 'user/message' }) => event.data.source.kind === 'plugin' && event.data.source.form === 'recall' ? 'recall_user_message' : 'user_message')
@@ -410,6 +595,8 @@ async function runAgentLoopEvidence(task: M05DTask, group: M05DGroup, catalog: M
     const usage = usageEvents.reduce((total, item) => ({ inputTokens: total.inputTokens + item.inputTokens, outputTokens: total.outputTokens + item.outputTokens, ...(total.cacheReadTokens !== undefined || item.cacheReadTokens !== undefined ? { cacheReadTokens: (total.cacheReadTokens ?? 0) + (item.cacheReadTokens ?? 0) } : {}), ...(total.cacheWriteTokens !== undefined || item.cacheWriteTokens !== undefined ? { cacheWriteTokens: (total.cacheWriteTokens ?? 0) + (item.cacheWriteTokens ?? 0) } : {}), ...(total.reasoningTokens !== undefined || item.reasoningTokens !== undefined ? { reasoningTokens: (total.reasoningTokens ?? 0) + (item.reasoningTokens ?? 0) } : {}) }), { inputTokens: 0, outputTokens: 0 } as Usage)
     const assistant = [...events].reverse().find((event: (typeof events)[number]) => event.type === 'assistant/message' && event.data.message.content.length === 1 && event.data.message.content[0].type === 'text')
     if (!assistant || assistant.type !== 'assistant/message' || assistant.data.message.content.length !== 1 || assistant.data.message.content[0].type !== 'text') throw new ProtocolValidationError()
+    const taskComplete = agent.session.events.some((event) => event.type === 'turn/end')
+    if (!taskComplete) throw new ProtocolValidationError()
     const textMemoryIds = (text: string) => [...text.matchAll(/"memory_id":"(memory_[a-z0-9][a-z0-9._-]{0,63})"/g)].map((match) => match[1])
     const recallTexts = events.filter((event: (typeof events)[number]) => event.type === 'user/message').flatMap((event: (typeof events)[number] & { type: 'user/message' }) => event.data.source.kind === 'plugin' && event.data.source.form === 'recall' ? event.data.content.flatMap((content) => content.type === 'text' ? [content.text] : []) : [])
     const recallContexts = recallTexts.map((text) => text.startsWith(RECALL_PREFIX) ? replayRecallContext(text.slice(RECALL_PREFIX.length).trimStart()) : (() => { throw new ProtocolValidationError() })())
@@ -430,14 +617,91 @@ async function runAgentLoopEvidence(task: M05DTask, group: M05DGroup, catalog: M
     if (group === 'auto_inject' && (JSON.stringify(toolCalls) !== JSON.stringify(['m05d_task_fixture']) || (task.task_kind === 'memory_dependent' ? memoryEvents.filter((event) => event === 'recall_user_message').length !== 1 : memoryEvents.filter((event) => event === 'recall_user_message').length !== 0))) throw new ProtocolValidationError()
     const retrievalEstimatedTokens = [...toolResultTexts, ...recallTexts].reduce((total, text) => total + Math.max(1, text.trim().split(/\s+/).length), 0)
     if (memoryEvents.some((event) => !MEMORY_EVENT_VOCAB.includes(event as (typeof MEMORY_EVENT_VOCAB)[number])) || toolCalls.some((name) => !TOOL_VOCAB.includes(name as (typeof TOOL_VOCAB)[number]))) throw new ProtocolValidationError()
-    result = { toolCalls, memoryEvents, recallSource, recallContext, recallReceipt, usage: validateUsage(usage), receipt, acquisition: { case_id: acquisitionCase.case_id, provider_calls: providerCalls, after_task_completed: taskComplete, decision: acquisitionDecision(acquisitionCase), reason_code: acquisitionReasonCode(acquisitionCase), candidate_content_sha256: candidateContentSha256 }, acquisitionTokens, observedMemoryIds: observed, retrievedMemoryIds, openedMemoryIds, retrievalEstimatedTokens, modelCallCount: fakeProvider.callCount }
+
+    // Settle final text ModelReceipt sequence as complete (fail-closed, no swallowed errors)
+    const finalSequence = taskSequences.at(-1)
+    if (finalSequence !== undefined) {
+      options.onComplete?.(finalSequence)
+    }
+
+    let acquisitionTokens = 0; let providerCalls = 0
+    let candidateContentSha256: string | null = null
+    const decision = acquisitionDecision(acquisitionCase)
+    if (decision === 'novel_candidate') {
+      const remainingForAcquisition = options.getBatchRemaining ? options.getBatchRemaining() : (options.batchTimeoutMs ?? callTimeoutMs)
+      if (remainingForAcquisition <= 0) {
+        throw new M05DBatchTimeoutError()
+      }
+      const acquisitionCallCounter = { value: 0 }
+      const claimAcq = (kind: 'task' | 'acquisition', c: Omit<M05DAgentCallContext, 'sequence'>) => {
+        const seq = options.claim!(kind, c)
+        acquisitionSequence = seq
+        return seq
+      }
+      const onAcqFail = (seq: number, err: unknown) => {
+        if (err instanceof M05DBatchTimeoutError) timeoutState.batchTimedOut = true
+        if (err instanceof M05DAgentTimeoutError) timeoutState.callTimedOut = true
+        if (err instanceof ProtocolValidationError) timeoutState.protocolError = err
+        options.onFail?.(seq, err)
+      }
+      const acquisitionProvider = options.adapterFactory && options.claim ? new ClaimingAdapter(options.adapterFactory, claimAcq, 'acquisition', runId, task.task_id, requestedSeed, callTimeoutMs, acquisitionCallCounter, options.provider, options.model, options.onTransportFinished, options.onComplete, onAcqFail, timeoutState, options.getBatchRemaining) : new FakeAcquisitionProvider()
+      registrations.push(ctx.llm.registerAdapter(['m05d-acquisition'], acquisitionProvider))
+      const acquisitionCallTimeout = Math.min(callTimeoutMs, remainingForAcquisition)
+      const isAcqBatchExpiring = remainingForAcquisition < callTimeoutMs
+      const chunks = await withTimeout(
+        (async () => {
+          const collected: StreamChunk[] = []
+          for await (const chunk of ctx.llm.stream({
+            provider: 'm05d-acquisition',
+            model: 'offline',
+            messages: [createUserMessage({ content: [{ type: 'text', text: acquisitionCase.episode_summary }], source: { kind: 'user' } })],
+          })) collected.push(chunk)
+          return collected
+        })(),
+        acquisitionCallTimeout,
+        isAcqBatchExpiring ? () => new M05DBatchTimeoutError() : () => new M05DAgentTimeoutError(),
+      )
+      if (timeoutState.protocolError) throw timeoutState.protocolError
+      if (timeoutState.batchTimedOut) throw new M05DBatchTimeoutError()
+      if (timeoutState.callTimedOut) throw new M05DAgentTimeoutError()
+      const usages = chunks.filter((chunk): chunk is Extract<StreamChunk, { type: 'usage' }> => chunk.type === 'usage').map((chunk) => validateUsage(chunk.usage))
+      if (usages.length !== 1) {
+        if (acquisitionSequence !== undefined) options.onFail?.(acquisitionSequence, new ProtocolValidationError())
+        throw new ProtocolValidationError()
+      }
+      const candidateText = chunks.filter((chunk): chunk is Extract<StreamChunk, { type: 'text-delta' }> => chunk.type === 'text-delta').map((chunk) => chunk.text).join(' ')
+      let candidate: Record<string, unknown>
+      try {
+        candidate = object(JSON.parse(candidateText))
+        exactKeys(candidate, ['title', 'summary', 'redaction_status'])
+        if (candidate.redaction_status !== 'passed') throw new ProtocolValidationError()
+        assertSafeText(candidate.title, 200)
+        assertSafeText(candidate.summary, 1000)
+      } catch (err) {
+        if (acquisitionSequence !== undefined) options.onFail?.(acquisitionSequence, err)
+        throw new ProtocolValidationError()
+      }
+      const actualAcquisitionCalls = options.adapterFactory && options.claim ? acquisitionCallCounter.value : (acquisitionProvider as FakeAcquisitionProvider).callCount
+      if (actualAcquisitionCalls !== 1 || acquisitionCase.provider_output === null || canonicalBytes(candidate) !== canonicalBytes(acquisitionCase.provider_output)) {
+        if (acquisitionSequence !== undefined) options.onFail?.(acquisitionSequence, new ProtocolValidationError())
+        throw new ProtocolValidationError()
+      }
+      providerCalls = actualAcquisitionCalls
+      candidateContentSha256 = canonicalHash(candidate)
+      acquisitionTokens = usages[0].inputTokens + usages[0].outputTokens + (usages[0].cacheReadTokens ?? 0) + (usages[0].cacheWriteTokens ?? 0)
+      if (acquisitionSequence !== undefined) {
+        options.onComplete?.(acquisitionSequence)
+      }
+    }
+
+    result = { toolCalls, memoryEvents, recallSource, recallContext, recallReceipt, usage: validateUsage(usage), receipt, acquisition: { case_id: acquisitionCase.case_id, provider_calls: providerCalls, after_task_completed: taskComplete, decision: acquisitionDecision(acquisitionCase), reason_code: acquisitionReasonCode(acquisitionCase), candidate_content_sha256: candidateContentSha256 }, acquisitionTokens, observedMemoryIds: observed, retrievedMemoryIds, openedMemoryIds, retrievalEstimatedTokens, modelCallCount: options.adapterFactory && options.claim ? taskCallCounter.value : fakeProvider.callCount }
   } finally {
     for (const registration of registrations.reverse()) registration()
     for (const fiber of fibers.reverse()) await fiber.dispose()
   }
   if (!result) throw new ProtocolValidationError()
   const disposalClean = llmRuntime !== undefined && toolRuntime !== undefined && llmRuntime.listProviders().length === 0 && toolRuntime.schemas().length === 0
-  return { ...result, disposalClean }
+  return { ...result, disposalClean, duration_ms: Math.max(0, Math.round(performance.now() - runStarted)) }
 }
 
 function deterministicResult(shape: { task_id: string; result_fields: string[] } | undefined, visibleText: string, hasMemory: boolean): { exitCode: number; result: Record<string, string | number | boolean | null>; failureCode: ModelReceipt['failure_code'] } {
