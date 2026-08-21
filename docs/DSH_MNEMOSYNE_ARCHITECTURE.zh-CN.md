@@ -2290,7 +2290,7 @@ Runner/Fake/Fixture 不从 src/index.ts 导出，pack-check 必须证明不进�
 
 ### 19.16 M0.5F：DSH rc.8 基线升级、公共 Provider 桥接审计与授权门禁
 
-> 状态：🟡 M0.5F0 已于提交 `670cfe7` 完成并通过 Sol 验收，rc.8 baseline accepted；下一步仅执行 M0.5F1（Provider 零调用 Dry-run）。全阶段禁止真实 Provider 调用。
+> 状态：✅ M0.5F0 已于提交 `670cfe7` 完成；M0.5F1 已于提交 `0a5fa6f` 完成并通过 Sol 验收，状态为 `real_canary_ready_for_user_approval`。下一步是 M0.5D-D2；实现准备阶段禁止真实调用，真实 Canary 仍须用户单独明确批准。
 
 #### 19.16.1 目标与阶段边界
 
