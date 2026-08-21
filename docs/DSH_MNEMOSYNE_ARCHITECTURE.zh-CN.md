@@ -2290,7 +2290,7 @@ Runner/Fake/Fixture 不从 src/index.ts 导出，pack-check 必须证明不进�
 
 ### 19.16 M0.5F：DSH rc.8 基线升级、公共 Provider 桥接审计与授权门禁
 
-> 状态：🟡 总体设计完成；下一步仅执行 M0.5F0（rc.8 基线升级），通过 Sol 验收后才执行 M0.5F1（Provider 零调用 Dry-run）。全阶段禁止真实 Provider 调用。
+> 状态：🟡 M0.5F0 已于提交 `670cfe7` 完成并通过 Sol 验收，rc.8 baseline accepted；下一步仅执行 M0.5F1（Provider 零调用 Dry-run）。全阶段禁止真实 Provider 调用。
 
 #### 19.16.1 目标与阶段边界
 
@@ -2398,6 +2398,8 @@ git diff --check
 只有全部通过并经 Sol Review / Security Review 后，M0.5F0 才可单独提交。提交后主文档状态更新为“rc.8 baseline accepted”，再开始 M0.5F1；不得在同一次 Gemini 任务中继续写 Provider 桥接。
 
 #### 19.16.3 M0.5F1：版本与公开接口 Gate
+
+> 当前实现任务、TDD 矩阵、文件边界与 Gemini 3.7 Flash 完整提示词见 `docs/DSH_MNEMOSYNE_M05F1_PLAN.zh-CN.md`。本节仍是架构事实源；任务文档不得放宽本节的零调用、零凭据、隔离与授权边界。
 
 M0.5F0 签收后，M0.5F1 必须先生成 `ProviderCompatibilityAudit`：
 
@@ -2594,7 +2596,7 @@ git diff --check
 
 完成标准：Audit 给出 rc.8 可复核结论；Dry-run 对 Provider/Profile/Credential/Retry/Output/Isolation 完成零调用验证；pending Authorization 确定、可校验、可过期并绑定全部版本、Hash、限额和成本状态；测试证明 Provider stream、Credential resolve 与网络调用均为 0；发布包无 evaluation-only 实现。最终只能是 `real_canary_ready_for_user_approval` 或稳定 `blocked`，不得提交、推送或创建 Tag。
 
-#### 19.16.12 Gemini 3.7 Flash 实现提示词（当前仅 M0.5F0）
+#### 19.16.12 Gemini 3.7 Flash 实现提示词（M0.5F0 历史归档）
 
 ```text
 你是实现工程师，使用 Gemini 3.7 Flash。工作目录：
