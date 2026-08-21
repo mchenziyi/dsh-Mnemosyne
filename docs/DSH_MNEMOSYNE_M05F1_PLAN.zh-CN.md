@@ -1,6 +1,6 @@
 # dsh-Mnemosyne M0.5F1 开发计划：公开 Provider 兼容性审计、零调用 Dry-run 与授权门禁
 
-> 状态：🟡 设计完成，待 Gemini 3.7 Flash 实现与 Sol Review  
+> 状态：✅ 已完成并通过 Sol Review
 > 基线：`main@670cfe7`，DSH `0.1.0-rc.8`  
 > 架构事实源：`docs/DSH_MNEMOSYNE_ARCHITECTURE.zh-CN.md` 第 19.16 节  
 > 本阶段唯一允许终态：`real_canary_ready_for_user_approval` 或稳定 `blocked`
