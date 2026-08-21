@@ -982,7 +982,7 @@ M0 只有同时满足以下条件才算完成：
 
 ## 19. M0.5：核心价值纵向验证
 
-> 状态：M0.5A、M0.5B、M0.5C 已完成并通过 Sol 独立验收；M0.5D 尚未开始。
+> 状态：M0.5A/B/C、M0.5D-D0/D1 与 M0.5E 已完成并通过 Sol 独立验收；D2 仍等待 M0.5F Provider 桥接与用户授权，尚未发生真实模型调用。
 
 ### 19.1 目标
 
@@ -998,7 +998,11 @@ M0 只有同时满足以下条件才算完成：
 M0.5A 评测协议与 Acquisition Schema 冻结
   → M0.5B 最小录制/检索/披露/重放纵向链路
   → M0.5C 三组执行骨架与公开上下文链路验证（Fake Adapter）
-  → M0.5D 真实模型三组配对评测
+  → M0.5D-D0/D1 评测协议 v2 与公开 Agent Loop 离线执行器
+  → M0.5E D2 Canary 离线安全预检
+  → M0.5F 公开 Provider 桥接审计、零调用 Dry-run 与用户授权门禁
+  → M0.5D-D2 用户授权的真实 Provider Canary
+  → M0.5D-D3 用户再次授权的完整三组配对评测
   → GO / ADJUST / STOP 评审 Gate
 ```
 
@@ -1828,6 +1832,8 @@ git diff --check
 
 ### 19.14 M0.5D：评测协议 v2 与真实 Agent Loop 执行器
 
+> 状态：D0/D1 已完成并通过 Sol 独立验收；D2/D3 未执行，未产生真实 Provider 调用或费用。
+
 #### 19.14.1 阶段决议
 
 M0.5D 不直接用 v1 Fixture 启动 90 次真实模型调用。Sol 对 v1 做 readiness audit 后确认两个协议缺口：
@@ -2133,6 +2139,8 @@ D0/D1 只证明公开链路、协议、隔离、计量与离线可重放性。�
 
 ### 19.15 M0.5E：D2 Canary 离线预检执行器
 
+> 状态：已完成并通过 Sol 独立验收；提交 `e70b3ba`。当前仅证明 `adversarial_preflight/canary_preflight_ready`，不代表真实 Provider 已接通。
+
 #### 19.15.1 阶段边界
 
 M0.5E 只实现并验证 D2 Canary 的安全编排，不连接真实 Provider，不读取 API Key，也不生成真实模型证据。完成后的唯一状态是：
@@ -2278,4 +2286,352 @@ git diff --check
 实现 evaluation-only 的固定 Canary Plan、Adapter Factory seam、Budget Ledger、timeout、连续两错熔断、临时根隔离、严格 Receipt/Summary 验证与脱敏。复用 M0.5D 已签收的严格模型/Usage/Recall/Acquisition验证，不复制第二套宽松协议。所有调用必须先 claim；失败只保留完整验证的合法前缀。输出只能标记 adversarial_preflight/canary_preflight_ready，禁止伪造 real-provider 或 GO/ADJUST/STOP。
 
 Runner/Fake/Fixture 不从 src/index.ts 导出，pack-check 必须证明不进入 dist/tarball。运行冻结安装、typecheck、完整 test、build、pack、pack-check、git diff --check。完成后做 review/security review，报告失败测试证据、调用上限、熔断、隔离、包内容与剩余真实 D2 授权边界；不要提交、推送或创建 Tag，等待 Sol 验收。
+```
+
+### 19.16 M0.5F：DSH rc.8 基线升级、公共 Provider 桥接审计与授权门禁
+
+> 状态：🟡 总体设计完成；下一步仅执行 M0.5F0（rc.8 基线升级），通过 Sol 验收后才执行 M0.5F1（Provider 零调用 Dry-run）。全阶段禁止真实 Provider 调用。
+
+#### 19.16.1 目标与阶段边界
+
+M0.5F 连接“已通过离线验证的 M0.5E Canary Runner”与“DSH 官方公开 Provider/凭据接口”。它不执行 D2，而是回答：
+
+1. 先把当前项目从 `0.1.0-rc.6` 原子升级到官方 `next` 基线 `0.1.0-rc.8`，证明既有 M0～M0.5E 契约没有回归；
+2. rc.8 是否具备公开 Provider、模型路由、凭据与 Agent Loop 接口；
+3. 能否在不读取或复制 API Key 的前提下生成确定、可审计、可批准的真实运行计划；
+4. 能否证明重试、额外后台模型调用、默认超大输出与用户环境污染均被关闭；
+5. 用户批准的具体 Provider、模型、Fixture、调用上限、输出上限与成本边界是什么。
+
+完成后的唯一允许状态为：
+
+```text
+real_canary_ready_for_user_approval
+```
+
+或稳定的阻断状态。M0.5F 禁止输出 `real_provider_plumbing_pass|real_provider_plumbing_fail|GO|ADJUST|STOP`，不解析真实回复、不形成质量证据、不写真实 D2 Receipt。批准本阶段代码或文档不等于批准真实调用；D2 仍需单独、明确的执行授权。
+
+#### 19.16.2 M0.5F0：rc.8 基线升级 Gate
+
+DSH 官方仍处于 Developer Preview，并明确可能产生兼容性破坏。2026-08-20 的 npm 元数据中 `@deepseek-ai/dsh` 的 `next` 为 `0.1.0-rc.8`、`latest` 为 `0.1.0-rc.7`；当前项目仍固定在 `0.1.0-rc.6`。因此拆为两个独立变更：
+
+```text
+M0.5F0：所有 DSH 官方包原子升级至精确 rc.8 + 既有契约全量回归
+  → Sol Review / Security Review / 独立提交
+M0.5F1：只基于已签收 rc.8 的公开 Provider/Credential 接口实现零调用 Dry-run
+```
+
+M0.5F0 只允许修改 DSH 依赖版本、lockfile、因公开 API 变更所必需的最小兼容代码与测试。它不得新增 Provider 桥接、授权对象、真实凭据逻辑或网络调用。升级必须满足：
+
+- 所有已声明的 `@deepseek-ai/dsh-*` 包使用同一精确 `0.1.0-rc.8`，禁止 rc.6/rc.7/rc.8 混装；
+- 先记录 rc.6 基线门禁，再更新版本；任何失败必须区分依赖安装、TypeScript API、运行时契约、Canonical/Hash、打包边界；
+- M0～M0.5E 全部既有测试、golden、Fixture Hash、Receipt 与 pack-check 不得静默更新；只有官方公开 API 的机械适配可以修改，协议输出漂移必须停止并交给 Sol 决策；
+- 不增加 `@deepseek-ai/dsh-llm-deepseek`，除非它已是完成 rc.8 依赖闭包不可缺少的官方 peer；即使安装，也不得注册或调用；
+- 冻结安装、typecheck、全量 test、build、pack、pack-check 全绿后，才能把 rc.8 视为新的项目基线；
+- M0.5F0 单独提交，不能与 M0.5F1 混成一个 diff。
+
+##### 19.16.2.1 RC8BaselineAudit
+
+M0.5F0 必须生成并在交付报告中展示确定性的升级审计结果；该对象只用于测试和 Review，不进入生产插件或发布包：
+
+```yaml
+schema_version: 1
+status: rc8_baseline_ready_for_sol_review|blocked
+source_version: "0.1.0-rc.6"
+target_version: "0.1.0-rc.8"
+npm_next_version: "0.1.0-rc.8"
+package_json_sha256: "sha256_..."
+lockfile_sha256: "sha256_..."
+direct_dsh_packages:
+  - name: "@deepseek-ai/dsh-agent-loop"
+    declared_version: "0.1.0-rc.8"
+    resolved_version: "0.1.0-rc.8"
+public_seams:
+  cordis_plugin: pass|blocked
+  agent_loop: pass|blocked
+  llm_adapter: pass|blocked
+  session: pass|blocked
+  tools: pass|blocked
+  additional_contexts: pass|blocked
+compatibility:
+  canonical_goldens_unchanged: true
+  fixture_hashes_unchanged: true
+  receipt_contracts_unchanged: true
+  production_exports_unchanged: true
+  tarball_boundary_unchanged: true
+audit_sha256: "sha256_..."
+```
+
+数组按包名稳定排序；Hash 覆盖除自身外全部字段。审计时间、机器路径、安装耗时和 npm 临时目录不进入 Canonical Bytes。任何 `blocked` 项都使总体状态为 `blocked`，不得通过修改 golden 或删除回归测试转绿。
+
+##### 19.16.2.2 M0.5F0 TDD 与回归矩阵
+
+至少覆盖：
+
+1. 任一直接 `@deepseek-ai/dsh-*` 依赖仍为 rc.6、rc.7、范围版本或 workspace 占位时拒绝；
+2. declared rc.8 但 lockfile/resolved package 不是同一精确 rc.8 时拒绝；
+3. 同一包多版本或核心 DSH 依赖图跨 RC 混装时拒绝；
+4. npm `next` 不再等于目标 rc.8、目标包缺失或 peer 依赖不可满足时停止，不自动追新版本；
+5. M0.5B～E 使用的公开入口无法加载、类型签名变化或 Cordis 注册/销毁失败时阻断；
+6. `additionalContexts`、Tool result、Session/Agent Loop 公开链路的既有测试必须原样通过；
+7. M0.5A～E 的 Canonical Bytes、Fixture Hash、Receipt Schema 与确定性结果不得变化；
+8. `src/index.ts` 生产导出、`cordis.patch.yml` Bundle 和 tarball 五文件白名单不得变化；
+9. 测试期间 Provider stream、Credential resolve、用户 DSH_HOME/Workspace/Session 访问次数均为 0；
+10. 相同 package.json/lockfile/公开 seam 输入生成逐字节一致的 `RC8BaselineAudit`；
+11. 错误输出不得包含 npm token、绝对用户路径、环境变量值或 lockfile 临时路径；
+12. rc.8 适配不得删除、跳过或改名既有测试来降低覆盖率。
+
+##### 19.16.2.3 M0.5F0 独立门禁
+
+升级前先在 rc.6 运行一次完整基线，升级后执行：
+
+```bash
+corepack pnpm install --frozen-lockfile
+corepack pnpm typecheck
+corepack pnpm exec vitest run tests/dsh-rc8-compat.spec.ts tests/m05d-d0.spec.ts tests/m05e.spec.ts
+corepack pnpm test
+corepack pnpm build
+corepack pnpm pack
+node tests/pack-check.mjs
+git diff --check
+```
+
+只有全部通过并经 Sol Review / Security Review 后，M0.5F0 才可单独提交。提交后主文档状态更新为“rc.8 baseline accepted”，再开始 M0.5F1；不得在同一次 Gemini 任务中继续写 Provider 桥接。
+
+#### 19.16.3 M0.5F1：版本与公开接口 Gate
+
+M0.5F0 签收后，M0.5F1 必须先生成 `ProviderCompatibilityAudit`：
+
+```yaml
+schema_version: 1
+audited_at: "由测试显式传入的 RFC3339 时间"
+previous_dsh_version: "0.1.0-rc.6"
+project_dsh_version: "0.1.0-rc.8"
+project_lock_sha256: "sha256_..."
+official_reference:
+  repository: "deepseek-ai/deepseek-harness"
+  branch_or_tag: "..."
+  commit: "..."
+packages:
+  dsh_agent_loop: "..."
+  dsh_llm: "..."
+  dsh_llm_deepseek: "..."
+public_contracts:
+  provider_plugin: pass|missing|incompatible
+  model_route: pass|missing|incompatible
+  credential_reference: pass|missing|incompatible
+  isolated_profile: pass|missing|incompatible
+  zero_retry_path: pass|missing|incompatible
+  max_output_cap: pass|missing|incompatible
+decision: compatible|blocked
+audit_sha256: "sha256_..."
+```
+
+硬规则：
+
+- 只允许 DSH 官方公开包、公开导出和公开 Cordis 服务；禁止深路径导入、复制私有实现、Desktop 内部 IPC 或 Shell 驱动 UI；
+- 首选官方 DeepSeek Provider 插件、官方 Provider route 和公开模型目录；具体包名、route 与 model 必须由 rc.8 实际导出和运行时 Smoke 证明；
+- rc.8 缺少必要公开能力时必须 `blocked` 并输出精确差异；不得换第三方 Provider 或绕过凭据服务；
+- 若确需升级 DSH，另开兼容性升级设计、提交与全量回归，之后重跑 M0.5F；
+- Audit 的时间、版本和源码身份均为显式输入，禁止以 `Date.now()` 或联网查询作为确定性输出的隐含输入。
+
+#### 19.16.4 Provider、模型与预算固定
+
+Compatibility Audit 通过后，Dry-run 才能构造 `RealCanaryPlan`。计划必须固定：
+
+- Provider route、模型 ID、DSH 与 Provider 包版本；
+- v2 Fixture Manifest Hash 与 M0.5E Canary Plan Hash；
+- 6 个固定 Run 与 requested seed `101`；
+- Task 调用最多 24、Acquisition 最多 6、总调用最多 30；
+- 单次 timeout 30 秒、整批 timeout 10 分钟；
+- 单次输出 Token 上限建议固定 `4096`，不得继承 Provider 超大默认值；
+- 连续 2 次 Provider/协议错误熔断；
+- 禁止自动重试、标题生成、摘要、压缩、后台 Agent 或任何未被 Budget Ledger claim 的模型调用。
+
+模型和限额不是执行时自由参数。任何变更必须产生新 Plan Hash 并重新批准。
+
+#### 19.16.5 零重试与 Claim 对应请求
+
+M0.5F 必须证明：
+
+```text
+1 successful Ledger claim == at most 1 outbound Provider request
+```
+
+- 隔离 Profile 不加载自动重试插件；
+- 若公开配置支持零重试，必须以运行时计数测试证明；
+- 若不能关闭 Agent Loop 重试，可使用公开单次 stream 路径，但仍须保持 M0.5D 的协议与回执验证边界；
+- 两条路径都无法证明时，Audit 必须 `blocked`；
+- 不接受仅凭配置名、注释或文档作出“无重试”判断，必须使用 Counting Fake Transport/Adapter 证明。
+
+#### 19.16.6 凭据安全边界
+
+Mnemosyne 不拥有、读取、缓存或持久化 DeepSeek API Key。凭据只能由 DSH 公开凭据机制在真实请求边界解析。
+
+M0.5F Dry-run：
+
+- 不读取 `process.env`、默认 `$DSH_HOME`、`.credentials.yaml`、Keychain、用户 Profile、Session 或 Workspace；
+- 不调用 `credentials.resolve()` 或等价秘密解析接口；
+- 不实例化会联网的真实 Transport；
+- 只记录 Credential Reference 的受控标识和非秘密可用性状态；
+- Config、Audit、Plan、Authorization、错误、日志、快照与 Fixture 均不得包含 API Key、Authorization Header、秘密查询参数或秘密长度特征。
+
+实际 D2 获批后，也只能由隔离 DSH Profile 在调用瞬间解析 Credential Reference；Mnemosyne 只接收脱敏状态与规范化 Usage。
+
+#### 19.16.7 Dry-run 授权对象
+
+Dry-run 输出严格的 `RealCanaryAuthorizationRequest`：
+
+```yaml
+schema_version: 1
+authorization_id: "auth_..."
+status: pending_user_approval
+created_at: "显式输入"
+expires_at: "显式输入"
+compatibility_audit_sha256: "sha256_..."
+canary_plan_sha256: "sha256_..."
+fixture_manifest_sha256: "sha256_..."
+runtime:
+  dsh_version: "0.1.0-rc.8"
+  provider_package: "..."
+  provider_package_version: "..."
+  provider_route: "..."
+  model: "..."
+limits:
+  task_calls: 24
+  acquisition_calls: 6
+  total_calls: 30
+  max_output_tokens_per_call: 4096
+  call_timeout_ms: 30000
+  batch_timeout_ms: 600000
+  automatic_retries: 0
+cost:
+  status: verified|unavailable
+  currency: "USD|null"
+  source_ref: "非秘密的官方价格来源引用|null"
+  source_checked_at: "显式时间|null"
+  worst_case_upper_bound: "十进制定点字符串|null"
+isolation:
+  temporary_dsh_home: true
+  temporary_workspace: true
+  user_state_access: false
+authorization_sha256: "sha256_..."
+```
+
+授权规则：
+
+- Hash 覆盖除自身外全部字段；时间必须显式传入，过期授权不可执行；
+- Audit、Plan、Fixture、版本、Provider、模型或限额变化会使旧授权失效；
+- 用户决定用独立 Approval Receipt 表达，不原地修改 pending 对象；
+- Approval Receipt 引用 Authorization Hash，并记录 `approved|rejected`、显式时间和受控主体标识；
+- 价格不是已验证公共契约时不得猜测，必须标记 `unavailable`；执行前至少需要用户明确接受绝对调用上限和单次输出上限；
+- M0.5F 只生成 pending Authorization Request，不生成 approved Receipt。
+
+#### 19.16.8 隔离 Profile Dry-run
+
+在全新临时 isolation root 内规划最小 DSH Profile，但不启动真实 Provider：
+
+1. 复用 M0.5E `prepareIsolationRoot`，拒绝已有目标、路径穿越与任意祖先 symlink；
+2. 仅规划 D2 所需公开 Agent Loop、LLM、官方 Provider、Tool、Session 与 Mnemosyne evaluation-only 组件；
+3. 排除 retry、title、summary、compaction、Desktop、Web 和其他隐式模型调用插件；
+4. 校验 Provider route 唯一、模型存在、Credential Reference 形状合法、输出上限覆盖默认值；
+5. 用 Fake Credential Service 与 Counting Fake Transport 做公开注册、配置校验和单请求语义 Smoke；
+6. dispose 后断言服务、route、Tool、Session 与临时资源无残留；
+7. 用户默认 DSH_HOME 与 Workspace 前后目录指纹一致。
+
+若官方插件在构造时强制解析真实凭据或联网，本阶段必须停止并报告不兼容，禁止打补丁绕过。
+
+#### 19.16.9 M0.5F1 TDD 失败矩阵
+
+Gemini 3.7 Flash 必须先写失败测试，至少覆盖：
+
+1. rc.8 缺 Provider 包、公开导出、Credential seam、route 或 model 时 Audit=`blocked`；
+2. 锁文件版本、实际包版本、Audit commit 或 Plan Hash 不一致时拒绝；
+3. 重复 route、未知模型、非官方 Provider 或深路径导入描述被拒绝；
+4. retry 插件存在、retry 非零或一次 claim 触发多次 Transport 请求时拒绝；
+5. 未显式覆盖超大默认输出、输出上限非法时拒绝；
+6. Dry-run 中 `credential.resolve`、真实 Adapter stream、`fetch/http/https/net` 调用计数均为 0；
+7. Dry-run 不读取环境变量、默认 DSH_HOME、用户 Workspace、Session 或凭据文件；
+8. Authorization 的任一绑定字段被篡改时 Hash 校验失败；
+9. 过期、未来创建、未知状态、原地 approved 或缺明确限额的授权拒绝；
+10. 价格缺失时不得填 0 或猜测，必须 `unavailable`；
+11. Key、Header、绝对用户路径、原始异常、Provider 回执与 Fixture 私有内容不进入输出；
+12. isolation root 自身/祖先 symlink、已有目标与非目录组件在外部写入前拒绝；
+13. dispose 后无注册残留，用户目录指纹不变；
+14. 相同显式输入产生逐字节一致的 Audit、Plan 和 Authorization；
+15. M0.5F 代码、Fake、Audit Fixture 与授权样本不进入生产 export、dist 或 tarball。
+
+#### 19.16.10 M0.5F1 文件边界
+
+建议最小范围：
+
+```text
+src/m05f/provider-audit.ts
+src/m05f/authorization.ts
+src/m05f/dry-run.ts
+src/m05f/index.ts
+tests/m05f.spec.ts
+tests/pack-check.mjs
+```
+
+- 不从 `src/index.ts` 导出 M0.5F，不修改生产 `cordis.patch.yml`；
+- Provider 包不得进入生产 dependencies/peerDependencies；
+- 若公开 rc.8 Smoke 必须增加官方 Provider 包，只能加精确 rc.8 evaluation-only devDependency，并在报告中举证；
+- M0.5F1 禁止再次升级任一 DSH 包；rc.8 不兼容即停止；
+- 不修改 M0.5A～E Fixture、Canonical Bytes、Hash 或已签收回执。
+
+#### 19.16.11 M0.5F1 自动门禁与完成标准
+
+```bash
+corepack pnpm install --frozen-lockfile
+corepack pnpm typecheck
+corepack pnpm exec vitest run tests/m05d-d0.spec.ts tests/m05e.spec.ts tests/m05f.spec.ts
+corepack pnpm test
+corepack pnpm build
+corepack pnpm pack
+node tests/pack-check.mjs
+git diff --check
+```
+
+完成标准：Audit 给出 rc.8 可复核结论；Dry-run 对 Provider/Profile/Credential/Retry/Output/Isolation 完成零调用验证；pending Authorization 确定、可校验、可过期并绑定全部版本、Hash、限额和成本状态；测试证明 Provider stream、Credential resolve 与网络调用均为 0；发布包无 evaluation-only 实现。最终只能是 `real_canary_ready_for_user_approval` 或稳定 `blocked`，不得提交、推送或创建 Tag。
+
+#### 19.16.12 Gemini 3.7 Flash 实现提示词（当前仅 M0.5F0）
+
+```text
+你是实现工程师，使用 Gemini 3.7 Flash。工作目录：
+/Users/czy/Desktop/demo/dsh-Mnemosyne
+
+执行 M0.5F0：把 dsh-Mnemosyne 的 DSH 基线从 0.1.0-rc.6 原子升级到官方 next 0.1.0-rc.8，并完成全量兼容性回归。
+
+唯一设计依据是 docs/DSH_MNEMOSYNE_ARCHITECTURE.zh-CN.md 第 19.14～19.16 节。先完整读取这些章节、package.json、pnpm-lock.yaml、提交 e70b3ba 及当前 git status。不要调用 DSH Agent 编码；不要修改 oh-my-reasonix。
+
+本任务不是 M0.5F1，也不是执行真实 D2。禁止真实 Provider 调用、禁止读取或解析 API Key、process.env、默认 DSH_HOME、用户 Profile/Session/Workspace、.credentials.yaml 或 Keychain，禁止产生模型费用。网络只允许访问 npm 官方 Registry 和 DSH 官方 GitHub 源码以解析精确 rc.8 依赖与公开 API；禁止访问任何模型 Provider endpoint。不得把升级完成写成 real_canary_ready_for_user_approval、real_provider_plumbing_pass 或 GO/ADJUST/STOP。
+
+先确认 npm 元数据：@deepseek-ai/dsh 的 next 必须精确为 0.1.0-rc.8；若 next 已变化、任一项目依赖没有 rc.8、完整依赖闭包不可解析，立即停止并报告，不猜版本。
+
+执行顺序：
+1. 检查 git status；不得覆盖用户已有修改。记录 package.json/pnpm-lock.yaml 中全部 DSH 精确版本。
+2. 在 rc.6 基线上运行 frozen install、typecheck、完整 test、build、pack、pack-check、git diff --check，保存基线结果。
+3. 先写一个最小兼容性测试，断言 package.json 中全部直接 @deepseek-ai/dsh-* 依赖使用同一精确版本、实际解析版本一致、M0.5B～E 使用的公开 Cordis/Agent Loop/LLM/Session/Tool seam 仍可从公开入口加载。测试应在 rc.6 基线因目标版本不符而失败。
+4. 将 package.json 中全部直接 @deepseek-ai/dsh-* peerDependencies/devDependencies 原子升级为精确 0.1.0-rc.8，并重新生成 lockfile。禁止 rc.6/rc.7/rc.8 混装。
+5. 仅修复 rc.8 公开 API 变化导致的最小编译或测试问题。禁止 deep import、复制 DSH 私有实现、放宽验证、重录 golden、修改 Fixture/Canonical Bytes/Hash/Receipt 以掩盖回归。
+6. 若 Cordis、Schemastery 或非 DSH 包必须因 rc.8 peer constraint 升级，先提供解析证据；仅做最小精确升级并在报告单列。没有硬性 peer 约束则不动。
+7. 不新增 Provider 桥接、Authorization、Credential 代码，不创建 src/m05f/**，不注册 @deepseek-ai/dsh-llm-deepseek。若该包只是间接依赖，记录但不调用。
+
+升级成功标准：既有 123+ 测试与新增版本一致性测试全绿；M0.5A～E golden/Fixture/Receipt 不变；生产导出与 tarball 白名单不变；所有直接和解析到的 DSH 核心包不存在跨 RC 混装；无真实 Provider、凭据或用户状态访问。
+
+允许修改：package.json、pnpm-lock.yaml、新增 tests/dsh-rc8-compat.spec.ts，以及公开 API 变更要求的最小现有源码/测试。不要修改 README、主架构文档、生产 cordis.patch.yml，除非 rc.8 的公开插件 manifest 契约使后者无法加载；遇到该情况先停止并报告，不自行扩大范围。
+
+运行：
+corepack pnpm install --frozen-lockfile
+corepack pnpm typecheck
+corepack pnpm exec vitest run tests/dsh-rc8-compat.spec.ts tests/m05d-d0.spec.ts tests/m05e.spec.ts
+corepack pnpm test
+corepack pnpm build
+corepack pnpm pack
+node tests/pack-check.mjs
+git diff --check
+
+完成后做普通 review 和 security review。报告：rc.6 基线结果、npm next 与各包 rc.8 可用性证据、升级前后依赖矩阵、peer 依赖变化、失败测试先行证据、所有机械适配、golden/Fixture/Receipt 未漂移证据、tarball 清单、全部门禁、零 Provider/零凭据/零用户状态访问声明，以及仍留给 M0.5F1 的公开 Provider 桥接工作。
+
+不要 git commit、push 或创建 Tag。完成后只可报告 rc8_baseline_ready_for_sol_review 或稳定 blocked，等待 Sol 验收；不要进入 M0.5F1。
 ```
