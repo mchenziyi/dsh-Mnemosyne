@@ -1,6 +1,6 @@
 # M0.5D-D2 Persistence CTO Review 修复契约
 
-状态：🟡 待 Gemini 3.7 Flash 在额度恢复后执行
+状态：✅ 已完成并通过 CTO 独立验收；D2-B 真实 Canary 仍需用户单独授权
 
 ## 1. 目标
 
