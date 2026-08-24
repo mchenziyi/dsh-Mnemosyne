@@ -1,6 +1,6 @@
 # dsh-Mnemosyne M0.5D-D2-C 开发计划：真实 Provider 脱敏失败诊断
 
-> 状态：🟡 待实现
+> 状态：✅ 已实现并通过 CTO Review（2026-08-24）；`real_canary_diagnostics_ready`
 > 前置结果：D2-B3=`real_provider_plumbing_fail/circuit_open`
 > DSH 基线：全部公开包固定 `0.1.0-rc.8`
 > 本阶段禁止真实 Provider 请求、禁止读取真实 Key、禁止创建 Approval、禁止自动重试 D2-B3
@@ -72,7 +72,7 @@ AUTH
 INVALID_CREDENTIAL
 MISSING_CREDENTIAL
 RATE_LIMIT
-QUOTA_EXCEEDED
+QUOTA
 TIMEOUT
 TRANSPORT
 MALFORMED_RESPONSE
@@ -93,7 +93,7 @@ ABORTED
 | DSH code / 本地阶段 | category |
 |---|---|
 | `AUTH|INVALID_CREDENTIAL|MISSING_CREDENTIAL` | `authentication_rejected` |
-| `RATE_LIMIT|QUOTA_EXCEEDED` | `rate_limited` |
+| `RATE_LIMIT|QUOTA` | `rate_limited` |
 | `TIMEOUT` | `provider_timeout` |
 | `TRANSPORT` | `network_failure` |
 | `MALFORMED_RESPONSE|STREAM_CLOSED|EMPTY_RESPONSE` | `provider_protocol_error` |
@@ -133,7 +133,7 @@ ABORTED
 failure_diagnostics: SanitizedFailureDiagnostic[]
 ```
 
-新 Runner 必须始终输出显式数组。为读取 D2-C 前的历史 Summary，Validator 允许字段缺失并规范为 `[]`；但新编码路径不得省略。旧 Summary 的既有 Canonical Bytes/Hash 不得被静默重写。
+新 Runner 必须始终输出显式数组。为读取 D2-C 前的历史 Summary，Validator 允许字段缺失并在类型层视为可选（调用方使用 `?? []`），保持 Legacy 原始对象键与 Hash 原样不变；新编码路径不得省略。旧 Summary 的既有 Canonical Bytes/Hash 不得被静默重写。
 
 规则：
 
@@ -175,11 +175,11 @@ failure_categories: string[]
 7. 同 sequence 重复、非升序、超 Ledger、success 非空拒绝；
 8. 三个失败 claim 可产生最多三个 Diagnostic，breaker 仍严格在连续两错后打开；
 9. pre-provider blocked 保持零 Diagnostic、零 claim、零网络；
-10. 旧 Summary 缺字段可读且规范为 `[]`，旧字节/Hash golden 不变；
+10. 旧 Summary 缺字段可读且保持原对象/Hash 不变（调用方使用 `?? []`），旧字节/Hash golden 不变；
 11. 新 Summary 的 diagnostics 参与 Hash，篡改必拒绝；
 12. Fake AUTH/TRANSPORT/MALFORMED_RESPONSE/模型输出错误端到端摘要与 CLI 类别正确；
 13. pack-check 同时扫描 JS/DTS/tgz，证明 evaluation-only 代码零泄漏；
-14. 全部既有 261 项测试不回归。
+14. 全部既有测试不回归；最终全仓 325 项测试通过。
 
 ## 六、门禁与提交边界
 

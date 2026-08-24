@@ -2290,7 +2290,7 @@ Runner/Fake/Fixture 不从 src/index.ts 导出，pack-check 必须证明不进�
 
 ### 19.16 M0.5F：DSH rc.8 基线升级、公共 Provider 桥接审计与授权门禁
 
-> 状态：✅ M0.5F0/F1 与 D2-A/B1/B2 已完成；D2-B3 已经用户单独明确批准并执行，结果为 `real_provider_plumbing_fail/circuit_open`。下一步按 `docs/DSH_MNEMOSYNE_M05D2_C_DIAGNOSTICS_PLAN.zh-CN.md` 补充稳定、脱敏的 Provider 错误分类，再决定是否申请新的诊断性执行授权；D3 未授权。
+> 状态：✅ M0.5F0/F1、D2-A/B1/B2 与 D2-C 已完成；D2-B3 已经用户单独明确批准并执行，结果为 `real_provider_plumbing_fail/circuit_open`。D2-C 已提供稳定、脱敏且可持久化的 Provider 错误分类，当前状态为 `real_canary_diagnostics_ready`；任何诊断性重试仍须重新生成 Authorization/Approval 并取得用户明确授权。D3 未授权。
 
 #### 19.16.1 目标与阶段边界
 

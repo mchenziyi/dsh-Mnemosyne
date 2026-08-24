@@ -26,6 +26,7 @@ import {
   type RealCanaryReceipt,
   type RealCanarySummary,
 } from '../src/m05d2/runner.js'
+import { createSanitizedFailureDiagnostic } from '../src/m05d2/diagnostics.js'
 import { Context, Service } from '@deepseek-ai/cordis'
 import {
   persistExecutionClaim,
@@ -720,6 +721,7 @@ describe('M0.5D-D2-A: Real Provider Canary Offline Bridge & Dual Authorization G
         },
         reason_code: null,
         cleanup_clean: true,
+        failure_diagnostics: [],
       }
 
       const passSummary: RealCanarySummary = {
@@ -2253,6 +2255,7 @@ describe('M0.5D-D2-A: Real Provider Canary Offline Bridge & Dual Authorization G
         },
         reason_code: null,
         cleanup_clean: true,
+        failure_diagnostics: [],
       }
 
       const summary: RealCanarySummary = {
@@ -3042,6 +3045,10 @@ describe('M0.5D-D2-A: Real Provider Canary Offline Bridge & Dual Authorization G
             failed_calls: 2,
             consecutive_provider_or_protocol_errors: 2,
           },
+          failure_diagnostics: [
+            createSanitizedFailureDiagnostic({ sequence: 1, call_kind: 'task', stage: 'provider_stream', category: 'network_failure', provider_code: 'TRANSPORT' }),
+            createSanitizedFailureDiagnostic({ sequence: 2, call_kind: 'task', stage: 'provider_stream', category: 'network_failure', provider_code: 'TRANSPORT' }),
+          ],
           summary_sha256: '',
         }
         validCircuitOpen.summary_sha256 = canonicalHash(withoutHash(validCircuitOpen as unknown as Record<string, unknown>, 'summary_sha256'))

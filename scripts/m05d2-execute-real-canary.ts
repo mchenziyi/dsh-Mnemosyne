@@ -422,6 +422,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     })
 
     if (isJson) {
+      const failureCategories = [
+        ...new Set((summary.failure_diagnostics ?? []).map((d) => d.category)),
+      ].sort()
       console.log(
         JSON.stringify(
           {
@@ -432,6 +435,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
             receipts_count: summary.receipts.length,
             ledger: summary.ledger,
             reason_code: summary.reason_code,
+            failure_categories: failureCategories,
             cleanup_clean: summary.cleanup_clean,
           },
           null,

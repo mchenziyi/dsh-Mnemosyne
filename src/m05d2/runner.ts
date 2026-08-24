@@ -39,6 +39,16 @@ import {
   createOpenTool,
 } from '../open-tool.js'
 import {
+  classifyFailure,
+  createSafeStreamFinishError,
+  createSanitizedFailureDiagnostic,
+  ModelOutputValidationError,
+  resolveClaimKind,
+  validateSanitizedFailureDiagnostic,
+  type FailureStage,
+  type SanitizedFailureDiagnostic,
+} from './diagnostics.js'
+import {
   RetrievalRuntime,
 } from '../retrieval/runtime.js'
 import {
@@ -227,6 +237,7 @@ export interface RealCanarySummary {
   ledger: BudgetSnapshot
   reason_code: ReasonCode | null
   cleanup_clean: boolean
+  failure_diagnostics?: SanitizedFailureDiagnostic[]
   summary_sha256: string
 }
 
@@ -813,20 +824,39 @@ export function validateRealCanaryReceipt(receipt: unknown): RealCanaryReceipt {
 
 export function validateRealCanarySummary(summary: unknown): RealCanarySummary {
   assertObject(summary)
-  assertExactKeys(summary, [
-    'schema_version',
-    'status',
-    'authorization_sha256',
-    'approval_sha256',
-    'plan_hash',
-    'fixture_manifest_sha256',
-    'receipts',
-    'deterministic_prefix_bytes',
-    'ledger',
-    'reason_code',
-    'cleanup_clean',
-    'summary_sha256',
-  ])
+  const isLegacy = !('failure_diagnostics' in summary)
+  if (isLegacy) {
+    assertExactKeys(summary, [
+      'schema_version',
+      'status',
+      'authorization_sha256',
+      'approval_sha256',
+      'plan_hash',
+      'fixture_manifest_sha256',
+      'receipts',
+      'deterministic_prefix_bytes',
+      'ledger',
+      'reason_code',
+      'cleanup_clean',
+      'summary_sha256',
+    ])
+  } else {
+    assertExactKeys(summary, [
+      'schema_version',
+      'status',
+      'authorization_sha256',
+      'approval_sha256',
+      'plan_hash',
+      'fixture_manifest_sha256',
+      'receipts',
+      'deterministic_prefix_bytes',
+      'ledger',
+      'reason_code',
+      'cleanup_clean',
+      'failure_diagnostics',
+      'summary_sha256',
+    ])
+  }
 
   if (summary.schema_version !== 1) throw new ProtocolValidationError()
   const STATUSES = ['real_provider_plumbing_pass', 'real_provider_plumbing_fail', 'real_provider_canary_aborted'] as const
@@ -885,6 +915,55 @@ export function validateRealCanarySummary(summary: unknown): RealCanarySummary {
     throw new ProtocolValidationError()
   }
   const checkedReceipts = summary.receipts.map(validateRealCanaryReceipt)
+
+  // Failure diagnostics validation
+  let validatedDiagnostics: SanitizedFailureDiagnostic[] | undefined
+  if (!isLegacy) {
+    if (!Array.isArray(summary.failure_diagnostics)) throw new ProtocolValidationError()
+    if (summary.failure_diagnostics.length !== (ledger.failed_calls as number)) {
+      throw new ProtocolValidationError()
+    }
+    validatedDiagnostics = summary.failure_diagnostics.map(validateSanitizedFailureDiagnostic)
+
+    // Sequence invariants: exactly completed_calls + 1 .. total_calls_claimed
+    const startSeq = (ledger.completed_calls as number) + 1
+    for (let i = 0; i < validatedDiagnostics.length; i++) {
+      const d = validatedDiagnostics[i]
+      if (d.sequence !== startSeq + i) {
+        throw new ProtocolValidationError()
+      }
+    }
+
+    // Call kind invariants derived from receipts
+    const completedTaskCalls = checkedReceipts.reduce((sum, r) => sum + r.model_call_count, 0)
+    const completedAcqCalls = checkedReceipts.length
+    const expectedFailedTaskCalls = (ledger.task_calls_claimed as number) - completedTaskCalls
+    const expectedFailedAcqCalls = (ledger.acquisition_calls_claimed as number) - completedAcqCalls
+
+    const taskDiags = validatedDiagnostics.filter((d) => d.call_kind === 'task')
+    const acqDiags = validatedDiagnostics.filter((d) => d.call_kind === 'acquisition')
+
+    if (taskDiags.length !== expectedFailedTaskCalls) {
+      throw new ProtocolValidationError()
+    }
+    if (acqDiags.length !== expectedFailedAcqCalls) {
+      throw new ProtocolValidationError()
+    }
+
+    if (expectedFailedAcqCalls > 1) {
+      throw new ProtocolValidationError()
+    }
+    if (acqDiags.length > 0) {
+      const lastDiag = validatedDiagnostics[validatedDiagnostics.length - 1]
+      if (lastDiag.call_kind !== 'acquisition' || lastDiag.sequence !== (ledger.total_calls_claimed as number)) {
+        throw new ProtocolValidationError()
+      }
+    }
+
+    if (summary.status === 'real_provider_plumbing_pass' && validatedDiagnostics.length !== 0) {
+      throw new ProtocolValidationError()
+    }
+  }
 
   // Requirement 2: All receipts in non-empty summary must have byte-for-byte identical provider.model
   if (checkedReceipts.length > 0) {
@@ -963,7 +1042,14 @@ export function validateRealCanarySummary(summary: unknown): RealCanarySummary {
   // Sanitization check (Requirement 4)
   assertSanitized(summary)
 
-  return summary as unknown as RealCanarySummary
+  if (isLegacy) {
+    return summary as unknown as RealCanarySummary
+  }
+
+  return {
+    ...summary,
+    failure_diagnostics: validatedDiagnostics,
+  } as unknown as RealCanarySummary
 }
 
 interface RunnerTimeoutState {
@@ -997,7 +1083,7 @@ interface RunSingleTaskOptions {
   onClaim: (kind: 'task' | 'acquisition') => number
   onTransportFinished: (seq: number) => void
   onComplete: (seq: number) => void
-  onFail: (seq: number, err: unknown) => void
+  onFail: (seq: number, err: unknown, fallbackStage: FailureStage) => void
 }
 
 async function runRealCanarySingleRun(
@@ -1145,6 +1231,13 @@ async function runRealCanarySingleRun(
             ) {
               isToolCall = true
             }
+            if (chunk.type === 'finish' && (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted')) {
+              const streamErr = createSafeStreamFinishError(chunk.reason)
+              settledFail = true
+              timeoutState.protocolError = streamErr
+              options.onFail(seq, streamErr, 'provider_stream')
+              throw streamErr
+            }
             yield chunk
           }
           if (timeoutTimer) clearTimeout(timeoutTimer)
@@ -1164,7 +1257,7 @@ async function runRealCanarySingleRun(
             } else {
               timeoutState.protocolError = err
             }
-            options.onFail(seq, err)
+            options.onFail(seq, err, 'provider_stream')
           }
           if (iterator?.return) {
             try {
@@ -1259,28 +1352,6 @@ async function runRealCanarySingleRun(
           ? 'recall_user_message'
           : 'user_message'
       )
-    const usageEvents = events
-      .filter((event: any) => event.type === 'assistant/message')
-      .flatMap((event: any) => (event.data.usage ? [validateUsage(event.data.usage)] : []))
-    if (usageEvents.length === 0) throw new ProtocolValidationError()
-
-    const usage = usageEvents.reduce(
-      (total, item) => ({
-        inputTokens: total.inputTokens + item.inputTokens,
-        outputTokens: total.outputTokens + item.outputTokens,
-        ...(total.cacheReadTokens !== undefined || item.cacheReadTokens !== undefined
-          ? { cacheReadTokens: (total.cacheReadTokens ?? 0) + (item.cacheReadTokens ?? 0) }
-          : {}),
-        ...(total.cacheWriteTokens !== undefined || item.cacheWriteTokens !== undefined
-          ? { cacheWriteTokens: (total.cacheWriteTokens ?? 0) + (item.cacheWriteTokens ?? 0) }
-          : {}),
-        ...(total.reasoningTokens !== undefined || item.reasoningTokens !== undefined
-          ? { reasoningTokens: (total.reasoningTokens ?? 0) + (item.reasoningTokens ?? 0) }
-          : {}),
-      }),
-      { inputTokens: 0, outputTokens: 0 } as Usage
-    )
-
     const assistant = [...events]
       .reverse()
       .find(
@@ -1289,7 +1360,6 @@ async function runRealCanarySingleRun(
           event.data?.message?.content?.length === 1 &&
           event.data?.message?.content[0]?.type === 'text'
       ) as { data: { message: { content: [{ type: 'text'; text: string }] } } } | undefined
-    if (!assistant) throw new ProtocolValidationError()
 
     const textMemoryIds = (text: string) => [...text.matchAll(/"memory_id":"(memory_[a-z0-9][a-z0-9._-]{0,63})"/g)].map((m) => m[1])
     const recallTexts = events
@@ -1316,12 +1386,55 @@ async function runRealCanarySingleRun(
     const openedMemoryIds = [...new Set(toolCalls.includes('mnemosyne_open') ? openDisclosures.map((d) => d.memory_id) : recallContexts.flatMap((c) => c.open_disclosures.map((i) => i.memory_id)))].sort()
     const observed = [...new Set([...recallMemoryIds, ...toolMemoryIds])].sort()
 
-    const modelReceipt = validateModelReceipt(
-      assistant.data.message.content[0].text,
-      observed,
-      resultFields,
-      options.task.task_id
-    )
+    let modelReceipt: ReturnType<typeof validateModelReceipt>
+    let usage: Usage
+    try {
+      const usageEvents = events
+        .filter((event: any) => event.type === 'assistant/message')
+        .flatMap((event: any) => {
+          if (event.data?.usage) {
+            try {
+              return [validateUsage(event.data.usage)]
+            } catch {
+              throw new ModelOutputValidationError('task_output_validation')
+            }
+          }
+          return []
+        })
+      if (usageEvents.length === 0) throw new ModelOutputValidationError('task_output_validation')
+
+      usage = usageEvents.reduce(
+        (total, item) => ({
+          inputTokens: total.inputTokens + item.inputTokens,
+          outputTokens: total.outputTokens + item.outputTokens,
+          ...(total.cacheReadTokens !== undefined || item.cacheReadTokens !== undefined
+            ? { cacheReadTokens: (total.cacheReadTokens ?? 0) + (item.cacheReadTokens ?? 0) }
+            : {}),
+          ...(total.cacheWriteTokens !== undefined || item.cacheWriteTokens !== undefined
+            ? { cacheWriteTokens: (total.cacheWriteTokens ?? 0) + (item.cacheWriteTokens ?? 0) }
+            : {}),
+          ...(total.reasoningTokens !== undefined || item.reasoningTokens !== undefined
+            ? { reasoningTokens: (total.reasoningTokens ?? 0) + (item.reasoningTokens ?? 0) }
+            : {}),
+        }),
+        { inputTokens: 0, outputTokens: 0 } as Usage
+      )
+
+      if (!assistant) throw new ModelOutputValidationError('task_output_validation')
+      modelReceipt = validateModelReceipt(
+        assistant.data.message.content[0].text,
+        observed,
+        resultFields,
+        options.task.task_id
+      )
+    } catch (valErr) {
+      if (!timeoutState.protocolError && finalTaskSequence !== undefined) {
+        const wrappedErr = new ModelOutputValidationError('task_output_validation')
+        timeoutState.protocolError = wrappedErr
+        options.onFail(finalTaskSequence, wrappedErr, 'task_output_validation')
+      }
+      throw valErr
+    }
 
     const retrievalEstimatedTokens = [...toolResultTexts, ...recallTexts].reduce((total, text: string) => total + Math.max(1, text.trim().split(/\s+/).length), 0)
 
@@ -1349,11 +1462,13 @@ async function runRealCanarySingleRun(
       acqTimer = setTimeout(() => {
         if (isAcqBatchExpiringFirst) {
           isAcqBatchTimeout = true
+          timeoutState.batchTimedOut = true
           const err = new M05DBatchTimeoutError()
           acqController.abort(err)
           reject(err)
         } else {
           isAcqCallTimeout = true
+          timeoutState.callTimedOut = true
           const err = new M05DAgentTimeoutError()
           acqController.abort(err)
           reject(err)
@@ -1400,35 +1515,52 @@ async function runRealCanarySingleRun(
         if (isAcqCallTimeout) {
           throw new M05DAgentTimeoutError()
         }
-        chunks.push(nextResult.value)
+        const chunk = nextResult.value
+        if (chunk.type === 'finish' && (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted')) {
+          const err = createSafeStreamFinishError(chunk.reason)
+          throw err
+        }
+        chunks.push(chunk)
       }
       if (acqTimer) clearTimeout(acqTimer)
 
-      if (!acqSettledFail && !isAcqCallTimeout && !isAcqBatchTimeout) {
-        options.onTransportFinished(acqSeq)
+      let acqUsages: Usage[]
+      try {
+        acqUsages = chunks
+          .filter((c): c is Extract<StreamChunk, { type: 'usage' }> => c.type === 'usage')
+          .map((c) => validateUsage(c.usage))
+        if (acqUsages.length !== 1) throw new ModelOutputValidationError('acquisition_output_validation')
+      } catch {
+        throw new ModelOutputValidationError('acquisition_output_validation')
       }
-
-      const acqUsages = chunks
-        .filter((c): c is Extract<StreamChunk, { type: 'usage' }> => c.type === 'usage')
-        .map((c) => validateUsage(c.usage))
-      if (acqUsages.length !== 1) throw new ProtocolValidationError()
 
       const acqText = chunks
         .filter((c): c is Extract<StreamChunk, { type: 'text-delta' }> => c.type === 'text-delta')
         .map((c) => c.text)
         .join('')
-      const validatedCandidate = validateAcquisitionCandidate(acqText)
+      let validatedCandidate: ReturnType<typeof validateAcquisitionCandidate>
+      try {
+        validatedCandidate = validateAcquisitionCandidate(acqText)
+      } catch {
+        throw new ModelOutputValidationError('acquisition_output_validation')
+      }
       candidateHash = validatedCandidate.candidate_content_sha256
       acquisitionTokens =
         acqUsages[0].inputTokens +
         acqUsages[0].outputTokens +
         (acqUsages[0].cacheReadTokens ?? 0) +
         (acqUsages[0].cacheWriteTokens ?? 0)
+
+      options.onTransportFinished(acqSeq)
     } catch (acqErr) {
       if (acqTimer) clearTimeout(acqTimer)
       if (!acqSettledFail) {
         acqSettledFail = true
-        options.onFail(acqSeq, acqErr)
+        const fallbackStage: FailureStage =
+          acqErr instanceof ModelOutputValidationError
+            ? 'acquisition_output_validation'
+            : 'provider_stream'
+        options.onFail(acqSeq, acqErr, fallbackStage)
       }
       if (acqIterator?.return) {
         try {
@@ -1517,6 +1649,8 @@ export async function runRealCanaryD2(options: D2RunnerOptions): Promise<RealCan
 
   const ledger = new BudgetLedger()
   const receipts: RealCanaryReceipt[] = []
+  const diagnosticsMap = new Map<number, SanitizedFailureDiagnostic>()
+  const claimKinds = new Map<number, 'task' | 'acquisition'>()
 
   const clock = options.clock ?? { now: () => performance.now() }
   const batchStart = clock.now()
@@ -1560,7 +1694,9 @@ export async function runRealCanaryD2(options: D2RunnerOptions): Promise<RealCan
 
           const onClaim = (kind: 'task' | 'acquisition'): number => {
             if (ledger.isCircuitOpen()) throw new CircuitOpenError()
-            return ledger.claim(kind)
+            const seq = ledger.claim(kind)
+            claimKinds.set(seq, kind)
+            return seq
           }
 
           const onTransportFinished = (seq: number): void => {
@@ -1569,8 +1705,22 @@ export async function runRealCanaryD2(options: D2RunnerOptions): Promise<RealCan
           const onComplete = (seq: number): void => {
             ledger.completeCall(seq)
           }
-          const onFail = (seq: number, error: unknown): void => {
+          const onFail = (
+            seq: number,
+            error: unknown,
+            fallbackStage: FailureStage
+          ): void => {
+            const callKind = resolveClaimKind(claimKinds, seq)
+            const classification = classifyFailure(error, fallbackStage)
+            const diag = createSanitizedFailureDiagnostic({
+              sequence: seq,
+              call_kind: callKind,
+              stage: classification.stage,
+              category: classification.category,
+              provider_code: classification.provider_code,
+            })
             ledger.failedCall(seq, error)
+            diagnosticsMap.set(seq, diag)
           }
 
           try {
@@ -1649,6 +1799,23 @@ export async function runRealCanaryD2(options: D2RunnerOptions): Promise<RealCan
             }
           } catch (error) {
             ledger.settleAllPendingAsFailed()
+            const totalClaimed = ledger.snapshot().total_calls_claimed
+            for (let seq = 1; seq <= totalClaimed; seq++) {
+              if (!diagnosticsMap.has(seq)) {
+                const isCompleted = receipts.some((r) => r.claim_sequence.includes(seq))
+                if (!isCompleted) {
+                  const kind = resolveClaimKind(claimKinds, seq)
+                  const diag = createSanitizedFailureDiagnostic({
+                    sequence: seq,
+                    call_kind: kind,
+                    stage: 'runner_protocol',
+                    category: 'runner_protocol_error',
+                    provider_code: null,
+                  })
+                  diagnosticsMap.set(seq, diag)
+                }
+              }
+            }
 
             if (error instanceof CircuitOpenError) {
               reasonCode = 'circuit_open'
@@ -1719,6 +1886,7 @@ export async function runRealCanaryD2(options: D2RunnerOptions): Promise<RealCan
       : 'real_provider_plumbing_fail'
 
   const deterministicPrefixBytes = canonicalBytes(receipts.map(goldenReceipt))
+  const failureDiagnostics = Array.from(diagnosticsMap.values()).sort((a, b) => a.sequence - b.sequence)
 
   const summaryBody = {
     schema_version: 1 as const,
@@ -1732,6 +1900,7 @@ export async function runRealCanaryD2(options: D2RunnerOptions): Promise<RealCan
     ledger: ledger.snapshot(),
     reason_code: reasonCode ?? null,
     cleanup_clean: cleanupClean,
+    failure_diagnostics: failureDiagnostics,
   }
 
   const summary: RealCanarySummary = {

@@ -798,11 +798,141 @@ describe('M0.5D-D2-B1 Execution CLI: scripts/m05d2-execute-real-canary.ts', () =
         const parsed = JSON.parse(jsonRes.stdout.trim())
         expect(parsed.status).toBe('real_provider_plumbing_fail')
         expect(parsed.reason_code).toBe('credential_unavailable')
+        expect(parsed.failure_categories).toEqual([])
         expect(jsonRes.stdout).not.toContain(shadowKey)
         expect(jsonRes.stderr).not.toContain(shadowKey)
       } finally {
         await rm(tempBase1, { recursive: true, force: true }).catch(() => {})
         await rm(tempBase2, { recursive: true, force: true }).catch(() => {})
+      }
+    })
+  })
+
+  describe('7. M0.5D-D2-C: Failure Categories JSON CLI Output', () => {
+    it('CLI JSON output contains failure_categories: [] on success', async () => {
+      const base = await realpath(tmpdir())
+      const tempBase = await mkdtemp(join(base, 'dsh-exec-cli-json-pass-'))
+      const env = await setupValidRunEnvironment(tempBase)
+
+      let runIndex = 0
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = vi.fn(async (url: any, opts: any) => {
+        const body = JSON.parse(opts.body)
+        const allText = extractAllMessageText(body)
+        const isAcq = allText.includes('Acquisition Request:')
+        if (isAcq) {
+          runIndex++
+          const candidate = JSON.stringify({
+            schema_version: 1,
+            title: 'Mocked live candidate',
+            summary: 'Deterministic clean candidate',
+            redaction_status: 'passed',
+          })
+          return new Response(makeSseStream(candidate), { status: 200, headers: { 'content-type': 'text/event-stream' } })
+        }
+
+        if (runIndex === 2) {
+          const hasFixture = allText.includes('fixture_task_build_recovery')
+          const hasSearch = allText.includes('search_disclosure') || allText.includes('retrieval_ref') || allText.includes('memory_')
+          const hasOpen = allText.includes('open_disclosure') || allText.includes('"body"')
+
+          if (!hasFixture) {
+            return new Response(makeToolCallStream('m05d_task_fixture', { task_id: 'task_build_recovery' }, 'call_fix'), { status: 200, headers: { 'content-type': 'text/event-stream' } })
+          }
+          if (!hasSearch) {
+            return new Response(makeToolCallStream('mnemosyne_search', { query: 'rebuild' }, 'call_search'), { status: 200, headers: { 'content-type': 'text/event-stream' } })
+          }
+          if (!hasOpen) {
+            const memoryId = defaultFixtures.catalog.memories[0].memory_id
+            const retrievalMatch = allText.match(/"retrieval_ref":"([^"]+)"/)
+            const shaMatch = allText.match(/"content_sha256":"([^"]+)"/)
+            const retrievalId = retrievalMatch ? retrievalMatch[1] : 'retrieval_mock'
+            const searchSha = shaMatch ? shaMatch[1] : 'sha256_mock'
+            return new Response(makeToolCallStream('mnemosyne_open', { memory_id: memoryId, retrieval_id: retrievalId, search_disclosure_sha256: searchSha }, 'call_open'), { status: 200, headers: { 'content-type': 'text/event-stream' } })
+          }
+
+          const memoryId = defaultFixtures.catalog.memories[0].memory_id
+          const taskResponse = JSON.stringify({
+            schema_version: 1,
+            task_id: 'task_build_recovery',
+            exit_code: 0,
+            result: { rebuild_mode: 'targeted' },
+            adopted_memory_ids: [memoryId],
+            failure_code: null,
+          })
+          return new Response(makeSseStream(taskResponse), { status: 200, headers: { 'content-type': 'text/event-stream' } })
+        }
+
+        const isControl = allText.includes('task_control_format')
+        const hasFixture = allText.includes('fixture_')
+        if (!hasFixture) {
+          const taskId = isControl ? 'task_control_format' : 'task_build_recovery'
+          return new Response(makeToolCallStream('m05d_task_fixture', { task_id: taskId }, 'call_fix_s9_other'), { status: 200, headers: { 'content-type': 'text/event-stream' } })
+        }
+
+        const memoryId = defaultFixtures.catalog.memories[0].memory_id
+        const adoptedIds = runIndex === 4 ? [memoryId] : []
+        const taskId = isControl ? 'task_control_format' : 'task_build_recovery'
+        const result = isControl ? { controlled_field: 'alpha' } : { rebuild_mode: 'targeted' }
+        const taskResponse = JSON.stringify({
+          schema_version: 1,
+          task_id: taskId,
+          exit_code: 0,
+          result,
+          adopted_memory_ids: adoptedIds,
+          failure_code: null,
+        })
+        return new Response(makeSseStream(taskResponse), { status: 200, headers: { 'content-type': 'text/event-stream' } })
+      })
+
+      let loggedOutput = ''
+      const logSpy = vi.spyOn(console, 'log').mockImplementation((msg: string) => {
+        loggedOutput += msg
+      })
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      try {
+        const exitCode = await runExecuteMain([...env.baseArgs, '--json'])
+        expect(exitCode).toBe(0)
+        const parsed = JSON.parse(loggedOutput.trim())
+        expect(parsed.status).toBe('real_provider_plumbing_pass')
+        expect(parsed.failure_categories).toEqual([])
+      } finally {
+        logSpy.mockRestore()
+        errSpy.mockRestore()
+        globalThis.fetch = originalFetch
+        await rm(tempBase, { recursive: true, force: true }).catch(() => {})
+      }
+    })
+
+    it('CLI JSON output contains sorted, deduplicated failure_categories and zero raw errors on provider failure', async () => {
+      const base = await realpath(tmpdir())
+      const tempBase = await mkdtemp(join(base, 'dsh-exec-cli-json-fail-'))
+      const env = await setupValidRunEnvironment(tempBase)
+
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = vi.fn(async () => {
+        return new Response(JSON.stringify({ error: { message: 'Invalid API key provided: sk-secret-123456', code: 'invalid_api_key' } }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        })
+      })
+
+      try {
+        const jsonRes = await runCliProcess([...env.baseArgs, '--json'])
+        expect(jsonRes.exitCode).toBe(1)
+        const parsed = JSON.parse(jsonRes.stdout.trim())
+        expect(parsed.status).toBe('real_provider_plumbing_fail')
+        expect(parsed.failure_categories).toEqual(['authentication_rejected'])
+        // Ensure no raw codes, messages, stages, or sequences leaked in JSON
+        expect(parsed.provider_code).toBeUndefined()
+        expect(parsed.stage).toBeUndefined()
+        expect(jsonRes.stdout).not.toContain('AUTH')
+        expect(jsonRes.stdout).not.toContain('invalid_api_key')
+        expect(jsonRes.stdout).not.toContain('sk-secret-123456')
+      } finally {
+        globalThis.fetch = originalFetch
+        await rm(tempBase, { recursive: true, force: true }).catch(() => {})
       }
     })
   })

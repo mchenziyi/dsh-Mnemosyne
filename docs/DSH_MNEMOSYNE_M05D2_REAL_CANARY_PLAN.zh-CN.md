@@ -1,6 +1,6 @@
 # dsh-Mnemosyne M0.5D-D2 开发计划：真实 Provider Canary 执行桥与双重授权门禁
 
-> 状态：🟠 D2-A/B1/B2 已完成；D2-B3 已于 2026-08-24 执行并得到 `real_provider_plumbing_fail/circuit_open`，未进入 D3。
+> 状态：🟠 D2-A/B1/B2 与 D2-C 已完成；D2-B3 已于 2026-08-24 执行并得到 `real_provider_plumbing_fail/circuit_open`；当前为 `real_canary_diagnostics_ready`，未授权重试，未进入 D3。
 > 基线：`main@0a5fa6f`，DSH `0.1.0-rc.8`  
 > 架构事实源：`docs/DSH_MNEMOSYNE_ARCHITECTURE.zh-CN.md` 第 19.14～19.16 节  
 > 前置状态：M0.5E=`canary_preflight_ready`；M0.5F1=`real_canary_ready_for_user_approval`  
@@ -411,3 +411,5 @@ git diff --check
 | 清理 | `cleanup_clean=true`；临时 Credential 已删除 |
 
 本次执行严格保持 0 自动重试，并在连续两次 Provider/协议错误后熔断。持久化摘要按设计只保存稳定原因码，没有保存 Provider 原始异常，因此不能从该 Summary 判断是远端鉴权、模型路由、网络还是协议响应问题。原 Execution Claim 已落盘，禁止复用同一 Approval 重跑；任何诊断性重试必须先补充脱敏错误分类，重新生成 Authorization/Approval，并再次取得用户明确授权。D3 继续保持未授权、未执行。
+
+D2-C 已在后续独立提交中补齐 `failure_diagnostics` 与 CLI 的去重 `failure_categories`，并保持旧 Summary 的原始键和 Hash 不变。诊断只使用 DSH rc.8 的稳定 `LlmFailure.code` 白名单与明确的本地验证阶段，不保存 message、body、status、requestId、Header、Prompt、回复或 Credential。该实现只使下一次获批执行具备可审计的脱敏分类能力，不反向猜测本次 D2-B3 的根因，也不构成新的真实调用授权。

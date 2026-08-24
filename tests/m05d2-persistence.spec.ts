@@ -167,6 +167,7 @@ describe('M0.5D-D2: Persistence / Execution Claim Security & Cross-Process Trans
       },
       reason_code: 'credential_unavailable' as const,
       cleanup_clean: true,
+      failure_diagnostics: [],
     }
     return {
       ...body,
