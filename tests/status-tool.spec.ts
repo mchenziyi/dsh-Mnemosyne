@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { STATUS_OUTPUT, createStatusTool } from '../src/status.js'
 
-describe('M0 status tool contract', () => {
-  it('returns the fixed status object without inputs', async () => {
+describe('MVP-01 status tool contract', () => {
+  it('returns the fixed status object without inputs or runtime', async () => {
     const tool = createStatusTool()
     expect(await tool.execute({}, {} as never)).toEqual(STATUS_OUTPUT)
     expect(JSON.stringify(await tool.execute({}, {} as never))).toBe(JSON.stringify(STATUS_OUTPUT))
   })
 
-  it('declares a closed output schema and no input parameters', () => {
+  it('declares a closed protocol_version 2 output schema and no input parameters', () => {
     const tool = createStatusTool()
     expect(tool.parameters).toEqual({ type: 'object', properties: {} })
     expect(tool.output.schema).toMatchObject({ type: 'object', additionalProperties: false })
@@ -19,6 +19,7 @@ describe('M0 status tool contract', () => {
       'protocol_version',
       'memory_enabled',
       'status',
+      'scope',
     ])
   })
 })

@@ -21,8 +21,18 @@ describe('M0 lifecycle', () => {
     expectTools(ctx, true)
     const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: CallId('m0-status'), name: 'mnemosyne_status', arguments: {} })
     expect(result.value).toEqual({
-      plugin: 'dsh-Mnemosyne', version: '0.0.0-dev', protocol_version: 1,
-      memory_enabled: false, status: 'ready',
+      plugin: 'dsh-Mnemosyne',
+      version: '0.0.0-dev',
+      protocol_version: 2,
+      memory_enabled: false,
+      status: 'ready',
+      scope: {
+        status: 'unavailable',
+        source: 'none',
+        project_scope_id: null,
+        session_scope_id: null,
+        reason: 'missing_agent',
+      },
     })
     await fiber.dispose()
     expectTools(ctx, false)

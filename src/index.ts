@@ -6,12 +6,12 @@ import { install } from './observer.js'
 export { Config }
 export type { Config as PluginConfig }
 export { AUDIT_COMMIT, COMPATIBILITY, CORDIS_VERSION, DSH_VERSION, SCHEMASTERY_VERSION } from './compatibility.js'
-export { STATUS_OUTPUT, createStatusTool } from './status.js'
+export { STATUS_OUTPUT, createStatusTool, type ScopeStatusPayload, type StatusOutput } from './status.js'
 
 export const name = 'dsh-mnemosyne'
 export const inject = ['tools'] as const
 
 export function apply(ctx: Context, config: PluginConfig): void {
   if (config.enabled === false) return
-  install(ctx)
+  install(ctx, config)
 }

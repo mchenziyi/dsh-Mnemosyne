@@ -1,6 +1,6 @@
 # dsh-Mnemosyne v0.1.0 · MVP-01 Runtime 与 Project/Session Scope 计划
 
-> 状态：🟡 待 Gemini 实现、自审与 CTO Review
+> 状态：✅ 已实现并通过 CTO Review（2026-08-24）
 > 日期：2026-08-24
 > DSH 基线：`0.1.1-rc.2`
 > 前置任务：MVP-00 已通过，Commit `6c14f74`

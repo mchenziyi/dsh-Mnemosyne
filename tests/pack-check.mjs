@@ -19,7 +19,16 @@ if (forbidden.length) throw new Error(`pack:check: unexpected files: ${forbidden
 const { stdout: bundledJs } = await execFileAsync('tar', ['-xOzf', tarballPath, 'package/dist/index.mjs'])
 const { stdout: bundledDts } = await execFileAsync('tar', ['-xOzf', tarballPath, 'package/dist/index.d.mts'])
 
-const forbiddenSymbols = [
+export const forbiddenExportSymbols = [
+  'createScopeRuntime',
+  'validateAndNormalizeProjectRoot',
+  'computeProjectScopeId',
+  'computeSessionScopeId',
+  'ResolvedScope',
+  'ScopeRuntimeSnapshot',
+]
+
+export const forbiddenSeamSymbols = [
   'PersistenceInternalTestHooks',
   '__setPersistenceTestHooksForTest',
   'simulateFileFsyncFailure',
@@ -98,7 +107,9 @@ const forbiddenSymbols = [
   'unknown_provider_error',
 ]
 
-for (const symbol of forbiddenSymbols) {
+export const forbiddenSymbols = [...forbiddenExportSymbols, ...forbiddenSeamSymbols]
+
+for (const symbol of forbiddenSeamSymbols) {
   if (bundledJs.includes(symbol)) {
     throw new Error(`pack:check: forbidden symbol "${symbol}" leaked into production bundle JS (package/dist/index.mjs)`)
   }
@@ -107,4 +118,21 @@ for (const symbol of forbiddenSymbols) {
   }
 }
 
-console.log(`pack:check: PASS (${entries.length} files, dual JS/DTS scan clean)`)
+const jsExportMatch = bundledJs.match(/export\s*\{([^}]+)\}/)
+const jsExports = jsExportMatch ? jsExportMatch[1].split(',').map((s) => s.trim()) : []
+const dtsExportMatch = bundledDts.match(/export\s*\{([^}]+)\}/)
+const dtsExports = dtsExportMatch ? dtsExportMatch[1].split(',').map((s) => s.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0]) : []
+
+for (const symbol of forbiddenExportSymbols) {
+  if (bundledDts.includes(symbol)) {
+    throw new Error(`pack:check: forbidden internal symbol "${symbol}" leaked into production DTS (package/dist/index.d.mts)`)
+  }
+  if (jsExports.includes(symbol)) {
+    throw new Error(`pack:check: forbidden internal symbol "${symbol}" leaked into JS exports (package/dist/index.mjs)`)
+  }
+  if (dtsExports.includes(symbol)) {
+    throw new Error(`pack:check: forbidden internal symbol "${symbol}" leaked into DTS exports (package/dist/index.d.mts)`)
+  }
+}
+
+console.log(`pack:check: PASS (${entries.length} files, dual JS/DTS and export scan clean)`)
