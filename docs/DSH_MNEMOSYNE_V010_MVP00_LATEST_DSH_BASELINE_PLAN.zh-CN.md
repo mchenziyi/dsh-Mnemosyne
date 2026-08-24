@@ -1,9 +1,11 @@
 # dsh-Mnemosyne v0.1.0 · MVP-00 最新 DSH Baseline Gate 计划
 
-> 状态：🟡 待 Gemini 实现与 CTO Review
+> 状态：✅ 已实现并通过 CTO Review
 > 日期：2026-08-24
 > 任务性质：兼容性迁移，不实现记忆产品功能
 > 目标基线：DSH CLI 与公开 SDK `0.1.1-rc.2`
+
+> 验收备注：直接及显式测试环境 DSH 依赖均精确锁定为 `0.1.1-rc.2`，无 overrides、无 peer 告警。Vitest、Vite、tsdown 等直接工具版本保持原值；pnpm 按 Vite 的 `rolldown: ~1.2.1` 约束额外解析了 `rolldown@1.2.5`，构建仍由 tsdown 使用原锁定的 `rolldown@1.2.4`。该传递解析差异已审计，不是 DSH 运行依赖或产品代码变化。
 
 ## 一、目标与成功标准
 

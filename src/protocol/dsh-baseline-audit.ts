@@ -32,11 +32,11 @@ export interface CompatibilityAudit {
   tarball_boundary_unchanged: boolean
 }
 
-export interface RC8BaselineAudit {
+export interface DshBaselineAudit {
   schema_version: 1
-  status: 'rc8_baseline_ready_for_sol_review' | 'blocked'
-  source_version: '0.1.0-rc.6'
-  target_version: '0.1.0-rc.8'
+  status: 'dsh_baseline_ready_for_cto_review' | 'blocked'
+  source_version: '0.1.0-rc.8'
+  target_version: '0.1.1-rc.2'
   npm_next_version: string
   package_json_sha256: string
   lockfile_sha256: string
@@ -146,7 +146,7 @@ export function resolveDirectDshPackages(
   return result
 }
 
-export function validateRC8BaselineAudit(value: unknown): RC8BaselineAudit {
+export function validateDshBaselineAudit(value: unknown): DshBaselineAudit {
   assertObject(value)
   assertExactKeys(value, [
     'schema_version',
@@ -163,8 +163,8 @@ export function validateRC8BaselineAudit(value: unknown): RC8BaselineAudit {
   ])
 
   if (value.schema_version !== 1) throw new ProtocolValidationError()
-  if (value.source_version !== '0.1.0-rc.6') throw new ProtocolValidationError()
-  if (value.target_version !== '0.1.0-rc.8') throw new ProtocolValidationError()
+  if (value.source_version !== '0.1.0-rc.8') throw new ProtocolValidationError()
+  if (value.target_version !== '0.1.1-rc.2') throw new ProtocolValidationError()
   if (
     typeof value.npm_next_version !== 'string' ||
     value.npm_next_version.length === 0 ||
@@ -240,7 +240,7 @@ export function validateRC8BaselineAudit(value: unknown): RC8BaselineAudit {
   const npmNextMatch = value.npm_next_version === value.target_version
 
   const canBeReady = allSeamsPassed && allCompatPassed && allPkgsMatch && npmNextMatch
-  const expectedStatus = canBeReady ? 'rc8_baseline_ready_for_sol_review' : 'blocked'
+  const expectedStatus = canBeReady ? 'dsh_baseline_ready_for_cto_review' : 'blocked'
 
   if (value.status !== expectedStatus) {
     throw new ProtocolValidationError()
@@ -251,18 +251,18 @@ export function validateRC8BaselineAudit(value: unknown): RC8BaselineAudit {
     throw new ProtocolValidationError()
   }
 
-  return value as unknown as RC8BaselineAudit
+  return value as unknown as DshBaselineAudit
 }
 
-export function createRC8BaselineAudit(options: {
+export function createDshBaselineAudit(options: {
   npm_next_version: string
   package_json_content: string
   lockfile_content: string
   public_seams: PublicSeamsAudit
   compatibility: CompatibilityAudit
-}): RC8BaselineAudit {
-  const source_version = '0.1.0-rc.6' as const
-  const target_version = '0.1.0-rc.8' as const
+}): DshBaselineAudit {
+  const source_version = '0.1.0-rc.8' as const
+  const target_version = '0.1.1-rc.2' as const
 
   const direct_dsh_packages = resolveDirectDshPackages(
     options.package_json_content,
@@ -291,7 +291,7 @@ export function createRC8BaselineAudit(options: {
 
   const status =
     allSeamsPass && allCompatPass && allPkgsMatch && npmNextMatch
-      ? ('rc8_baseline_ready_for_sol_review' as const)
+      ? ('dsh_baseline_ready_for_cto_review' as const)
       : ('blocked' as const)
 
   const body = {
@@ -307,10 +307,10 @@ export function createRC8BaselineAudit(options: {
     compatibility: options.compatibility,
   }
 
-  const audit: RC8BaselineAudit = {
+  const audit: DshBaselineAudit = {
     ...body,
     audit_sha256: canonicalHash(body),
   }
 
-  return validateRC8BaselineAudit(audit)
+  return validateDshBaselineAudit(audit)
 }

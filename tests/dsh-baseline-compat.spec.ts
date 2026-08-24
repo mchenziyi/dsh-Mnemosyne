@@ -10,14 +10,14 @@ import { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { ToolRuntime } from '@deepseek-ai/dsh-tools'
 import { ProtocolValidationError, canonicalBytes, canonicalHash, withoutHash } from '../src/protocol/canonical.js'
 import {
-  createRC8BaselineAudit,
+  createDshBaselineAudit,
   resolveDirectDshPackages,
-  validateRC8BaselineAudit,
+  validateDshBaselineAudit,
   type CompatibilityAudit,
   type PublicSeamsAudit,
-} from '../src/protocol/rc8-audit.js'
+} from '../src/protocol/dsh-baseline-audit.js'
 
-const TARGET_DSH_VERSION = '0.1.0-rc.8'
+const TARGET_DSH_VERSION = '0.1.1-rc.2'
 
 const VALID_PUBLIC_SEAMS: PublicSeamsAudit = {
   cordis_plugin: 'pass',
@@ -36,14 +36,14 @@ const VALID_COMPATIBILITY: CompatibilityAudit = {
   tarball_boundary_unchanged: true,
 }
 
-describe('DSH rc.8 baseline upgrade compatibility suite', () => {
-  it('enforces that all direct @deepseek-ai/dsh-* dependencies in package.json are exact 0.1.0-rc.8', () => {
+describe('DSH baseline upgrade compatibility suite', () => {
+  it('enforces that all direct @deepseek-ai/dsh-* dependencies in package.json are exact 0.1.1-rc.2', () => {
     const pkgJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'))
     const dshPeers = Object.entries(pkgJson.peerDependencies || {}).filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
     const dshDevs = Object.entries(pkgJson.devDependencies || {}).filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
 
-    expect(dshPeers.length).toBeGreaterThan(0)
-    expect(dshDevs.length).toBeGreaterThan(0)
+    expect(dshPeers.length).toBe(2)
+    expect(dshDevs.length).toBe(23)
 
     for (const [name, version] of dshPeers) {
       expect(version, `peerDependency ${name} must be exact ${TARGET_DSH_VERSION}`).toBe(TARGET_DSH_VERSION)
@@ -53,12 +53,13 @@ describe('DSH rc.8 baseline upgrade compatibility suite', () => {
       expect(version, `devDependency ${name} must be exact ${TARGET_DSH_VERSION}`).toBe(TARGET_DSH_VERSION)
     }
 
-    // Transitive dependencies must NOT be promoted to direct dependencies
-    expect(pkgJson.devDependencies['@deepseek-ai/dsh-session-persistence']).toBeUndefined()
-    expect(pkgJson.devDependencies['@deepseek-ai/dsh-settings']).toBeUndefined()
+    // Required DSH packages are explicitly declared as devDependencies
+    expect(pkgJson.devDependencies['@deepseek-ai/dsh-session-persistence']).toBe(TARGET_DSH_VERSION)
+    expect(pkgJson.devDependencies['@deepseek-ai/dsh-settings']).toBe(TARGET_DSH_VERSION)
+    expect(pkgJson.devDependencies['@deepseek-ai/dsh-credentials']).toBe(TARGET_DSH_VERSION)
   })
 
-  it('scans full pnpm-lock.yaml for all DSH snapshots and rejects rc.6, rc.7, ranges, and cross-RC mix', () => {
+  it('scans full pnpm-lock.yaml for all DSH snapshots and rejects rc.6, rc.7, rc.8, ranges, and cross-RC mix', () => {
     const lockContent = readFileSync(resolve(process.cwd(), 'pnpm-lock.yaml'), 'utf8')
     const matches = [...lockContent.matchAll(/@deepseek-ai\/dsh-([a-z-]+)@([0-9a-z.-]+)/g)]
     expect(matches.length).toBeGreaterThan(0)
@@ -73,9 +74,10 @@ describe('DSH rc.8 baseline upgrade compatibility suite', () => {
       }
       packageVersions.get(pkgName)!.add(version)
 
-      // Reject any non-rc.8 version
+      // Reject any non-rc.2 version
       expect(version, `Package ${pkgName} snapshot version in lockfile must be ${TARGET_DSH_VERSION}`).toBe(TARGET_DSH_VERSION)
-      expect(version).not.toMatch(/0\.1\.0-rc\.[0-7]/)
+      expect(version).not.toMatch(/0\.1\.0-rc\.[0-8]/)
+      expect(version).not.toMatch(/0\.1\.1-rc\.[01]/)
       expect(version).not.toMatch(/[\^~*>=]/)
     }
 
@@ -106,22 +108,22 @@ describe('DSH rc.8 baseline upgrade compatibility suite', () => {
     expect(() => resolveDirectDshPackages(pkgContent, fakeLockMissing)).toThrow(ProtocolValidationError)
 
     // Multiple versions in lockfile fails closed
-    const fakeLockMulti = lockContent + "\n  '@deepseek-ai/dsh-agent@0.1.0-rc.6':\n    resolution: {}\n"
+    const fakeLockMulti = lockContent + "\n  '@deepseek-ai/dsh-agent@0.1.0-rc.8':\n    resolution: {}\n"
     expect(() => resolveDirectDshPackages(pkgContent, fakeLockMulti)).toThrow(ProtocolValidationError)
 
     // Conflicting declared versions in peer and dev fails closed
     const fakePkgConflict = JSON.stringify({
-      peerDependencies: { '@deepseek-ai/dsh-session': '0.1.0-rc.8' },
-      devDependencies: { '@deepseek-ai/dsh-session': '0.1.0-rc.6' },
+      peerDependencies: { '@deepseek-ai/dsh-session': '0.1.1-rc.2' },
+      devDependencies: { '@deepseek-ai/dsh-session': '0.1.0-rc.8' },
     })
     expect(() => resolveDirectDshPackages(fakePkgConflict, lockContent)).toThrow(ProtocolValidationError)
   })
 
-  it('generates deterministic RC8BaselineAudit without package injection and validates strict schema and hash', () => {
+  it('generates deterministic DshBaselineAudit without package injection and validates strict schema and hash', () => {
     const pkgContent = readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')
     const lockContent = readFileSync(resolve(process.cwd(), 'pnpm-lock.yaml'), 'utf8')
 
-    const audit1 = createRC8BaselineAudit({
+    const audit1 = createDshBaselineAudit({
       npm_next_version: TARGET_DSH_VERSION,
       package_json_content: pkgContent,
       lockfile_content: lockContent,
@@ -129,7 +131,7 @@ describe('DSH rc.8 baseline upgrade compatibility suite', () => {
       compatibility: VALID_COMPATIBILITY,
     })
 
-    const audit2 = createRC8BaselineAudit({
+    const audit2 = createDshBaselineAudit({
       npm_next_version: TARGET_DSH_VERSION,
       package_json_content: pkgContent,
       lockfile_content: lockContent,
@@ -139,12 +141,12 @@ describe('DSH rc.8 baseline upgrade compatibility suite', () => {
 
     // Byte-for-byte determinism
     expect(canonicalBytes(audit1)).toBe(canonicalBytes(audit2))
-    expect(audit1.status).toBe('rc8_baseline_ready_for_sol_review')
+    expect(audit1.status).toBe('dsh_baseline_ready_for_cto_review')
     expect(audit1.audit_sha256).toBe(canonicalHash(withoutHash(audit1 as unknown as Record<string, unknown>, 'audit_sha256')))
 
     // Validated by schema
-    const validated = validateRC8BaselineAudit(audit1)
-    expect(validated.status).toBe('rc8_baseline_ready_for_sol_review')
+    const validated = validateDshBaselineAudit(audit1)
+    expect(validated.status).toBe('dsh_baseline_ready_for_cto_review')
 
     // Sensitive credential / path leakage assertion
     const auditJson = JSON.stringify(audit1)
@@ -157,7 +159,7 @@ describe('DSH rc.8 baseline upgrade compatibility suite', () => {
 
     // 1. Empty lockfile throws
     expect(() =>
-      createRC8BaselineAudit({
+      createDshBaselineAudit({
         npm_next_version: TARGET_DSH_VERSION,
         package_json_content: pkgContent,
         lockfile_content: '',
@@ -166,25 +168,25 @@ describe('DSH rc.8 baseline upgrade compatibility suite', () => {
       })
     ).toThrow(ProtocolValidationError)
 
-    // 2. Lockfile with only rc.6 produces status: 'blocked' and never ready
-    const rc6Lockfile = readFileSync(resolve(process.cwd(), 'pnpm-lock.yaml'), 'utf8').replace(/0\.1\.0-rc\.8/g, '0.1.0-rc.6')
-    const auditRc6 = createRC8BaselineAudit({
+    // 2. Lockfile with only rc.8 produces status: 'blocked' and never ready
+    const rc8Lockfile = readFileSync(resolve(process.cwd(), 'pnpm-lock.yaml'), 'utf8').replace(/0\.1\.1-rc\.2/g, '0.1.0-rc.8')
+    const auditRc8 = createDshBaselineAudit({
       npm_next_version: TARGET_DSH_VERSION,
       package_json_content: pkgContent,
-      lockfile_content: rc6Lockfile,
+      lockfile_content: rc8Lockfile,
       public_seams: VALID_PUBLIC_SEAMS,
       compatibility: VALID_COMPATIBILITY,
     })
-    expect(auditRc6.status).toBe('blocked')
-    expect(auditRc6.status).not.toBe('rc8_baseline_ready_for_sol_review')
-    expect(() => validateRC8BaselineAudit(auditRc6)).not.toThrow()
+    expect(auditRc8.status).toBe('blocked')
+    expect(auditRc8.status).not.toBe('dsh_baseline_ready_for_cto_review')
+    expect(() => validateDshBaselineAudit(auditRc8)).not.toThrow()
   })
 
   it('strictly couples status with factual conditions and rejects false-ready and false-blocked rehashes', () => {
     const pkgContent = readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')
     const lockContent = readFileSync(resolve(process.cwd(), 'pnpm-lock.yaml'), 'utf8')
 
-    const readyAudit = createRC8BaselineAudit({
+    const readyAudit = createDshBaselineAudit({
       npm_next_version: TARGET_DSH_VERSION,
       package_json_content: pkgContent,
       lockfile_content: lockContent,
@@ -198,10 +200,10 @@ describe('DSH rc.8 baseline upgrade compatibility suite', () => {
       ...falseBlocked,
       audit_sha256: canonicalHash(withoutHash(falseBlocked, 'audit_sha256')),
     }
-    expect(() => validateRC8BaselineAudit(falseBlockedRehashed)).toThrow(ProtocolValidationError)
+    expect(() => validateDshBaselineAudit(falseBlockedRehashed)).toThrow(ProtocolValidationError)
 
-    // 2. Seam blocked -> status is blocked and validateRC8BaselineAudit accepts it
-    const seamBlockedAudit = createRC8BaselineAudit({
+    // 2. Seam blocked -> status is blocked and validateDshBaselineAudit accepts it
+    const seamBlockedAudit = createDshBaselineAudit({
       npm_next_version: TARGET_DSH_VERSION,
       package_json_content: pkgContent,
       lockfile_content: lockContent,
@@ -209,10 +211,10 @@ describe('DSH rc.8 baseline upgrade compatibility suite', () => {
       compatibility: VALID_COMPATIBILITY,
     })
     expect(seamBlockedAudit.status).toBe('blocked')
-    expect(() => validateRC8BaselineAudit(seamBlockedAudit)).not.toThrow()
+    expect(() => validateDshBaselineAudit(seamBlockedAudit)).not.toThrow()
 
-    // 3. Compatibility false -> status is blocked and validateRC8BaselineAudit accepts it
-    const compatFalseAudit = createRC8BaselineAudit({
+    // 3. Compatibility false -> status is blocked and validateDshBaselineAudit accepts it
+    const compatFalseAudit = createDshBaselineAudit({
       npm_next_version: TARGET_DSH_VERSION,
       package_json_content: pkgContent,
       lockfile_content: lockContent,
@@ -220,33 +222,33 @@ describe('DSH rc.8 baseline upgrade compatibility suite', () => {
       compatibility: { ...VALID_COMPATIBILITY, canonical_goldens_unchanged: false },
     })
     expect(compatFalseAudit.status).toBe('blocked')
-    expect(() => validateRC8BaselineAudit(compatFalseAudit)).not.toThrow()
+    expect(() => validateDshBaselineAudit(compatFalseAudit)).not.toThrow()
 
-    // 4. npm_next_version mismatch -> status is blocked and validateRC8BaselineAudit accepts it
-    const nextMismatchAudit = createRC8BaselineAudit({
-      npm_next_version: '0.1.0-rc.9',
+    // 4. npm_next_version mismatch -> status is blocked and validateDshBaselineAudit accepts it
+    const nextMismatchAudit = createDshBaselineAudit({
+      npm_next_version: '0.1.1-rc.3',
       package_json_content: pkgContent,
       lockfile_content: lockContent,
       public_seams: VALID_PUBLIC_SEAMS,
       compatibility: VALID_COMPATIBILITY,
     })
     expect(nextMismatchAudit.status).toBe('blocked')
-    expect(() => validateRC8BaselineAudit(nextMismatchAudit)).not.toThrow()
+    expect(() => validateDshBaselineAudit(nextMismatchAudit)).not.toThrow()
 
     // 5. Conditions failing but claiming ready (even with recomputed hash) MUST throw
-    const falseReady = { ...seamBlockedAudit, status: 'rc8_baseline_ready_for_sol_review' as const }
+    const falseReady = { ...seamBlockedAudit, status: 'dsh_baseline_ready_for_cto_review' as const }
     const falseReadyRehashed = {
       ...falseReady,
       audit_sha256: canonicalHash(withoutHash(falseReady, 'audit_sha256')),
     }
-    expect(() => validateRC8BaselineAudit(falseReadyRehashed)).toThrow(ProtocolValidationError)
+    expect(() => validateDshBaselineAudit(falseReadyRehashed)).toThrow(ProtocolValidationError)
   })
 
-  it('rejects unsorted packages, invalid keys, and unbounded fields in RC8BaselineAudit', () => {
+  it('rejects unsorted packages, invalid keys, and unbounded fields in DshBaselineAudit', () => {
     const pkgContent = readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')
     const lockContent = readFileSync(resolve(process.cwd(), 'pnpm-lock.yaml'), 'utf8')
 
-    const audit = createRC8BaselineAudit({
+    const audit = createDshBaselineAudit({
       npm_next_version: TARGET_DSH_VERSION,
       package_json_content: pkgContent,
       lockfile_content: lockContent,
@@ -264,7 +266,7 @@ describe('DSH rc.8 baseline upgrade compatibility suite', () => {
       ...unsortedAudit,
       audit_sha256: canonicalHash(withoutHash(unsortedAudit, 'audit_sha256')),
     }
-    expect(() => validateRC8BaselineAudit(unsortedRehashed)).toThrow(ProtocolValidationError)
+    expect(() => validateDshBaselineAudit(unsortedRehashed)).toThrow(ProtocolValidationError)
 
     // 2. Extra unexpected keys in public_seams throw
     const extraKeyAudit = {
@@ -275,11 +277,11 @@ describe('DSH rc.8 baseline upgrade compatibility suite', () => {
       ...extraKeyAudit,
       audit_sha256: canonicalHash(withoutHash(extraKeyAudit as unknown as Record<string, unknown>, 'audit_sha256')),
     }
-    expect(() => validateRC8BaselineAudit(extraKeyRehashed)).toThrow(ProtocolValidationError)
+    expect(() => validateDshBaselineAudit(extraKeyRehashed)).toThrow(ProtocolValidationError)
 
     // 3. Oversized string lengths throw
     const oversizedPackages = audit.direct_dsh_packages.map((p, i) =>
-      i === 0 ? { ...p, declared_version: '0.1.0-rc.8'.repeat(20) } : p
+      i === 0 ? { ...p, declared_version: '0.1.1-rc.2'.repeat(20) } : p
     )
     const oversizedAudit = {
       ...audit,
@@ -290,7 +292,7 @@ describe('DSH rc.8 baseline upgrade compatibility suite', () => {
       status: 'blocked' as const,
       audit_sha256: canonicalHash(withoutHash(oversizedAudit as unknown as Record<string, unknown>, 'audit_sha256')),
     }
-    expect(() => validateRC8BaselineAudit(oversizedRehashed)).toThrow(ProtocolValidationError)
+    expect(() => validateDshBaselineAudit(oversizedRehashed)).toThrow(ProtocolValidationError)
   })
 
   it('sanitizes all ProtocolValidationError messages and never echoes paths, tokens, or malicious inputs', () => {
@@ -304,7 +306,7 @@ describe('DSH rc.8 baseline upgrade compatibility suite', () => {
     for (const payload of maliciousInputs) {
       // 1. Malicious package.json content
       const badPkg = JSON.stringify({
-        peerDependencies: { [`@deepseek-ai/dsh-${payload}`]: '0.1.0-rc.8' },
+        peerDependencies: { [`@deepseek-ai/dsh-${payload}`]: '0.1.1-rc.2' },
         devDependencies: {},
       })
       try {
@@ -320,13 +322,13 @@ describe('DSH rc.8 baseline upgrade compatibility suite', () => {
         expect(msg).toBe('protocol validation failed')
       }
 
-      // 2. Malicious status or fields in validateRC8BaselineAudit
+      // 2. Malicious status or fields in validateDshBaselineAudit
       try {
-        validateRC8BaselineAudit({
+        validateDshBaselineAudit({
           schema_version: 1,
           status: payload,
-          source_version: '0.1.0-rc.6',
-          target_version: '0.1.0-rc.8',
+          source_version: '0.1.0-rc.8',
+          target_version: '0.1.1-rc.2',
           npm_next_version: payload,
           package_json_sha256: 'sha256_0000000000000000000000000000000000000000000000000000000000000000',
           lockfile_sha256: 'sha256_0000000000000000000000000000000000000000000000000000000000000000',

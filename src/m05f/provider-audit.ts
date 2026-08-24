@@ -28,14 +28,14 @@ export interface PublicContractsAudit {
 export interface OfficialReferenceAudit {
   repository: 'deepseek-ai/deepseek-harness'
   package: '@deepseek-ai/dsh-llm-deepseek'
-  package_version: '0.1.0-rc.8'
-  source_ref: 'npm:@deepseek-ai/dsh-llm-deepseek@0.1.0-rc.8'
+  package_version: '0.1.1-rc.2'
+  source_ref: 'npm:@deepseek-ai/dsh-llm-deepseek@0.1.1-rc.2'
 }
 
 export interface ProviderCompatibilityAudit {
   schema_version: 1
   audited_at: string
-  project_dsh_version: '0.1.0-rc.8'
+  project_dsh_version: '0.1.1-rc.2'
   project_lock_sha256: string
   official_reference: OfficialReferenceAudit
   public_contracts: PublicContractsAudit
@@ -61,12 +61,12 @@ const OFFICIAL_REF_KEYS = [
   'source_ref',
 ] as const
 
-const TARGET_VERSION = '0.1.0-rc.8' as const
+const TARGET_VERSION = '0.1.1-rc.2' as const
 const EXPECTED_PACKAGE = '@deepseek-ai/dsh-llm-deepseek' as const
 const EXPECTED_ROUTE = 'deepseek-official' as const
 const EXPECTED_MODEL = 'deepseek-v4-flash' as const
 const EXPECTED_REPO = 'deepseek-ai/deepseek-harness' as const
-const EXPECTED_SOURCE_REF = 'npm:@deepseek-ai/dsh-llm-deepseek@0.1.0-rc.8' as const
+const EXPECTED_SOURCE_REF = 'npm:@deepseek-ai/dsh-llm-deepseek@0.1.1-rc.2' as const
 
 const ALLOWED_REASONS = [
   'adapter_options_invalid',
@@ -248,7 +248,7 @@ export function createProviderCompatibilityAudit(options: {
             reasons.push('direct_dsh_dependency_version_mismatch')
             continue
           }
-          // Must be exact 0.1.0-rc.8 without range/workspace prefix
+          // Must be exact 0.1.1-rc.2 without range/workspace prefix
           if (ver !== TARGET_VERSION) {
             provider_plugin = 'incompatible'
             reasons.push('direct_dsh_dependency_version_mismatch')

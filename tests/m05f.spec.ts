@@ -28,7 +28,7 @@ import {
   type IsolatedDryRunResult,
 } from '../src/m05f/dry-run.js'
 
-const TARGET_DSH_VERSION = '0.1.0-rc.8'
+const TARGET_DSH_VERSION = '0.1.1-rc.2'
 const OFFICIAL_PROVIDER_PKG = '@deepseek-ai/dsh-llm-deepseek'
 const OFFICIAL_ROUTE = 'deepseek-official'
 const OFFICIAL_MODEL = 'deepseek-v4-flash'
@@ -524,7 +524,7 @@ describe('M0.5F1 CTO Final Review: Lifecycle Isolation, Real llm/stream, Strict 
     it('fails closed and produces zero Plan / Authorization if Audit or DryRun fails', async () => {
       const lockContent = readFileSync(resolve(process.cwd(), 'pnpm-lock.yaml'), 'utf8')
       const badPkg = JSON.stringify({
-        devDependencies: { '@deepseek-ai/dsh-agent': '0.1.0-rc.8' },
+        devDependencies: { '@deepseek-ai/dsh-agent': '0.1.1-rc.2' },
         peerDependencies: {},
       })
 
@@ -554,25 +554,25 @@ describe('M0.5F1 CTO Final Review: Lifecycle Isolation, Real llm/stream, Strict 
 
   // Section 5: Audit 检查全部直接 DSH 依赖
   describe('五、Audit 检查全部直接 DSH 依赖', () => {
-    it('blocks audit if any direct DSH dependency is non-rc.8 or has range / workspace prefix across all 4 dependency sections', () => {
+    it('blocks audit if any direct DSH dependency is non-rc.2 or has range / workspace prefix across all 4 dependency sections', () => {
       const lockContent = readFileSync(resolve(process.cwd(), 'pnpm-lock.yaml'), 'utf8')
 
-      // 1. Dependency with rc.7 in peerDependencies
-      const pkgWithRc7 = JSON.stringify({
-        devDependencies: { '@deepseek-ai/dsh-llm-deepseek': '0.1.0-rc.8' },
-        peerDependencies: { '@deepseek-ai/dsh-session': '0.1.0-rc.7' },
+      // 1. Dependency with rc.8 in peerDependencies
+      const pkgWithRc8 = JSON.stringify({
+        devDependencies: { '@deepseek-ai/dsh-llm-deepseek': '0.1.1-rc.2' },
+        peerDependencies: { '@deepseek-ai/dsh-session': '0.1.0-rc.8' },
       })
-      const auditRc7 = createProviderCompatibilityAudit({
+      const auditRc8 = createProviderCompatibilityAudit({
         audited_at: '2026-08-21T00:00:00Z',
-        package_json_content: pkgWithRc7,
+        package_json_content: pkgWithRc8,
         lockfile_content: lockContent,
       })
-      expect(auditRc7.decision).toBe('blocked')
+      expect(auditRc8.decision).toBe('blocked')
 
-      // 2. Dependency with caret range ^0.1.0-rc.8 in dependencies
+      // 2. Dependency with caret range ^0.1.1-rc.2 in dependencies
       const pkgWithCaret = JSON.stringify({
-        dependencies: { '@deepseek-ai/dsh-tools': '^0.1.0-rc.8' },
-        devDependencies: { '@deepseek-ai/dsh-llm-deepseek': '0.1.0-rc.8' },
+        dependencies: { '@deepseek-ai/dsh-tools': '^0.1.1-rc.2' },
+        devDependencies: { '@deepseek-ai/dsh-llm-deepseek': '0.1.1-rc.2' },
       })
       const auditCaret = createProviderCompatibilityAudit({
         audited_at: '2026-08-21T00:00:00Z',
@@ -584,7 +584,7 @@ describe('M0.5F1 CTO Final Review: Lifecycle Isolation, Real llm/stream, Strict 
       // 3. Dependency with latest
       const pkgWithLatest = JSON.stringify({
         optionalDependencies: { '@deepseek-ai/dsh-brand': 'latest' },
-        devDependencies: { '@deepseek-ai/dsh-llm-deepseek': '0.1.0-rc.8' },
+        devDependencies: { '@deepseek-ai/dsh-llm-deepseek': '0.1.1-rc.2' },
       })
       const auditLatest = createProviderCompatibilityAudit({
         audited_at: '2026-08-21T00:00:00Z',

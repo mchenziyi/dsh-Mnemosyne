@@ -18,9 +18,9 @@ import {
 import { runIsolatedProfileDryRun, type IsolatedDryRunResult } from './dry-run.js'
 
 export interface RealCanaryRuntime {
-  dsh_version: '0.1.0-rc.8'
+  dsh_version: '0.1.1-rc.2'
   provider_package: '@deepseek-ai/dsh-llm-deepseek'
-  provider_package_version: '0.1.0-rc.8'
+  provider_package_version: '0.1.1-rc.2'
   provider_route: 'deepseek-official'
   model: string
   credential_ref?: string
@@ -49,9 +49,9 @@ export interface RealCanaryPlan {
   fixture_manifest_sha256: string
   m05e_canary_plan_sha256: string
   runtime: {
-    dsh_version: '0.1.0-rc.8'
+    dsh_version: '0.1.1-rc.2'
     provider_package: '@deepseek-ai/dsh-llm-deepseek'
-    provider_package_version: '0.1.0-rc.8'
+    provider_package_version: '0.1.1-rc.2'
     provider_route: 'deepseek-official'
     model: string
     credential_ref: string
@@ -94,9 +94,9 @@ export interface RealCanaryAuthorizationRequest {
   canary_plan_sha256: string
   fixture_manifest_sha256: string
   runtime: {
-    dsh_version: '0.1.0-rc.8'
+    dsh_version: '0.1.1-rc.2'
     provider_package: '@deepseek-ai/dsh-llm-deepseek'
-    provider_package_version: '0.1.0-rc.8'
+    provider_package_version: '0.1.1-rc.2'
     provider_route: 'deepseek-official'
     model: string
   }
@@ -136,7 +136,7 @@ export interface PlanningGateResult {
   authorization: RealCanaryAuthorizationRequest
 }
 
-const TARGET_VERSION = '0.1.0-rc.8' as const
+const TARGET_VERSION = '0.1.1-rc.2' as const
 const EXPECTED_PACKAGE = '@deepseek-ai/dsh-llm-deepseek' as const
 const EXPECTED_ROUTE = 'deepseek-official' as const
 const EXPECTED_MODEL = 'deepseek-v4-flash' as const

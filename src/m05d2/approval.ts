@@ -19,7 +19,7 @@ import {
 
 export interface AcceptedRuntime {
   provider_package: '@deepseek-ai/dsh-llm-deepseek'
-  provider_package_version: '0.1.0-rc.8'
+  provider_package_version: '0.1.1-rc.2'
   provider_route: 'deepseek-official'
   model: string
 }
@@ -66,7 +66,7 @@ export interface RealCanaryExecutionClaim {
   claim_sha256: string
 }
 
-const TARGET_VERSION = '0.1.0-rc.8' as const
+const TARGET_VERSION = '0.1.1-rc.2' as const
 const EXPECTED_PACKAGE = '@deepseek-ai/dsh-llm-deepseek' as const
 const EXPECTED_ROUTE = 'deepseek-official' as const
 
