@@ -982,7 +982,7 @@ M0 只有同时满足以下条件才算完成：
 
 ## 19. M0.5：核心价值纵向验证
 
-> 状态：M0.5A/B/C、M0.5D-D0/D1、M0.5E/F 与 D2-A/B1 已完成并通过独立验收；D2-B2/B3 等待用户协作，尚未发生真实模型调用。
+> 状态：M0.5A/B/C、M0.5D-D0/D1、M0.5E/F 与 D2-A/B1/B2 已完成；D2-B3 已于 2026-08-24 执行并以 `real_provider_plumbing_fail/circuit_open` 安全结束，D3 未授权。
 
 ### 19.1 目标
 
@@ -1832,7 +1832,7 @@ git diff --check
 
 ### 19.14 M0.5D：评测协议 v2 与真实 Agent Loop 执行器
 
-> 状态：D0/D1 与 D2-A/B1 已完成并通过独立验收；D2-B2/B3 与 D3 未执行，未产生真实 Provider 调用或费用。
+> 状态：D0/D1 与 D2-A/B1/B2 已完成；D2-B3 已执行，3 个 task call claim 均失败、0 Receipt、连续错误触发熔断；实际计费状态未知，D3 未执行。
 
 #### 19.14.1 阶段决议
 
@@ -2290,7 +2290,7 @@ Runner/Fake/Fixture 不从 src/index.ts 导出，pack-check 必须证明不进�
 
 ### 19.16 M0.5F：DSH rc.8 基线升级、公共 Provider 桥接审计与授权门禁
 
-> 状态：✅ M0.5F0/F1 与 D2-A/B1 已完成并通过独立验收，状态为 `real_canary_cli_ready_for_local_credential`。下一步是 D2-B2 本地临时 Credential 与零调用 Preflight；真实 Canary 仍须用户单独明确批准。
+> 状态：✅ M0.5F0/F1 与 D2-A/B1/B2 已完成；D2-B3 已经用户单独明确批准并执行，结果为 `real_provider_plumbing_fail/circuit_open`。下一步应先补充稳定、脱敏的 Provider 错误分类，再决定是否申请新的诊断性执行授权；D3 未授权。
 
 #### 19.16.1 目标与阶段边界
 

@@ -1,6 +1,6 @@
 # dsh-Mnemosyne M0.5D-D2 开发计划：真实 Provider Canary 执行桥与双重授权门禁
 
-> 状态：🟢 D2-A 与 D2-B1 已完成并通过独立验收；达到 `real_canary_cli_ready_for_local_credential`。D2-B2/B3 尚未执行，尚无真实调用。
+> 状态：🟠 D2-A/B1/B2 已完成；D2-B3 已于 2026-08-24 执行并得到 `real_provider_plumbing_fail/circuit_open`，未进入 D3。
 > 基线：`main@0a5fa6f`，DSH `0.1.0-rc.8`  
 > 架构事实源：`docs/DSH_MNEMOSYNE_ARCHITECTURE.zh-CN.md` 第 19.14～19.16 节  
 > 前置状态：M0.5E=`canary_preflight_ready`；M0.5F1=`real_canary_ready_for_user_approval`  
@@ -393,15 +393,21 @@ git diff --check
 不要 git commit、push 或创建 Tag。最终只能报告 real_canary_executor_ready_for_user_approval 或稳定 blocked，等待 Sol Review；不要执行真实 Canary。
 ```
 
-## 十一、D2-B 用户实跑占位
+## 十一、D2-B 用户实跑记录
 
-D2-A 未完成并通过 Sol Review 前，本节没有可执行命令。签收后再基于实际 CLI/API 写一份独立、可复制的用户联调步骤，届时用户将：
+2026-08-24 完成一次受用户明确授权的 D2-B3：
 
-1. 在隔离临时目录生成或检查 pending Authorization；
-2. 查看完整 preflight；
-3. 通过独立动作创建 Approval Receipt；
-4. 触发一次固定 6-run Canary；
-5. 检查 Summary、预算、清理和脱敏结果；
-6. 决定是否第二次授权 D3。
+| 项目 | 结果 |
+|---|---|
+| Preflight | `ready`，Persistence Root 在执行前为空 |
+| Plan SHA-256 | `sha256_6d1a668ca3175c688052033d04133d90be087d88dcf88227e927f584cd65ac4e` |
+| Authorization SHA-256 | `sha256_fb6c35a43c851e3d5b39bfce5696f76bc6f767f903aca14560cdb4cdd338b774` |
+| Approval SHA-256 | `sha256_d601fc15e954fbf1e5921c75a3da1b996dff75a05000a551923b09f5f3ac5d20` |
+| Summary SHA-256 | `sha256_df637f1f4ee1d451178c3fc42f2981ef27b2919ee20c135b5ced00e86af25a22` |
+| 最终状态 | `real_provider_plumbing_fail` |
+| 稳定原因 | `circuit_open` |
+| Ledger | task claimed=3、acquisition claimed=0、completed=0、failed=3、连续 Provider/协议错误=2 |
+| Receipt | 0；不得形成质量证据 |
+| 清理 | `cleanup_clean=true`；临时 Credential 已删除 |
 
-在实现前提前编造命令会造成授权边界与真实 CLI 不一致，因此本计划只冻结协议和执行边界，不伪造尚不存在的命令。
+本次执行严格保持 0 自动重试，并在连续两次 Provider/协议错误后熔断。持久化摘要按设计只保存稳定原因码，没有保存 Provider 原始异常，因此不能从该 Summary 判断是远端鉴权、模型路由、网络还是协议响应问题。原 Execution Claim 已落盘，禁止复用同一 Approval 重跑；任何诊断性重试必须先补充脱敏错误分类，重新生成 Authorization/Approval，并再次取得用户明确授权。D3 继续保持未授权、未执行。

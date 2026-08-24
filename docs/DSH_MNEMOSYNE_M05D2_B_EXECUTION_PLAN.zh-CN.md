@@ -1,6 +1,6 @@
 # dsh-Mnemosyne M0.5D-D2-B 开发计划：真实 Canary 用户执行入口
 
-> 状态：✅ D2-B1 已实现并通过 CTO 独立验收；D2-B2/B3 等待用户协作
+> 状态：✅ D2-B1/B2 已完成；D2-B3 已于 2026-08-24 执行并安全熔断，结果为 `real_provider_plumbing_fail/circuit_open`
 > 前置提交：`77e4190`（D2-A 离线执行器已通过 CTO 独立验收）
 > DSH 基线：全部公开包固定 `0.1.0-rc.8`
 > 本文档不是模型调用授权；D2-B0/B1 全程必须保持零真实请求
@@ -13,13 +13,15 @@ D2-B0：公开 Credential 与执行入口设计（本文）
 → D2-B2：用户本地写入临时 Key + 生成 Approval + Preflight（零真实请求）
 → D2-B3：用户明确批准后运行固定 6-run 真实 Canary
 ```
-D2-B1 完成后只能输出：
+D2-B1 完成后、D2-B3 执行前只能输出：
 
 ```text
 real_canary_cli_ready_for_local_credential
 ```
 
 不得输出 `real_provider_plumbing_pass|real_provider_plumbing_fail|GO|ADJUST|STOP`。
+
+D2-B3 的真实结果只证明本次 Provider plumbing 未跑通，不构成模型质量结论，也不授权自动重试或进入 D3。
 
 ## 二、已确认的 rc.8 公开接口
 
