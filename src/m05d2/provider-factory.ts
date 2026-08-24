@@ -39,6 +39,7 @@ export interface ProviderBridgeOptions {
   dsh_home: string
   workspace: string
   credentialProvider?: CredentialSeamInstaller
+  requiredCredentialSource?: string
 }
 
 export interface ReadyProviderBridge {
@@ -186,12 +187,33 @@ export async function createRealProviderBridge(
   }
 
   // Section 2.3: Verify ctx.get("credentials") exists and resolve/describe/set/unset are complete
-  const credService = ctx.get('credentials')
+  const credService: unknown = ctx.get('credentials')
   if (!isValidCredentialService(credService)) {
     return {
       status: 'blocked',
       reason_code: 'real_canary_blocked_credential_isolation_unavailable',
       dispose,
+    }
+  }
+
+  // CTO Review 8.1: If requiredCredentialSource is specified, verify configured=true and source matches without resolving key
+  if (options.requiredCredentialSource !== undefined) {
+    let desc: CredentialInfo | undefined
+    try {
+      desc = await credService.describe(plan.runtime.credential_ref)
+    } catch {
+      return {
+        status: 'blocked',
+        reason_code: 'real_canary_blocked_credential_isolation_unavailable',
+        dispose,
+      }
+    }
+    if (!desc || !desc.configured || desc.source !== options.requiredCredentialSource) {
+      return {
+        status: 'blocked',
+        reason_code: 'real_canary_blocked_credential_isolation_unavailable',
+        dispose,
+      }
     }
   }
 

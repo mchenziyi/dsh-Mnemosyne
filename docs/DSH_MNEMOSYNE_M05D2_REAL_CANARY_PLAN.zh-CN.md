@@ -1,6 +1,6 @@
 # dsh-Mnemosyne M0.5D-D2 开发计划：真实 Provider Canary 执行桥与双重授权门禁
 
-> 状态：🟢 D2-A 已完成并经两轮审查（普通 Review + Security Review）全绿；达到 `real_canary_executor_ready_for_user_approval`。全阶段禁止真实调用。
+> 状态：🟢 D2-A 与 D2-B1 已完成并通过独立验收；达到 `real_canary_cli_ready_for_local_credential`。D2-B2/B3 尚未执行，尚无真实调用。
 > 基线：`main@0a5fa6f`，DSH `0.1.0-rc.8`  
 > 架构事实源：`docs/DSH_MNEMOSYNE_ARCHITECTURE.zh-CN.md` 第 19.14～19.16 节  
 > 前置状态：M0.5E=`canary_preflight_ready`；M0.5F1=`real_canary_ready_for_user_approval`  

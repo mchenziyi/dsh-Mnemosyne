@@ -67,6 +67,13 @@ const forbiddenSymbols = [
   'runRealCanaryPreflight',
   'validateAcquisitionCandidate',
   'validateExecutionWorld',
+  'LocalCredentialProvider',
+  'createRealCanaryApprovalCli',
+  'executeRealCanaryCli',
+  'ApprovalCliError',
+  'ExecutionCliError',
+  'ApprovalInternalTestHooks',
+  '__setApprovalTestHooksForTest',
 ]
 
 for (const symbol of forbiddenSymbols) {

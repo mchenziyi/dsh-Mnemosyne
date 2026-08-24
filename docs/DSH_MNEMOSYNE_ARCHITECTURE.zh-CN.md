@@ -982,7 +982,7 @@ M0 只有同时满足以下条件才算完成：
 
 ## 19. M0.5：核心价值纵向验证
 
-> 状态：M0.5A/B/C、M0.5D-D0/D1 与 M0.5E 已完成并通过 Sol 独立验收；D2 仍等待 M0.5F Provider 桥接与用户授权，尚未发生真实模型调用。
+> 状态：M0.5A/B/C、M0.5D-D0/D1、M0.5E/F 与 D2-A/B1 已完成并通过独立验收；D2-B2/B3 等待用户协作，尚未发生真实模型调用。
 
 ### 19.1 目标
 
@@ -1832,7 +1832,7 @@ git diff --check
 
 ### 19.14 M0.5D：评测协议 v2 与真实 Agent Loop 执行器
 
-> 状态：D0/D1 已完成并通过 Sol 独立验收；D2/D3 未执行，未产生真实 Provider 调用或费用。
+> 状态：D0/D1 与 D2-A/B1 已完成并通过独立验收；D2-B2/B3 与 D3 未执行，未产生真实 Provider 调用或费用。
 
 #### 19.14.1 阶段决议
 
@@ -2290,7 +2290,7 @@ Runner/Fake/Fixture 不从 src/index.ts 导出，pack-check 必须证明不进�
 
 ### 19.16 M0.5F：DSH rc.8 基线升级、公共 Provider 桥接审计与授权门禁
 
-> 状态：✅ M0.5F0 已于提交 `670cfe7` 完成；M0.5F1 已于提交 `0a5fa6f` 完成并通过 Sol 验收，状态为 `real_canary_ready_for_user_approval`。下一步是 M0.5D-D2；实现准备阶段禁止真实调用，真实 Canary 仍须用户单独明确批准。
+> 状态：✅ M0.5F0/F1 与 D2-A/B1 已完成并通过独立验收，状态为 `real_canary_cli_ready_for_local_credential`。下一步是 D2-B2 本地临时 Credential 与零调用 Preflight；真实 Canary 仍须用户单独明确批准。
 
 #### 19.16.1 目标与阶段边界
 

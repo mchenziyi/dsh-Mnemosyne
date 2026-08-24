@@ -257,6 +257,7 @@ export interface D2RunnerOptions {
   workspace_root: string
   clock?: CanaryClock
   credentialProvider?: CredentialSeamInstaller
+  requiredCredentialSource?: string
 }
 
 class CircuitOpenError extends LlmError {
@@ -1511,6 +1512,7 @@ export async function runRealCanaryD2(options: D2RunnerOptions): Promise<RealCan
     dsh_home: paths.dsh_home,
     workspace: paths.workspace,
     credentialProvider: options.credentialProvider,
+    requiredCredentialSource: options.requiredCredentialSource,
   })
 
   const ledger = new BudgetLedger()
