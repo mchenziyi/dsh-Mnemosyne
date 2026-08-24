@@ -1,6 +1,6 @@
 # dsh-Mnemosyne M0.5D-D2-B 开发计划：真实 Canary 用户执行入口
 
-> 状态：🟡 设计冻结，等待 Gemini 3.7 Flash 实现 D2-B0/B1
+> 状态：🟠 首轮实现已完成，等待 CTO Review 修复
 > 前置提交：`77e4190`（D2-A 离线执行器已通过 CTO 独立验收）
 > DSH 基线：全部公开包固定 `0.1.0-rc.8`
 > 本文档不是模型调用授权；D2-B0/B1 全程必须保持零真实请求
@@ -251,4 +251,54 @@ D2-B3 只有在用户看到该次 Preflight 并明确回复批准后才执行。
 实现后先自行做普通 Review，再做 Security Review；发现问题立即补失败测试并修复，直到无 blocking/should-fix。运行本文第五章全部门禁。禁止 commit、push、tag。
 
 最终报告必须包含：修改文件、失败测试先行证据、官方 Credential 组合方式、执行顺序、Claim-before-resolve/network 证据、Fake 调用统计、重复执行/故障矩阵、敏感信息扫描、包泄漏检查、全部门禁、Review/Security Review 结果与残余风险。最终状态只能是 real_canary_cli_ready_for_local_credential 或稳定 blocked。
+```
+
+## 八、CTO Review 修复契约
+
+首轮实现不得签收，必须先关闭以下问题：
+
+### 8.1 Credential 来源必须锁定为受管文件
+
+官方 LocalCredentialProvider 的公开优先级是：继承环境 `env` 高于受管 `file`。仅配置显式 `path` 不能证明实际请求使用临时文件中的 Key。
+
+真实执行路径必须在安装 DeepSeek Provider 前通过 `ctx.credentials.describe(credential_ref)` 验证：
+
+```text
+configured == true
+source == "file"
+```
+
+不满足时返回稳定 blocked，禁止安装 DeepSeek Provider、禁止网络请求，且不得调用 `resolve()` 获取或比较明文值。该约束只用于 D2-B 真实 CLI；既有通用 Fake seam 不得被强制改成 `source=file`。可以为 `createRealProviderBridge` 增加显式 `requiredCredentialSource` 选项，由执行 CLI 固定传入 `file`。
+
+新增回归测试：设置 synthetic 同名环境变量使官方 Provider 报告 `source=env`，必须 stable blocked、network=0，输出不含环境变量值；删除 synthetic 环境后，受管文件路径继续通过。测试必须在 `finally` 恢复环境。
+
+### 8.2 Approval 输出路径必须达到持久化同等级安全
+
+首轮 `writeApprovalFileNoOverwrite` 只检查直接父目录，祖先 symlink 可把 Approval 写到预期树外；检查与 link 间目录替换也未检测。
+
+必须：
+
+1. 逐组件 `lstat` 拒绝任意非系统祖先 symlink/非目录；
+2. 发布前后记录并复核输出父目录 `dev+ino`；
+3. `link` no-overwrite、0600、文件 fsync、目录 fsync、O_NOFOLLOW readback 保持；
+4. 发布前目录替换 → 外部/新目录零目标；发布后替换 → fail loud 且已发布目标保留，不删除；
+5. 错误保持固定脱敏。
+
+必须先补真实 symlink 祖先与真实 rename/recreate inode 测试，不得用 hook 直接抛错伪装身份校验。
+
+### 8.3 不修改全仓测试超时
+
+删除 `vitest.config.ts` 的全局 `testTimeout: 30000`。现有子进程 helper 已有显式 timeout；若单个新增测试确实超过默认值，只能在该测试上设置局部 timeout，并给出实测依据。不得用全局放宽掩盖挂起。
+
+### 8.4 修复阶段提示词
+
+```text
+继续 /Users/czy/Desktop/demo/dsh-Mnemosyne 的 D2-B1 CTO Review 修复。完整阅读 docs/DSH_MNEMOSYNE_M05D2_B_EXECUTION_PLAN.zh-CN.md 第八章和当前 diff。
+
+只修复 8.1、8.2、8.3。先补能在当前实现上失败的回归测试，再做最小修复：
+- D2-B 真实 CLI 必须验证官方 Credential describe 的实际 source=file；环境层 shadow 必须 stable blocked 且 network=0，绝不 resolve/比较/输出 Key。
+- Approval 输出逐组件拒绝祖先 symlink，并用真实 rename/recreate 测试锁定发布前后 dev+ino 复核；发布后失败保留已发布目标。
+- 撤销 vitest 全局 testTimeout，只允许必要的局部 timeout。
+
+不得执行真实 Provider、不得读取真实 Key、不得改 Fixture/golden/历史协议、不得 commit/push/tag。完成后自行 Review/Security Review并运行第五章全部门禁。报告修复前失败证据、Credential source 矩阵、目录替换结果和全部门禁。
 ```
