@@ -1,6 +1,6 @@
 # dsh-Mnemosyne v0.1.0 · MVP-02 短期/长期 Fact Store 与安全读写计划
 
-> 状态：🟡 待 Gemini 实现、自审与 CTO Review  
+> 状态：✅ 已实现、通过 CTO Review 并完成全量门禁（2026-08-25）
 > 日期：2026-08-24  
 > DSH 基线：`0.1.1-rc.2`  
 > 前置任务：MVP-01 已通过，Commit `0cc7448`
@@ -284,7 +284,8 @@ interface WriteResult {
 
 ```ts
 interface MemoryFactStore {
-  putShortTerm(fact: ShortTermMemoryFact): Promise<WriteResult>
+  /** CTO Review 修正：显式传入调用方受控的 sessionScopeId，拒绝与 fact.session_scope_id 不一致的输入 */
+  putShortTerm(sessionScopeId: string, fact: ShortTermMemoryFact): Promise<WriteResult>
   getShortTerm(sessionScopeId: string, memoryId: string): Promise<ShortTermMemoryFact>
   listShortTerm(sessionScopeId: string, now: string, options?: { includeExpired?: boolean }): Promise<ShortTermMemoryFact[]>
   putLongTerm(fact: LongTermMemoryFact): Promise<WriteResult>
