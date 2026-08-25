@@ -622,4 +622,3 @@ MVP-05 通过 CTO Review 后：
 3. 不创建版本 Tag；
 4. 再设计 MVP-06：`list/promote/forget` 基础管理；
 5. MVP-07 真实临时项目闭环通过后，才创建唯一 `v0.1.0` Tag。
-
