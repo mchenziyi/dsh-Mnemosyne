@@ -8,8 +8,7 @@ import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { assertHash, assertSafeText } from '../protocol/canonical.js'
 import { validateMemoryCatalog, validateRetrievalCases, validateEvaluationProtocol, validatePairedTasks, type MemoryCatalog, type RetrievalCases } from '../protocol/evaluation.js'
-import { createSearchTool } from '../search-tool.js'
-import { createOpenTool } from '../open-tool.js'
+import { createFixtureSearchTool, createFixtureOpenTool } from '../retrieval/fixture-tools.js'
 import { RetrievalRuntime } from '../retrieval/runtime.js'
 import { createRecallContext, createRecallReceipt, encodeRecallContext, replayRecallContext, validateRecallContext, validateRecallReceipt, type RecallContextEnvelope, type RecallContextReceipt } from '../protocol/recall.js'
 import { validateOpenDisclosure, validateSearchDisclosure } from '../protocol/retrieval.js'
@@ -557,7 +556,7 @@ export async function runAgentLoopEvidence(task: M05DTask, group: M05DGroup, cat
     toolRuntime = ctx.tools
     registrations.push(ctx.tools.register(createTaskFixtureTool(task.task_id)))
     const runtime = group === 'no_memory' ? undefined : new RetrievalRuntime(catalog)
-    if (group === 'tool_only' && task.task_kind === 'memory_dependent' && runtime !== undefined) { registrations.push(ctx.tools.register(createSearchTool(runtime)), ctx.tools.register(createOpenTool(runtime))) }
+    if (group === 'tool_only' && task.task_kind === 'memory_dependent' && runtime !== undefined) { registrations.push(ctx.tools.register(createFixtureSearchTool(runtime)), ctx.tools.register(createFixtureOpenTool(runtime))) }
     const fakeProvider = new FakeProvider(); const taskCallCounter = { value: 0 }; const runId = options.run_id ?? `m05d-${group}-${task.task_id}`; const requestedSeed = options.requested_seed ?? 0
     const timeoutState = { callTimedOut: false, batchTimedOut: false, protocolError: undefined as unknown }
     const claimTask = (kind: 'task' | 'acquisition', c: Omit<M05DAgentCallContext, 'sequence'>) => {

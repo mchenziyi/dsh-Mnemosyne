@@ -64,3 +64,7 @@ export class MemoryStoreError extends Error {
     this.cause = cause
   }
 }
+
+export function isMemoryStoreErrorCode(value: unknown): value is MemoryStoreErrorCode {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(ERROR_MESSAGES, value)
+}

@@ -595,4 +595,35 @@ describe('MVP-03E: Generation Security, Permissions & Lock Matrix (Tests 44-51, 
       await rm(tempDir, { recursive: true, force: true })
     }
   })
+
+  it('85. verifyAndLoadGenerationWorld defaults to computeProjectScopeId and rejects cross-project generation copy', async () => {
+    const tempDirA = await mkdtemp(join(await realpath(tmpdir()), 'dsh-gsec-85a-'))
+    const tempDirB = await mkdtemp(join(await realpath(tmpdir()), 'dsh-gsec-85b-'))
+    try {
+      const realRootA = await realpath(tempDirA)
+      const realRootB = await realpath(tempDirB)
+      const projectScopeIdA = computeProjectScopeId(realRootA)
+      const compiler = createOKFCompiler()
+
+      const res = await compiler.compile({
+        project_root: realRootA,
+        project_scope_id: projectScopeIdA,
+        evaluation_at: evaluationAt,
+        compiler_version: 'dsh-mnemosyne-okf/1',
+      })
+
+      // Copy generation from root A to root B
+      const { cp } = await import('node:fs/promises')
+      const { verifyAndLoadGenerationWorld } = await import('../src/generation-store.js')
+      await cp(join(realRootA, '.dsh-mnemosyne'), join(realRootB, '.dsh-mnemosyne'), { recursive: true })
+
+      // Calling verifyAndLoadGenerationWorld on root B without expectedScope MUST fail closed
+      await expect(
+        verifyAndLoadGenerationWorld(realRootB, res.generation_id)
+      ).rejects.toThrowError(MemoryStoreError)
+    } finally {
+      await rm(tempDirA, { recursive: true, force: true })
+      await rm(tempDirB, { recursive: true, force: true })
+    }
+  })
 })

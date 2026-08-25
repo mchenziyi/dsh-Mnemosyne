@@ -3,7 +3,7 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type { Config as PluginConfig } from './config.js'
 import { createOpenTool } from './open-tool.js'
 import { createSearchTool } from './search-tool.js'
-import { createFixtureRuntime } from './retrieval/runtime.js'
+import { createProductionRetrievalRuntime } from './okf-retrieval-runtime.js'
 import { createStatusTool } from './status.js'
 import { createScopeRuntime } from './runtime-scope.js'
 
@@ -17,7 +17,7 @@ export function install(
   const onSessionEvent: () => void = typeof configOrCb === 'function' ? configOrCb : maybeCb ?? (() => {})
 
   const scopeRuntime = createScopeRuntime({ projectRoot: config.projectRoot })
-  const retrievalRuntime = createFixtureRuntime()
+  const retrievalRuntime = createProductionRetrievalRuntime(scopeRuntime)
 
   ctx.effect(() => () => {
     scopeRuntime.clear()

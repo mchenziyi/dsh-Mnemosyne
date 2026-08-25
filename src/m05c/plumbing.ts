@@ -64,7 +64,7 @@ async function loadBaseTruth(): Promise<FixtureTruth> {
     import('../../fixtures/m0.5/v1/protocol.json', { with: { type: 'json' } }),
     import('../../fixtures/m0.5/v1/retrieval-cases.json', { with: { type: 'json' } }),
     import('../../fixtures/m0.5/v1/paired-tasks.json', { with: { type: 'json' } }),
-    import('../../fixtures/m0.5/v1/fixture-manifest.json', { with: { type: 'json' }}),
+    import('../../fixtures/m0.5/v1/fixture-manifest.json', { with: { type: 'json' } }),
   ])
   const protocol = validateEvaluationProtocol(protocolJson.default); const cases = validateRetrievalCases(casesJson.default); const tasks = validatePairedTasks(tasksJson.default); const manifest = validateFixtureManifest(manifestJson.default)
   const files = new Map(manifest.files.map((entry) => [entry.relative_name, entry.content_sha256]))
@@ -73,7 +73,7 @@ async function loadBaseTruth(): Promise<FixtureTruth> {
 }
 
 async function loadFullTruth(base: FixtureTruth): Promise<FixtureTruth> {
-  const catalogJson = await import('../../fixtures/m0.5/v1/memory-catalog.json', { with: { type: 'json' }})
+  const catalogJson = await import('../../fixtures/m0.5/v1/memory-catalog.json', { with: { type: 'json' } })
   const catalog = validateMemoryCatalog(catalogJson.default); const entry = base.manifest.files.find((item) => item.relative_name === 'memory-catalog.json')
   if (!entry || entry.content_sha256 !== canonicalHash(catalog)) throw new ProtocolValidationError()
   return { ...base, catalog }
@@ -171,15 +171,36 @@ export function runScriptedFixtureAdapter(prompt: string, visible: string[]): { 
   return new ScriptedFixtureAdapter().run(prompt, visible)
 }
 
-async function createContext(withPlugin: boolean): Promise<{ ctx: Context; dispose: () => Promise<void> }> {
+async function createContext(withPlugin: boolean, catalog?: import('../protocol/evaluation.js').MemoryCatalog): Promise<{ ctx: Context; dispose: () => Promise<void> }> {
   const { Context } = await import('@deepseek-ai/cordis'); const ctx = new Context(); const fibers: Array<{ dispose(): Promise<void> }> = []
+  const registrations: Array<() => void> = []
   if (withPlugin) {
     try {
-      const [{ default: ToolRuntime }, { default: SystemPrompt }, { apply, Config }] = await Promise.all([import('@deepseek-ai/dsh-tools'), import('@deepseek-ai/dsh-system-prompt'), import('../index.js')])
-      fibers.push(await ctx.plugin(SystemPrompt), await ctx.plugin(ToolRuntime), await ctx.plugin({ name: 'dsh-mnemosyne', Config, inject: ['tools'], apply }, { enabled: true }))
-    } catch (error) { for (const item of fibers.reverse()) await item.dispose(); throw error }
+      const [{ default: ToolRuntime }, { default: SystemPrompt }, { createFixtureSearchTool, createFixtureOpenTool }, { RetrievalRuntime }] = await Promise.all([
+        import('@deepseek-ai/dsh-tools'),
+        import('@deepseek-ai/dsh-system-prompt'),
+        import('../retrieval/fixture-tools.js'),
+        import('../retrieval/runtime.js'),
+      ])
+      fibers.push(await ctx.plugin(SystemPrompt), await ctx.plugin(ToolRuntime))
+      const runtime = new RetrievalRuntime(catalog)
+      registrations.push(
+        ctx.tools.register(createFixtureSearchTool(runtime)),
+        ctx.tools.register(createFixtureOpenTool(runtime))
+      )
+    } catch (error) {
+      for (const unreg of registrations.reverse()) unreg()
+      for (const item of fibers.reverse()) await item.dispose()
+      throw error
+    }
   }
-  return { ctx, dispose: async () => { for (const item of fibers.reverse()) await item.dispose() } }
+  return {
+    ctx,
+    dispose: async () => {
+      for (const unreg of registrations.reverse()) unreg()
+      for (const item of fibers.reverse()) await item.dispose()
+    },
+  }
 }
 
 async function executeTool(ctx: Context, name: string, args: Record<string, unknown>, callId: string): Promise<Record<string, unknown>> {
@@ -193,7 +214,7 @@ async function executeToolResult(ctx: Context, name: string, args: Record<string
 }
 
 async function runOne(truth: FixtureTruth, task: PairedTask, group: PlumbingGroup, seed: number): Promise<PlumbingRunReceipt> {
-  const { ctx, dispose } = await createContext(group !== 'no_memory')
+  const { ctx, dispose } = await createContext(group !== 'no_memory', truth.catalog)
   const toolCalls: string[] = []; const retrieved: string[] = []; const opened: string[] = []; const visible: string[] = []; let source: 'none' | 'plugin_recall' = 'none'; let failure: string | null = null; let recallHash: string | null = null; let replayVerified = false
   let receipt: PlumbingRunReceipt
   let disposalClean = false

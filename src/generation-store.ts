@@ -742,11 +742,38 @@ export async function readCurrentPointer(
   return rawCurrent
 }
 
-export async function verifyPublishedGenerationWorld(
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== 'object') {
+    return value
+  }
+  if (Object.isFrozen(value)) {
+    return value
+  }
+  Object.freeze(value)
+  for (const key of Object.keys(value as Record<string, unknown>)) {
+    deepFreeze((value as Record<string, unknown>)[key])
+  }
+  return value
+}
+
+export interface VerifiedGenerationSnapshot {
+  current: OKFCurrentPointer | null
+  generation: OKFGenerationMetadata
+  manifest: OKFInputManifest
+  index: OKFIndex
+}
+
+export interface VerifiedFixedGenerationSnapshot {
+  generation: OKFGenerationMetadata
+  manifest: OKFInputManifest
+  index: OKFIndex
+}
+
+export async function verifyAndLoadGenerationWorld(
   projectRoot: string,
   generationId: string,
   expectedProjectScopeId?: string
-): Promise<OKFGenerationMetadata> {
+): Promise<VerifiedFixedGenerationSnapshot> {
   validateGenerationId(generationId)
   const layout = getGenerationLayout(projectRoot)
   const genDir = join(layout.generationsRoot, generationId)
@@ -763,21 +790,20 @@ export async function verifyPublishedGenerationWorld(
     throw new MemoryStoreError('memory_compile_decode_failed', err)
   }
   const genMeta = validateGenerationMetadata(parsedGen)
-  if (genMeta.generation_id !== generationId) {
-    throw new MemoryStoreError('memory_compile_hash_mismatch')
-  }
   if (genResult.text !== canonicalizeGenerationMetadata(genMeta)) {
     throw new MemoryStoreError('memory_compile_noncanonical')
   }
-
-  const expectedScope = expectedProjectScopeId ?? computeProjectScopeId(projectRoot)
-  if (genMeta.project_scope_id !== expectedScope) {
-    throw new MemoryStoreError('memory_compile_current_invalid')
+  if (genMeta.generation_id !== generationId) {
+    throw new MemoryStoreError('memory_compile_hash_mismatch')
+  }
+  const targetScope = expectedProjectScopeId ?? computeProjectScopeId(projectRoot)
+  if (genMeta.project_scope_id !== targetScope) {
+    throw new MemoryStoreError('memory_compile_identity_conflict')
   }
 
-  // 2. Read generation-local manifest.json
-  const localManifestJsonPath = join(genDir, 'manifest.json')
-  const localManifestResult = await readStrictFile(projectRoot, localManifestJsonPath)
+  // 2. Read local manifest.json
+  const localManifestPath = join(genDir, 'manifest.json')
+  const localManifestResult = await readStrictFile(projectRoot, localManifestPath)
   let parsedLocalManifest: unknown
   try {
     parsedLocalManifest = JSON.parse(localManifestResult.text)
@@ -785,14 +811,14 @@ export async function verifyPublishedGenerationWorld(
     throw new MemoryStoreError('memory_compile_decode_failed', err)
   }
   const localManifest = validateManifest(parsedLocalManifest)
-  if (localManifest.manifest_id !== genMeta.manifest_id || localManifest.content_sha256 !== genMeta.manifest_sha256) {
-    throw new MemoryStoreError('memory_compile_hash_mismatch')
-  }
   if (localManifestResult.text !== canonicalizeManifest(localManifest)) {
     throw new MemoryStoreError('memory_compile_noncanonical')
   }
+  if (localManifest.content_sha256 !== genMeta.manifest_sha256 || localManifest.manifest_id !== genMeta.manifest_id) {
+    throw new MemoryStoreError('memory_compile_hash_mismatch')
+  }
 
-  // 3. Read permanent manifests/<manifest-id>.json
+  // 3. Read permanent manifests/<manifest_id>.json and ensure exact identity
   const permManifestPath = join(layout.manifestsRoot, `${genMeta.manifest_id}.json`)
   const permManifestResult = await readStrictFile(projectRoot, permManifestPath)
   let parsedPermManifest: unknown
@@ -921,16 +947,7 @@ export async function verifyPublishedGenerationWorld(
     }
   }
 
-  const manifestOutputs = new Map<string, OKFOutputFileRef>()
-  for (const out of localManifest.outputs) {
-    manifestOutputs.set(out.relative_path, out)
-  }
-
-  // Allowed files MUST be constructed strictly from expectedOutputPaths (plus generation.json, manifest.json)
-  const allowedFiles = new Set<string>(['generation.json', 'manifest.json', ...expectedOutputPaths])
-
   // Strict directory and file verification
-  // Exactly 4 subdirectories must exist: wiki, wiki/short-term, wiki/components, wiki/memories
   const requiredDirs = ['wiki', 'wiki/short-term', 'wiki/components', 'wiki/memories']
   for (const rDir of requiredDirs) {
     const dirFull = join(genDir, ...rDir.split('/'))
@@ -948,11 +965,9 @@ export async function verifyPublishedGenerationWorld(
     }
   }
 
+  const allowedFiles = new Set<string>(['generation.json', 'manifest.json', ...expectedOutputPaths])
   const allowedDirs = new Set<string>(requiredDirs)
-
   const visitedDirs = new Set<string>()
-  const visitedFiles = new Set<string>()
-
   async function checkTree(dir: string, base: string): Promise<void> {
     const entries = await readdir(dir, { withFileTypes: true })
     for (const entry of entries) {
@@ -978,16 +993,12 @@ export async function verifyPublishedGenerationWorld(
         if ((st.mode & 0o777) !== 0o600) {
           throw new MemoryStoreError('memory_compile_insecure_permissions')
         }
-        visitedFiles.add(rel)
       } else {
         throw new MemoryStoreError('memory_compile_path_unsafe')
       }
     }
   }
-
   await checkTree(genDir, genDir)
-
-  // Verify all 4 required dirs are present in the generation directory tree
   for (const rDir of requiredDirs) {
     if (!visitedDirs.has(rDir)) {
       throw new MemoryStoreError('memory_compile_generation_incomplete')
@@ -1002,8 +1013,6 @@ export async function verifyPublishedGenerationWorld(
       throw new MemoryStoreError('memory_compile_generation_incomplete')
     }
   }
-
-
 
   // Verify ROOT.md
   const expectedRootMd = renderRootPage({
@@ -1071,7 +1080,56 @@ export async function verifyPublishedGenerationWorld(
     }
   }
 
-  return genMeta
+  return {
+    generation: genMeta,
+    manifest: localManifest,
+    index,
+  }
+}
+
+export async function verifyPublishedGenerationWorld(
+  projectRoot: string,
+  generationId: string,
+  expectedProjectScopeId?: string
+): Promise<OKFGenerationMetadata> {
+  const world = await verifyAndLoadGenerationWorld(projectRoot, generationId, expectedProjectScopeId)
+  return world.generation
+}
+
+export async function readVerifiedGenerationWorld(
+  projectRoot: string,
+  generationId: string,
+  expectedProjectScopeId?: string
+): Promise<VerifiedFixedGenerationSnapshot> {
+  const world = await verifyAndLoadGenerationWorld(projectRoot, generationId, expectedProjectScopeId)
+  return deepFreeze(world)
+}
+
+export async function readVerifiedCurrentWorld(
+  projectRoot: string,
+  expectedProjectScopeId: string
+): Promise<VerifiedGenerationSnapshot | null> {
+  const rawCurrent = await readRawCurrentPointerUnverified(projectRoot, expectedProjectScopeId)
+  if (!rawCurrent) {
+    return null
+  }
+
+  const world = await verifyAndLoadGenerationWorld(projectRoot, rawCurrent.generation_id, expectedProjectScopeId)
+  if (
+    rawCurrent.project_scope_id !== world.generation.project_scope_id ||
+    rawCurrent.generation_sha256 !== world.generation.content_sha256 ||
+    rawCurrent.manifest_id !== world.generation.manifest_id ||
+    rawCurrent.manifest_sha256 !== world.generation.manifest_sha256
+  ) {
+    throw new MemoryStoreError('memory_compile_hash_mismatch')
+  }
+
+  return deepFreeze({
+    current: rawCurrent,
+    generation: world.generation,
+    manifest: world.manifest,
+    index: world.index,
+  })
 }
 
 export const verifyGenerationDirectory: (projectRoot: string, generationId: string) => Promise<OKFGenerationMetadata> =

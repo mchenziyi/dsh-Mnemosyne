@@ -23,14 +23,22 @@ describe('M0 lifecycle', () => {
     expect(result.value).toEqual({
       plugin: 'dsh-Mnemosyne',
       version: '0.0.0-dev',
-      protocol_version: 2,
-      memory_enabled: false,
+      protocol_version: 3,
+      memory_enabled: true,
       status: 'ready',
       scope: {
         status: 'unavailable',
         source: 'none',
         project_scope_id: null,
         session_scope_id: null,
+        reason: 'missing_agent',
+      },
+      memory: {
+        availability: 'unavailable',
+        generation_id: null,
+        short_term_count: 0,
+        long_term_count: 0,
+        total_count: 0,
         reason: 'missing_agent',
       },
     })

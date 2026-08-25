@@ -10,12 +10,26 @@ import { encodePlumbingSummary, loadEvaluationTruth, runNoMemoryProbe, runPlumbi
 import { createRecallContextTool, RECALL_PREFIX } from '../src/recall-tool.js'
 import { encodeRecallContext, encodeRecallReceipt, replayRecallContext, validateRecallContext, validateRecallReceipt } from '../src/protocol/recall.js'
 
-async function runtime(): Promise<{ ctx: Context; fiber: Awaited<ReturnType<Context['plugin']>> }> {
+import { RetrievalRuntime } from '../src/retrieval/runtime.js'
+import { createFixtureSearchTool, createFixtureOpenTool } from '../src/retrieval/fixture-tools.js'
+
+async function runtime(): Promise<{ ctx: Context; fiber: { dispose(): Promise<void> } }> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  const fiber = await ctx.plugin({ name: 'dsh-mnemosyne', Config, inject: ['tools'], apply }, { enabled: true })
-  return { ctx, fiber }
+  const truth = await loadEvaluationTruth()
+  const r = new RetrievalRuntime(truth.catalog)
+  const unregSearch = ctx.tools.register(createFixtureSearchTool(r))
+  const unregOpen = ctx.tools.register(createFixtureOpenTool(r))
+  return {
+    ctx,
+    fiber: {
+      dispose: async () => {
+        unregOpen()
+        unregSearch()
+      },
+    },
+  }
 }
 
 describe('M0.5C plumbing execution', () => {

@@ -18,6 +18,7 @@ import {
   type ResolvedScope,
   type ScopeResolution,
 } from '../src/runtime-scope.js'
+import { createFixtureRuntime } from '../src/retrieval/runtime.js'
 import { createStatusTool } from '../src/status.js'
 
 function mockSession(id: string, cwd?: string): Session {
@@ -233,7 +234,7 @@ describe('MVP-01: Runtime & Project/Session Scope TDD Matrix', () => {
       const tool = ctx.tools.get('mnemosyne_status')!
       const statusRes = await tool.execute({}, mockToolContext(agent))
       expect(statusRes).toMatchObject({
-        protocol_version: 2,
+        protocol_version: 3,
         scope: {
           status: 'ready',
           source: 'session_header',
@@ -376,14 +377,22 @@ describe('MVP-01: Runtime & Project/Session Scope TDD Matrix', () => {
       expect(outReady).toEqual({
         plugin: 'dsh-Mnemosyne',
         version: '0.0.0-dev',
-        protocol_version: 2,
-        memory_enabled: false,
+        protocol_version: 3,
+        memory_enabled: true,
         status: 'ready',
         scope: {
           status: 'ready',
           source: 'session_header',
           project_scope_id: computeProjectScopeId('/repo/test'),
           session_scope_id: computeSessionScopeId(computeProjectScopeId('/repo/test'), 'sess-ready'),
+          reason: null,
+        },
+        memory: {
+          availability: 'empty',
+          generation_id: null,
+          short_term_count: 0,
+          long_term_count: 0,
+          total_count: 0,
           reason: null,
         },
       })
@@ -394,14 +403,22 @@ describe('MVP-01: Runtime & Project/Session Scope TDD Matrix', () => {
       expect(outUnavailable).toEqual({
         plugin: 'dsh-Mnemosyne',
         version: '0.0.0-dev',
-        protocol_version: 2,
-        memory_enabled: false,
+        protocol_version: 3,
+        memory_enabled: true,
         status: 'ready',
         scope: {
           status: 'unavailable',
           source: 'none',
           project_scope_id: null,
           session_scope_id: null,
+          reason: 'missing_agent',
+        },
+        memory: {
+          availability: 'unavailable',
+          generation_id: null,
+          short_term_count: 0,
+          long_term_count: 0,
+          total_count: 0,
           reason: 'missing_agent',
         },
       })
@@ -412,14 +429,22 @@ describe('MVP-01: Runtime & Project/Session Scope TDD Matrix', () => {
       expect(outConflict).toEqual({
         plugin: 'dsh-Mnemosyne',
         version: '0.0.0-dev',
-        protocol_version: 2,
-        memory_enabled: false,
+        protocol_version: 3,
+        memory_enabled: true,
         status: 'ready',
         scope: {
           status: 'conflict',
           source: 'none',
           project_scope_id: null,
           session_scope_id: null,
+          reason: 'agent_session_identity_mismatch',
+        },
+        memory: {
+          availability: 'unavailable',
+          generation_id: null,
+          short_term_count: 0,
+          long_term_count: 0,
+          total_count: 0,
           reason: 'agent_session_identity_mismatch',
         },
       })
@@ -460,26 +485,17 @@ describe('MVP-01: Runtime & Project/Session Scope TDD Matrix', () => {
       expect(s1).toMatch(/^sha256_[0-9a-f]{64}$/)
     })
 
-    it('25. Synthetic search/open tools remain functional alongside new scope runtime', async () => {
-      const ctx = new Context()
-      await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRuntime)
-
-      const fiber = await ctx.plugin({ name: 'dsh-mnemosyne', Config, inject: ['tools'], apply }, { enabled: true })
-      expect(ctx.tools.get('mnemosyne_search')).toBeDefined()
-      expect(ctx.tools.get('mnemosyne_open')).toBeDefined()
-
-      const searchTool = ctx.tools.get('mnemosyne_search')!
-      const searchRes = (await searchTool.execute({ query: 'compiler cache' }, mockToolContext())) as {
-        level: number
-        items: Array<{ memory_id: string }>
-        retrieval_ref: string
-        content_sha256: string
-      }
+    it('25. Synthetic search/open tools remain functional via fixture runtime', async () => {
+      const fixtureRuntime = createFixtureRuntime()
+      const searchRes = await fixtureRuntime.search({ query: 'compiler cache' })
       expect(searchRes.level).toBe(2)
       expect(searchRes.items.length).toBeGreaterThan(0)
-
-      await fiber.dispose()
+      const openRes = await fixtureRuntime.open({
+        retrieval_id: searchRes.retrieval_ref,
+        search_disclosure_sha256: searchRes.content_sha256,
+        memory_id: searchRes.items[0].memory_id,
+      })
+      expect(openRes.level).toBe(3)
     })
 
     it('26. Zero filesystem write side effects during full scope lifecycle', async () => {

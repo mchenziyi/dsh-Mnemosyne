@@ -33,11 +33,9 @@ import {
   type Usage,
 } from '../m05d/index.js'
 import {
-  createSearchTool,
-} from '../search-tool.js'
-import {
-  createOpenTool,
-} from '../open-tool.js'
+  createFixtureSearchTool,
+  createFixtureOpenTool,
+} from '../retrieval/fixture-tools.js'
 import {
   classifyFailure,
   createSafeStreamFinishError,
@@ -1133,8 +1131,8 @@ async function runRealCanarySingleRun(
     const runtime = options.group === 'no_memory' ? undefined : new RetrievalRuntime(options.catalog)
     if (options.group === 'tool_only' && options.task.task_kind === 'memory_dependent' && runtime !== undefined) {
       registrations.push(
-        ctx.tools.register(createSearchTool(runtime)),
-        ctx.tools.register(createOpenTool(runtime))
+        ctx.tools.register(createFixtureSearchTool(runtime)),
+        ctx.tools.register(createFixtureOpenTool(runtime))
       )
     }
 
