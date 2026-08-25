@@ -57,25 +57,21 @@ import {
   readStrictFile,
   syncDirectory,
   verifyPublishedGenerationWorld,
-  __setInternalStoreHooks,
-  type InternalStoreHooks,
+  type GenerationStoreHooks,
 } from './generation-store.js'
 import type { LongTermMemoryFact, ShortTermMemoryFact } from './memory-fact.js'
 
-export interface OKFCompilerTestHooks extends InternalStoreHooks {
-  simulateStagingWriteFailure?: boolean
-  simulateStagingSyncFailure?: boolean
-  simulateStagingCloseFailure?: boolean
-  simulateManifestPublicationFailure?: boolean
-  simulateBeforeCurrentRenameFailure?: boolean
-  simulatePostCurrentRenameFsyncFailure?: boolean
+export interface OKFCompilerHooks extends GenerationStoreHooks {
+  onStagingWrite?: () => void | Promise<void>
+  onStagingSync?: () => void | Promise<void>
+  onStagingClose?: () => void | Promise<void>
+  onManifestPublication?: () => void | Promise<void>
+  onBeforeCurrentRename?: () => void | Promise<void>
+  onPostCurrentRenameFsync?: () => void | Promise<void>
 }
 
-let compilerTestHooks: OKFCompilerTestHooks | null = null
-
-export function __setOKFCompilerTestHooks(hooks: OKFCompilerTestHooks | null): void {
-  compilerTestHooks = hooks
-  __setInternalStoreHooks(hooks)
+export interface OKFCompilerOptions {
+  hooks?: OKFCompilerHooks
 }
 
 export interface OKFCompiler {
@@ -96,17 +92,17 @@ function mapToCompileError(err: unknown): never {
   throw new MemoryStoreError('memory_compile_io_failed', err)
 }
 
-async function durableWriteFile(filePath: string, content: string): Promise<void> {
+async function durableWriteFile(filePath: string, content: string, hooks?: OKFCompilerHooks): Promise<void> {
   let handle
   let firstError: unknown = null
   try {
     handle = await open(filePath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600)
-    if (compilerTestHooks?.simulateStagingWriteFailure) {
-      throw new Error('simulated staging write failure')
+    if (hooks?.onStagingWrite) {
+      await hooks.onStagingWrite()
     }
     await handle.writeFile(content, 'utf8')
-    if (compilerTestHooks?.simulateStagingSyncFailure) {
-      throw new Error('simulated staging sync failure')
+    if (hooks?.onStagingSync) {
+      await hooks.onStagingSync()
     }
     await handle.sync()
   } catch (err: unknown) {
@@ -115,8 +111,8 @@ async function durableWriteFile(filePath: string, content: string): Promise<void
     if (handle) {
       try {
         await handle.close()
-        if (compilerTestHooks?.simulateStagingCloseFailure) {
-          throw new Error('simulated staging close failure')
+        if (hooks?.onStagingClose) {
+          await hooks.onStagingClose()
         }
       } catch (closeErr: unknown) {
         if (!firstError) firstError = closeErr
@@ -129,7 +125,8 @@ async function durableWriteFile(filePath: string, content: string): Promise<void
   }
 }
 
-export function createOKFCompiler(): OKFCompiler {
+export function createOKFCompiler(options?: OKFCompilerOptions): OKFCompiler {
+  const hooks = options?.hooks
   return {
     async readCurrent(projectRoot: string, projectScopeId: string): Promise<OKFCurrentPointer | null> {
       try {
@@ -163,7 +160,7 @@ export function createOKFCompiler(): OKFCompiler {
           throw new MemoryStoreError('memory_compile_invalid_input')
         }
 
-        const releaseLock = await acquireCompilerLock(root)
+        const releaseLock = await acquireCompilerLock(root, hooks)
         let stagingDir: string | null = null
 
         try {
@@ -284,7 +281,7 @@ export function createOKFCompiler(): OKFCompiler {
             components: componentNames,
             memories_count: allShortFacts.length + allLongFacts.length,
           })
-          await durableWriteFile(join(stagingDir, 'wiki', 'ROOT.md'), rootMd)
+          await durableWriteFile(join(stagingDir, 'wiki', 'ROOT.md'), rootMd, hooks)
 
           // Render Short-term Session Pages
           for (const [sId, sFacts] of shortFactsBySession.entries()) {
@@ -293,7 +290,7 @@ export function createOKFCompiler(): OKFCompiler {
               evaluation_at: validatedReq.evaluation_at,
               facts: sFacts,
             })
-            await durableWriteFile(join(stagingDir, 'wiki', 'short-term', `${sId}.md`), sessionMd)
+            await durableWriteFile(join(stagingDir, 'wiki', 'short-term', `${sId}.md`), sessionMd, hooks)
           }
 
           // Render Component Pages
@@ -303,7 +300,7 @@ export function createOKFCompiler(): OKFCompiler {
               evaluation_at: validatedReq.evaluation_at,
               facts: cFacts,
             })
-            await durableWriteFile(join(stagingDir, 'wiki', 'components', `${slug}.md`), compMd)
+            await durableWriteFile(join(stagingDir, 'wiki', 'components', `${slug}.md`), compMd, hooks)
           }
 
           // Render Memory Pages
@@ -313,7 +310,7 @@ export function createOKFCompiler(): OKFCompiler {
               component: null,
               evaluation_at: validatedReq.evaluation_at,
             })
-            await durableWriteFile(join(stagingDir, 'wiki', 'memories', `${f.memory_id}.md`), memMd)
+            await durableWriteFile(join(stagingDir, 'wiki', 'memories', `${f.memory_id}.md`), memMd, hooks)
           }
           for (const f of allLongFacts) {
             const slug = longFactComponentMap.get(f.memory_id) || 'general'
@@ -322,7 +319,7 @@ export function createOKFCompiler(): OKFCompiler {
               component: slug,
               evaluation_at: validatedReq.evaluation_at,
             })
-            await durableWriteFile(join(stagingDir, 'wiki', 'memories', `${f.memory_id}.md`), memMd)
+            await durableWriteFile(join(stagingDir, 'wiki', 'memories', `${f.memory_id}.md`), memMd, hooks)
           }
 
           // Build index.json via shared buildExpectedIndex
@@ -335,7 +332,7 @@ export function createOKFCompiler(): OKFCompiler {
             longFacts: allLongFacts,
           })
           const indexCanonical = canonicalizeIndex(expectedIndex)
-          await durableWriteFile(join(stagingDir, 'index.json'), indexCanonical)
+          await durableWriteFile(join(stagingDir, 'index.json'), indexCanonical, hooks)
 
           // Read back all files from staging to compute Output Refs
           const outputRefs: OKFOutputFileRef[] = []
@@ -410,7 +407,7 @@ export function createOKFCompiler(): OKFCompiler {
           }
           const manifestCanonical = canonicalizeManifest(manifestObject)
           const validatedManifest = validateManifest(JSON.parse(manifestCanonical))
-          await durableWriteFile(join(stagingDir, 'manifest.json'), manifestCanonical)
+          await durableWriteFile(join(stagingDir, 'manifest.json'), manifestCanonical, hooks)
 
           // Build Generation Metadata
           const genMetaObject: OKFGenerationMetadata = {
@@ -427,7 +424,7 @@ export function createOKFCompiler(): OKFCompiler {
           }
           const genMetaCanonical = canonicalizeGenerationMetadata(genMetaObject)
           const validatedGenMeta = validateGenerationMetadata(JSON.parse(genMetaCanonical))
-          await durableWriteFile(join(stagingDir, 'generation.json'), genMetaCanonical)
+          await durableWriteFile(join(stagingDir, 'generation.json'), genMetaCanonical, hooks)
 
           // Build CURRENT pointer
           const currentObject: OKFCurrentPointer = {
@@ -442,8 +439,8 @@ export function createOKFCompiler(): OKFCompiler {
           const currentCanonical = canonicalizeCurrentPointer(currentObject)
           const validatedCurrent = validateCurrentPointer(JSON.parse(currentCanonical))
 
-          if (compilerTestHooks?.simulateManifestPublicationFailure) {
-            throw new MemoryStoreError('memory_compile_io_failed', new Error('simulated manifest publication failure'))
+          if (hooks?.onManifestPublication) {
+            await hooks.onManifestPublication()
           }
 
           // Fsync all staging directories before publishing
@@ -454,7 +451,7 @@ export function createOKFCompiler(): OKFCompiler {
           await syncDirectory(stagingDir)
 
           // 1. Publish permanent Manifest
-          await publishManifest(root, validatedManifest)
+          await publishManifest(root, validatedManifest, hooks)
 
           // 2. Publish Generation directory
           await ensureDirectoryChain(root, layout.generationsRoot)
@@ -495,15 +492,15 @@ export function createOKFCompiler(): OKFCompiler {
           // Strict verification of published generation world
           await verifyPublishedGenerationWorld(root, generationId, validatedReq.project_scope_id)
 
-          if (compilerTestHooks?.simulateBeforeCurrentRenameFailure) {
-            throw new MemoryStoreError('memory_compile_io_failed', new Error('simulated before current rename failure'))
+          if (hooks?.onBeforeCurrentRename) {
+            await hooks.onBeforeCurrentRename()
           }
 
           // 3. Atomically replace CURRENT pointer
-          await publishCurrent(root, validatedCurrent)
+          await publishCurrent(root, validatedCurrent, hooks)
 
-          if (compilerTestHooks?.simulatePostCurrentRenameFsyncFailure) {
-            throw new MemoryStoreError('memory_compile_io_failed', new Error('simulated post current rename fsync failure'))
+          if (hooks?.onPostCurrentRenameFsync) {
+            await hooks.onPostCurrentRenameFsync()
           }
 
           return {

@@ -10,7 +10,7 @@ import {
   type ShortTermMemoryFact,
 } from '../src/memory-fact.js'
 import { computeProjectScopeId } from '../src/runtime-scope.js'
-import { createOKFCompiler, __setOKFCompilerTestHooks } from '../src/okf-compiler.js'
+import { createTestOKFCompiler as createOKFCompiler, __setOKFCompilerTestHooks } from '../src/testing/test-hooks.js'
 
 describe('MVP-03B & 03D: OKF Compiler, Generation Lifecycle & Transactions (Tests 11-22, 32-43)', () => {
   const sessionScopeId = 'sha256_fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210'
@@ -1103,7 +1103,7 @@ describe('MVP-03B & 03D: OKF Compiler, Generation Lifecycle & Transactions (Test
       expect(initRes.status).toBe('created')
 
       const currentPath = join(realRoot, '.dsh-mnemosyne', 'CURRENT')
-      const { __setOKFCompilerTestHooks } = await import('../src/okf-compiler.js')
+      const { __setOKFCompilerTestHooks } = await import('../src/testing/test-hooks.js')
 
       const hooks = [
         { simulateStagingWriteFailure: true },
@@ -1174,7 +1174,7 @@ describe('MVP-03B & 03D: OKF Compiler, Generation Lifecycle & Transactions (Test
       expect(initRes.status).toBe('created')
 
       const currentPath = join(realRoot, '.dsh-mnemosyne', 'CURRENT')
-      const { __setOKFCompilerTestHooks } = await import('../src/okf-compiler.js')
+      const { __setOKFCompilerTestHooks } = await import('../src/testing/test-hooks.js')
 
       const hooks = [
         { simulateManifestTempWriteFailure: true },
@@ -1245,7 +1245,7 @@ describe('MVP-03B & 03D: OKF Compiler, Generation Lifecycle & Transactions (Test
       expect(initRes.status).toBe('created')
 
       const currentPath = join(realRoot, '.dsh-mnemosyne', 'CURRENT')
-      const { __setOKFCompilerTestHooks } = await import('../src/okf-compiler.js')
+      const { __setOKFCompilerTestHooks } = await import('../src/testing/test-hooks.js')
 
       const hooks = [
         { simulateCurrentTempWriteFailure: true },
@@ -1307,7 +1307,7 @@ describe('MVP-03B & 03D: OKF Compiler, Generation Lifecycle & Transactions (Test
       await store.putShortTerm(sessionScopeId, makeShortFact(projectScopeId, sessionScopeId, 'mem_80'))
 
       const compiler = createOKFCompiler()
-      const { __setOKFCompilerTestHooks } = await import('../src/okf-compiler.js')
+      const { __setOKFCompilerTestHooks } = await import('../src/testing/test-hooks.js')
 
       for (const hook of [
         { simulateLockWriteFailure: true },

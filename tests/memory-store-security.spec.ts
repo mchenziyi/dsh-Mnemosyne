@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { MemoryStoreError } from '../src/memory-store-error.js'
-import { openMemoryFactStore, __setMemoryStoreTestHooks } from '../src/memory-store.js'
+import { openMemoryFactStore } from '../src/memory-store.js'
+import { __setMemoryStoreTestHooks, openTestMemoryFactStore } from '../src/testing/test-hooks.js'
 import {
   canonicalizeShortTermMemoryFact,
   computeFactHash,
@@ -365,7 +366,7 @@ describe('MVP-02B: File Security & Permissions Matrix (Tests 27-38)', () => {
       await writeFile(sentinelFile, 'sentinel_bytes_12345', { mode: 0o600 })
 
       const projectScopeId = computeProjectScopeId(realRoot)
-      const store = openMemoryFactStore({ project_root: realRoot, project_scope_id: projectScopeId })
+      const store = openTestMemoryFactStore({ project_root: realRoot, project_scope_id: projectScopeId })
       const fact = makeSampleFact(projectScopeId, 'mem_sec_37')
       const targetPath = join(realRoot, '.dsh-mnemosyne', 'facts', 'short-term', sessionScopeId, 'mem_sec_37.json')
 
@@ -399,7 +400,7 @@ describe('MVP-02B: File Security & Permissions Matrix (Tests 27-38)', () => {
     try {
       const realRoot = await realpath(tempDir)
       const projectScopeId = computeProjectScopeId(realRoot)
-      const store = openMemoryFactStore({ project_root: realRoot, project_scope_id: projectScopeId })
+      const store = openTestMemoryFactStore({ project_root: realRoot, project_scope_id: projectScopeId })
       const fact = makeSampleFact(projectScopeId, 'mem_sec_37a')
       const targetPath = join(realRoot, '.dsh-mnemosyne', 'facts', 'short-term', sessionScopeId, 'mem_sec_37a.json')
 
@@ -437,7 +438,7 @@ describe('MVP-02B: File Security & Permissions Matrix (Tests 27-38)', () => {
       await writeFile(sentinelFile, 'sentinel_37b_content', { mode: 0o600 })
 
       const projectScopeId = computeProjectScopeId(realRoot)
-      const store = openMemoryFactStore({ project_root: realRoot, project_scope_id: projectScopeId })
+      const store = openTestMemoryFactStore({ project_root: realRoot, project_scope_id: projectScopeId })
       const fact = makeSampleFact(projectScopeId, 'mem_sec_37b')
       const targetPath = join(realRoot, '.dsh-mnemosyne', 'facts', 'short-term', sessionScopeId, 'mem_sec_37b.json')
 
@@ -482,7 +483,7 @@ describe('MVP-02B: File Security & Permissions Matrix (Tests 27-38)', () => {
       await writeFile(sentinelFile, 'sentinel_37c_content', { mode: 0o600 })
 
       const projectScopeId = computeProjectScopeId(realRoot)
-      const store = openMemoryFactStore({ project_root: realRoot, project_scope_id: projectScopeId })
+      const store = openTestMemoryFactStore({ project_root: realRoot, project_scope_id: projectScopeId })
       const fact = makeSampleFact(projectScopeId, 'mem_sec_37c')
       const targetPath = join(realRoot, '.dsh-mnemosyne', 'facts', 'short-term', sessionScopeId, 'mem_sec_37c.json')
 

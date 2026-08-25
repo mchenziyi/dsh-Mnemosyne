@@ -555,7 +555,6 @@ describe('MVP-03E: Generation Security, Permissions & Lock Matrix (Tests 44-51, 
 
   it('85. Lock file growth before read fails closed and does not delete or steal lock', async () => {
     const tempDir = await mkdtemp(join(await realpath(tmpdir()), 'dsh-gsec-85-'))
-    const { __setOKFCompilerTestHooks } = await import('../src/okf-compiler.js')
     try {
       const realRoot = await realpath(tempDir)
       const projectScopeId = computeProjectScopeId(realRoot)
@@ -571,27 +570,27 @@ describe('MVP-03E: Generation Security, Permissions & Lock Matrix (Tests 44-51, 
         { mode: 0o600 }
       )
 
-      __setOKFCompilerTestHooks({ simulateLockGrowthBeforeRead: true })
-      const compiler = createOKFCompiler()
+      const compiler = createOKFCompiler({
+        hooks: {
+          onLockGrowthBeforeRead: async () => {
+            await writeFile(lockPath, 'a'.repeat(10000), { mode: 0o600, flag: 'a' })
+          },
+        },
+      })
 
-      try {
-        await expect(
-          compiler.compile({
-            project_root: realRoot,
-            project_scope_id: projectScopeId,
-            evaluation_at: evaluationAt,
-            compiler_version: 'dsh-mnemosyne-okf/1',
-          })
-        ).rejects.toThrowError(expect.objectContaining({ code: 'memory_compile_busy' }))
+      await expect(
+        compiler.compile({
+          project_root: realRoot,
+          project_scope_id: projectScopeId,
+          evaluation_at: evaluationAt,
+          compiler_version: 'dsh-mnemosyne-okf/1',
+        })
+      ).rejects.toThrowError(expect.objectContaining({ code: 'memory_compile_busy' }))
 
-        // Lock file must NOT have been unlinked or stolen
-        const { existsSync } = await import('node:fs')
-        expect(existsSync(lockPath)).toBe(true)
-      } finally {
-        __setOKFCompilerTestHooks(null)
-      }
+      // Lock file must NOT have been unlinked or stolen
+      const { existsSync } = await import('node:fs')
+      expect(existsSync(lockPath)).toBe(true)
     } finally {
-      __setOKFCompilerTestHooks(null)
       await rm(tempDir, { recursive: true, force: true })
     }
   })

@@ -54,17 +54,17 @@ export interface MemoryFactStore {
   listLongTerm(): Promise<LongTermMemoryFact[]>
 }
 
-export interface MemoryStoreTestHooks {
-  simulateLinkFailure?: boolean
-  simulateTempFileFsyncFailure?: boolean
-  simulateTargetParentFsyncFailure?: boolean
-  simulateReadbackFailure?: boolean
+export interface MemoryStoreHooks {
+  onTempFileFsync?: () => void | Promise<void>
+  onLink?: () => void | Promise<void>
+  onTargetParentFsync?: () => void | Promise<void>
+  onReadback?: () => void | Promise<void>
 }
 
-let testHooks: MemoryStoreTestHooks | null = null
-
-export function __setMemoryStoreTestHooks(hooks: MemoryStoreTestHooks | null): void {
-  testHooks = hooks
+export interface MemoryFactStoreOptions {
+  project_root: string
+  project_scope_id: string
+  hooks?: MemoryStoreHooks
 }
 
 const MAX_FACT_FILE_BYTES = 65536
@@ -234,7 +234,8 @@ async function atomicWriteFact(
   fact: MemoryFact,
   tier: 'short_term' | 'long_term',
   expectedProjectScope: string,
-  expectedSessionScope?: string
+  expectedSessionScope?: string,
+  hooks?: MemoryStoreHooks
 ): Promise<WriteResult> {
   if (fact.project_scope_id !== expectedProjectScope) {
     throw new MemoryStoreError('memory_store_scope_mismatch')
@@ -243,7 +244,8 @@ async function atomicWriteFact(
     throw new MemoryStoreError('memory_store_scope_mismatch')
   }
 
-  // Pre-check if target file exists
+  await checkPathHierarchy(projectRoot, targetPath)
+
   try {
     const existing = await readFactFile(projectRoot, targetPath, tier, expectedProjectScope, expectedSessionScope)
     if (existing.content_sha256 === fact.content_sha256) {
@@ -287,16 +289,16 @@ async function atomicWriteFact(
 
     await tempHandle.writeFile(canonical, 'utf8')
 
-    if (testHooks?.simulateTempFileFsyncFailure) {
-      throw new Error('simulated temp file fsync failure')
+    if (hooks?.onTempFileFsync) {
+      await hooks.onTempFileFsync()
     }
 
     await tempHandle.sync()
     await tempHandle.close()
     tempHandle = null
 
-    if (testHooks?.simulateLinkFailure) {
-      throw new Error('simulated link failure')
+    if (hooks?.onLink) {
+      await hooks.onLink()
     }
 
     await link(tempPath, targetPath)
@@ -330,25 +332,18 @@ async function atomicWriteFact(
     throw new MemoryStoreError('memory_store_io_failed', err)
   }
 
-  // Target link is now established. Subsequent failures fail loud without removing published target.
   try {
-    if (testHooks?.simulateTargetParentFsyncFailure) {
-      throw new MemoryStoreError('memory_store_io_failed', new Error('simulated target parent fsync failure'))
+    if (hooks?.onTargetParentFsync) {
+      await hooks.onTargetParentFsync()
     }
 
-    // Fsync parent directory of target
     await syncDirectory(dirname(targetPath))
-
-    // Unlink temp file
     await unlink(tempPath)
-
-    // Fsync tmp directory
     await syncDirectory(layout.tmpRoot)
-
     await checkPathHierarchy(projectRoot, targetPath)
 
-    if (testHooks?.simulateReadbackFailure) {
-      throw new MemoryStoreError('memory_store_io_failed', new Error('simulated readback failure'))
+    if (hooks?.onReadback) {
+      await hooks.onReadback()
     }
 
     const readBack = await readFactFile<MemoryFact>(projectRoot, targetPath, tier, expectedProjectScope, expectedSessionScope)
@@ -356,7 +351,6 @@ async function atomicWriteFact(
       throw new MemoryStoreError('memory_store_hash_mismatch')
     }
   } catch (err: unknown) {
-    // Best-effort cleanup of temp file
     try {
       await unlink(tempPath)
     } catch {}
@@ -375,13 +369,14 @@ async function atomicWriteFact(
   }
 }
 
-export function openMemoryFactStore(scope: ProjectStoreScope): MemoryFactStore {
+export function openMemoryFactStore(scope: MemoryFactStoreOptions): MemoryFactStore {
   if (!scope || typeof scope !== 'object') {
     throw new MemoryStoreError('memory_store_invalid_input')
   }
 
   const projectScopeId = validateScopeId(scope.project_scope_id)
   const projectRoot = scope.project_root
+  const hooks = scope.hooks
 
   async function getValidProjectRoot(): Promise<string> {
     const root = await validateProjectRoot(projectRoot)
@@ -401,7 +396,7 @@ export function openMemoryFactStore(scope: ProjectStoreScope): MemoryFactStore {
         throw new MemoryStoreError('memory_store_scope_mismatch')
       }
       const targetPath = getShortTermPath(root, validSessionId, validated.memory_id)
-      return atomicWriteFact(root, targetPath, validated, 'short_term', projectScopeId, validSessionId)
+      return atomicWriteFact(root, targetPath, validated, 'short_term', projectScopeId, validSessionId, hooks)
     },
 
     async getShortTerm(sessionScopeId: string, memoryId: string): Promise<ShortTermMemoryFact> {
@@ -511,7 +506,7 @@ export function openMemoryFactStore(scope: ProjectStoreScope): MemoryFactStore {
         }
       }
       const targetPath = getLongTermPath(root, validated.memory_id)
-      return atomicWriteFact(root, targetPath, validated, 'long_term', projectScopeId)
+      return atomicWriteFact(root, targetPath, validated, 'long_term', projectScopeId, undefined, hooks)
     },
 
     async getLongTerm(memoryId: string): Promise<LongTermMemoryFact> {

@@ -64,6 +64,23 @@ export const forbiddenExportSymbols = [
   'buildExpectedIndex',
   'BuildExpectedIndexParams',
   'VerifiedCompilerLock',
+  'readVerifiedCompilerLock',
+  'createAcquisitionRuntime',
+  'AcquisitionRuntime',
+  'createRememberTool',
+  'extractAcquisitionEvidence',
+  'validateAcquisitionEvidence',
+  'validateMemoryCandidate',
+  'createAcquisitionEvidence',
+  'computeEventKey',
+  'computeManualEventKey',
+  'computeAutoMemoryId',
+  'computeManualMemoryId',
+  'computeCandidateFingerprint',
+  'computeCandidateSha256',
+  'ACQUISITION_SYSTEM_PROMPT',
+  'ACQUISITION_SYSTEM_PROMPT_SHA256',
+  'buildAcquisitionUserPrompt',
 ]
 
 export const forbiddenSeamSymbols = [
@@ -97,7 +114,6 @@ export const forbiddenSeamSymbols = [
   'simulateLockSyncFailure',
   'simulateLockCloseFailure',
   'simulateLockGrowthBeforeRead',
-  'readVerifiedCompilerLock',
   'MemoryStoreTestHooks',
   '__setMemoryStoreTestHooks',
   'simulateTempFileFsyncFailure',
@@ -190,6 +206,22 @@ for (const symbol of forbiddenSeamSymbols) {
   }
   if (bundledDts.includes(symbol)) {
     throw new Error(`pack:check: forbidden symbol "${symbol}" leaked into production DTS (package/dist/index.d.mts)`)
+  }
+}
+
+const forbiddenPatterns = [
+  /checkHook/i,
+  /simulate[A-Z]/,
+  /__set.*Hooks/,
+  /simulated\s+.*\s+failure/i,
+]
+
+for (const pattern of forbiddenPatterns) {
+  if (pattern.test(bundledJs)) {
+    throw new Error(`pack:check: forbidden pattern ${pattern} matched in production bundle JS (package/dist/index.mjs)`)
+  }
+  if (pattern.test(bundledDts)) {
+    throw new Error(`pack:check: forbidden pattern ${pattern} matched in production DTS (package/dist/index.d.mts)`)
   }
 }
 

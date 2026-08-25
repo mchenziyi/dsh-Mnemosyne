@@ -203,7 +203,8 @@ export async function readStrictFile(
 
 export async function readVerifiedCompilerLock(
   projectRoot: string,
-  lockPath: string
+  lockPath: string,
+  hooks?: GenerationStoreHooks
 ): Promise<VerifiedCompilerLock> {
   await checkPathHierarchy(projectRoot, lockPath)
 
@@ -269,8 +270,8 @@ export async function readVerifiedCompilerLock(
     const readBuffer = Buffer.alloc(MAX_LOCK_BYTES + 1)
     let totalBytes = 0
 
-    if (internalStoreHooks?.simulateLockGrowthBeforeRead) {
-      await writeFile(lockPath, 'a'.repeat(10000), { mode: 0o600, flag: 'a' })
+    if (hooks?.onLockGrowthBeforeRead) {
+      await hooks.onLockGrowthBeforeRead()
     }
 
     while (totalBytes < readBuffer.length) {
@@ -366,26 +367,23 @@ export async function readVerifiedCompilerLock(
   }
 }
 
-export interface InternalStoreHooks {
-  simulateLockWriteFailure?: boolean
-  simulateLockSyncFailure?: boolean
-  simulateLockCloseFailure?: boolean
-  simulateLockGrowthBeforeRead?: boolean
-  simulateManifestTempWriteFailure?: boolean
-  simulateManifestTempSyncFailure?: boolean
-  simulateManifestTempCloseFailure?: boolean
-  simulateCurrentTempWriteFailure?: boolean
-  simulateCurrentTempSyncFailure?: boolean
-  simulateCurrentTempCloseFailure?: boolean
+export interface GenerationStoreHooks {
+  onLockGrowthBeforeRead?: () => void | Promise<void>
+  onLockWrite?: () => void | Promise<void>
+  onLockSync?: () => void | Promise<void>
+  onLockClose?: () => void | Promise<void>
+  onManifestTempWrite?: () => void | Promise<void>
+  onManifestTempSync?: () => void | Promise<void>
+  onManifestTempClose?: () => void | Promise<void>
+  onCurrentTempWrite?: () => void | Promise<void>
+  onCurrentTempSync?: () => void | Promise<void>
+  onCurrentTempClose?: () => void | Promise<void>
 }
 
-let internalStoreHooks: InternalStoreHooks | null = null
-
-export function __setInternalStoreHooks(hooks: InternalStoreHooks | null): void {
-  internalStoreHooks = hooks
-}
-
-export async function acquireCompilerLock(projectRoot: string): Promise<() => Promise<void>> {
+export async function acquireCompilerLock(
+  projectRoot: string,
+  hooks?: GenerationStoreHooks
+): Promise<() => Promise<void>> {
   const layout = getGenerationLayout(projectRoot)
   await ensureDirectoryChain(projectRoot, layout.locksRoot)
 
@@ -415,12 +413,12 @@ export async function acquireCompilerLock(projectRoot: string): Promise<() => Pr
 
     let firstError: unknown = null
     try {
-      if (internalStoreHooks?.simulateLockWriteFailure) {
-        throw new Error('simulated lock write failure')
+      if (hooks?.onLockWrite) {
+        await hooks.onLockWrite()
       }
       await handle.writeFile(lockContent, 'utf8')
-      if (internalStoreHooks?.simulateLockSyncFailure) {
-        throw new Error('simulated lock sync failure')
+      if (hooks?.onLockSync) {
+        await hooks.onLockSync()
       }
       await handle.sync()
       const st = await handle.stat()
@@ -432,8 +430,8 @@ export async function acquireCompilerLock(projectRoot: string): Promise<() => Pr
       if (handle) {
         try {
           await handle.close()
-          if (internalStoreHooks?.simulateLockCloseFailure) {
-            throw new Error('simulated lock close failure')
+          if (hooks?.onLockClose) {
+            await hooks.onLockClose()
           }
         } catch (closeErr: unknown) {
           if (!firstError) firstError = closeErr
@@ -456,7 +454,7 @@ export async function acquireCompilerLock(projectRoot: string): Promise<() => Pr
     // Lock file already exists. Strictly inspect owner lock.
     let verifiedLock: VerifiedCompilerLock
     try {
-      verifiedLock = await readVerifiedCompilerLock(projectRoot, lockPath)
+      verifiedLock = await readVerifiedCompilerLock(projectRoot, lockPath, hooks)
     } catch (err: unknown) {
       if (err instanceof MemoryStoreError && err.code === 'memory_compile_insecure_permissions') {
         throw err
@@ -508,7 +506,7 @@ export async function acquireCompilerLock(projectRoot: string): Promise<() => Pr
 
   return async () => {
     try {
-      const verified = await readVerifiedCompilerLock(projectRoot, lockPath)
+      const verified = await readVerifiedCompilerLock(projectRoot, lockPath, hooks)
       if (
         verified.dev === myDev &&
         verified.ino === myIno &&
@@ -527,7 +525,11 @@ export async function acquireCompilerLock(projectRoot: string): Promise<() => Pr
   }
 }
 
-export async function publishManifest(projectRoot: string, manifest: OKFInputManifest): Promise<'created' | 'noop'> {
+export async function publishManifest(
+  projectRoot: string,
+  manifest: OKFInputManifest,
+  hooks?: GenerationStoreHooks
+): Promise<'created' | 'noop'> {
   const layout = getGenerationLayout(projectRoot)
   await ensureDirectoryChain(projectRoot, layout.manifestsRoot)
   await ensureDirectoryChain(projectRoot, layout.tmpRoot)
@@ -563,12 +565,12 @@ export async function publishManifest(projectRoot: string, manifest: OKFInputMan
   let firstError: unknown = null
   try {
     handle = await open(tempManifestPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600)
-    if (internalStoreHooks?.simulateManifestTempWriteFailure) {
-      throw new Error('simulated manifest temp write failure')
+    if (hooks?.onManifestTempWrite) {
+      await hooks.onManifestTempWrite()
     }
     await handle.writeFile(canonical, 'utf8')
-    if (internalStoreHooks?.simulateManifestTempSyncFailure) {
-      throw new Error('simulated manifest temp sync failure')
+    if (hooks?.onManifestTempSync) {
+      await hooks.onManifestTempSync()
     }
     await handle.sync()
   } catch (err: unknown) {
@@ -577,8 +579,8 @@ export async function publishManifest(projectRoot: string, manifest: OKFInputMan
     if (handle) {
       try {
         await handle.close()
-        if (internalStoreHooks?.simulateManifestTempCloseFailure) {
-          throw new Error('simulated manifest temp close failure')
+        if (hooks?.onManifestTempClose) {
+          await hooks.onManifestTempClose()
         }
       } catch (closeErr: unknown) {
         if (!firstError) firstError = closeErr
@@ -631,7 +633,11 @@ export async function publishManifest(projectRoot: string, manifest: OKFInputMan
   return 'created'
 }
 
-export async function publishCurrent(projectRoot: string, current: OKFCurrentPointer): Promise<void> {
+export async function publishCurrent(
+  projectRoot: string,
+  current: OKFCurrentPointer,
+  hooks?: GenerationStoreHooks
+): Promise<void> {
   const layout = getGenerationLayout(projectRoot)
   await ensureDirectoryChain(projectRoot, layout.storeRoot)
   await ensureDirectoryChain(projectRoot, layout.tmpRoot)
@@ -643,12 +649,12 @@ export async function publishCurrent(projectRoot: string, current: OKFCurrentPoi
   let firstError: unknown = null
   try {
     handle = await open(tempPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600)
-    if (internalStoreHooks?.simulateCurrentTempWriteFailure) {
-      throw new Error('simulated current temp write failure')
+    if (hooks?.onCurrentTempWrite) {
+      await hooks.onCurrentTempWrite()
     }
     await handle.writeFile(canonical, 'utf8')
-    if (internalStoreHooks?.simulateCurrentTempSyncFailure) {
-      throw new Error('simulated current temp sync failure')
+    if (hooks?.onCurrentTempSync) {
+      await hooks.onCurrentTempSync()
     }
     await handle.sync()
   } catch (err: unknown) {
@@ -657,8 +663,8 @@ export async function publishCurrent(projectRoot: string, current: OKFCurrentPoi
     if (handle) {
       try {
         await handle.close()
-        if (internalStoreHooks?.simulateCurrentTempCloseFailure) {
-          throw new Error('simulated current temp close failure')
+        if (hooks?.onCurrentTempClose) {
+          await hooks.onCurrentTempClose()
         }
       } catch (closeErr: unknown) {
         if (!firstError) firstError = closeErr

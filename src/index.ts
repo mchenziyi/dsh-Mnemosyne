@@ -1,5 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-llm'
 import { Config, type Config as PluginConfig } from './config.js'
 import { install } from './observer.js'
 
@@ -9,7 +10,7 @@ export { AUDIT_COMMIT, COMPATIBILITY, CORDIS_VERSION, DSH_VERSION, SCHEMASTERY_V
 export { STATUS_OUTPUT, createStatusTool, type ScopeStatusPayload, type StatusOutput } from './status.js'
 
 export const name = 'dsh-mnemosyne'
-export const inject = ['tools'] as const
+export const inject = ['tools', 'llm'] as const
 
 export function apply(ctx: Context, config: PluginConfig): void {
   if (config.enabled === false) return

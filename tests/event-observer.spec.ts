@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import LlmRuntime from '@deepseek-ai/dsh-llm'
 import { Config } from '../src/index.js'
 import { install } from '../src/observer.js'
 
 function expectTools(ctx: Context, enabled: boolean): void {
-  for (const name of ['mnemosyne_status', 'mnemosyne_search', 'mnemosyne_open']) {
+  for (const name of ['mnemosyne_status', 'mnemosyne_search', 'mnemosyne_open', 'mnemosyne_remember']) {
     expect(ctx.tools.get(name) !== undefined).toBe(enabled)
   }
 }
@@ -16,10 +17,11 @@ describe('M0 event observer', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(LlmRuntime)
     let observedEvents = 0
     const plugin = {
       name: 'dsh-mnemosyne',
-      inject: ['tools'],
+      inject: ['tools', 'llm'],
       apply(inner: Context) { install(inner, () => { observedEvents += 1 }) },
     }
     const fiber = await ctx.plugin(plugin)
@@ -36,11 +38,12 @@ describe('M0 event observer', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(LlmRuntime)
     let observedEvents = 0
     const plugin = {
       name: 'dsh-mnemosyne',
       Config,
-      inject: ['tools'],
+      inject: ['tools', 'llm'],
       apply(inner: Context, config: { enabled?: boolean }) {
         if (config.enabled === false) return
         install(inner, () => { observedEvents += 1 })
