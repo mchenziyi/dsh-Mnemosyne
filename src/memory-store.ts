@@ -48,6 +48,7 @@ export interface MemoryFactStore {
   putShortTerm(sessionScopeId: string, fact: ShortTermMemoryFact): Promise<WriteResult>
   getShortTerm(sessionScopeId: string, memoryId: string): Promise<ShortTermMemoryFact>
   listShortTerm(sessionScopeId: string, now: string, options?: ListShortTermOptions): Promise<ShortTermMemoryFact[]>
+  listShortTermSessionScopes(): Promise<string[]>
   putLongTerm(fact: LongTermMemoryFact): Promise<WriteResult>
   getLongTerm(memoryId: string): Promise<LongTermMemoryFact>
   listLongTerm(): Promise<LongTermMemoryFact[]>
@@ -460,6 +461,45 @@ export function openMemoryFactStore(scope: ProjectStoreScope): MemoryFactStore {
       }
 
       return results.sort((a, b) => compareCodePoints(a.memory_id, b.memory_id))
+    },
+
+    async listShortTermSessionScopes(): Promise<string[]> {
+      const root = await getValidProjectRoot()
+      const shortTermRoot = join(root, '.dsh-mnemosyne', 'facts', 'short-term')
+
+      let entries
+      try {
+        await checkPathHierarchy(root, shortTermRoot)
+        entries = await readdir(shortTermRoot, { withFileTypes: true })
+      } catch (err: unknown) {
+        const nodeErr = err as { code?: string }
+        if (nodeErr.code === 'ENOENT') {
+          return []
+        }
+        if (err instanceof MemoryStoreError) {
+          if (err.code === 'memory_store_not_found') return []
+          throw err
+        }
+        throw new MemoryStoreError('memory_store_io_failed', err)
+      }
+
+      const results: string[] = []
+      for (const entry of entries) {
+        if (entry.isSymbolicLink()) {
+          throw new MemoryStoreError('memory_store_symlink_rejected')
+        }
+        if (!entry.isDirectory()) {
+          throw new MemoryStoreError('memory_store_path_unsafe')
+        }
+        const sessionId = entry.name
+        validateScopeId(sessionId)
+
+        const dirPath = join(shortTermRoot, sessionId)
+        await checkPathHierarchy(root, dirPath)
+        results.push(sessionId)
+      }
+
+      return results.sort(compareCodePoints)
     },
 
     async putLongTerm(fact: LongTermMemoryFact): Promise<WriteResult> {

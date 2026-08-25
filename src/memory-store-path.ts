@@ -131,7 +131,7 @@ export async function checkComponentPermissions(path: string, isFile = false): P
   }
 }
 
-export async function checkPathHierarchy(projectRoot: string, targetPath: string): Promise<void> {
+export async function checkPathHierarchy(projectRoot: string, targetPath: string, isFile?: boolean): Promise<void> {
   const rel = relative(projectRoot, targetPath)
   if (rel.startsWith('..') || isAbsolute(rel)) {
     throw new MemoryStoreError('memory_store_path_unsafe')
@@ -142,7 +142,15 @@ export async function checkPathHierarchy(projectRoot: string, targetPath: string
 
   for (let i = 0; i < segments.length; i++) {
     current = join(current, segments[i])
-    const isTargetFile = i === segments.length - 1 && targetPath.endsWith('.json')
+    const isTargetFile =
+      i === segments.length - 1 &&
+      (isFile !== undefined
+        ? isFile
+        : targetPath.endsWith('.json') ||
+          targetPath.endsWith('.md') ||
+          targetPath.endsWith('.tmp') ||
+          targetPath.endsWith('.lock') ||
+          segments[i] === 'CURRENT')
     await checkComponentPermissions(current, isTargetFile)
   }
 }
