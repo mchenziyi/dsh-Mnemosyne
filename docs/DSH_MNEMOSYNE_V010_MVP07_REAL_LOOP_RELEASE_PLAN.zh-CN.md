@@ -1,6 +1,6 @@
 # dsh-Mnemosyne v0.1.0 · MVP-07 真实闭环与发布验收计划
 
-> 状态：🟡 设计完成（待 Gemini 3.7 Flash 实现离线 Gate）
+> 状态：🟠 离线 Gate 完成，待真实 Canary 授权
 >
 > 日期：2026-08-26
 >
