@@ -316,6 +316,8 @@ Gemini 只完成：
 
 由 CTO 复核 07A 后准备全新的临时根。用户在本机静默写入临时 Credential，并单独确认执行。执行最多 6 个 Run/12 次模型请求，结束后删除临时运行根并输出脱敏报告。
 
+详细实现、授权、证据与执行协议见 `DSH_MNEMOSYNE_V010_MVP07B_REAL_CANARY_PLAN.zh-CN.md`。07B 分为零 Provider 的离线实现 07B-I 与用户批准精确 Approval SHA 后的一次性真实执行 07B-X；完成 07B-I 不等于真实 Canary 通过。
+
 07B 失败时停止，不进入发布收口。
 
 ### MVP-07C：发布收口
