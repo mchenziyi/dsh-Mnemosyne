@@ -10,6 +10,10 @@ import { createScopeRuntime } from './runtime-scope.js'
 import { createRememberTool } from './remember-tool.js'
 import { createAcquisitionRuntime } from './acquisition-runtime.js'
 import { createCandidateWriter } from './candidate-writer.js'
+import { createManagementRuntime } from './management-runtime.js'
+import { createForgetTool, createListTool, createPromoteTool } from './management-tools.js'
+
+import { createMutationCoordinator } from './mutation-coordinator.js'
 
 /** Internal lifecycle seam used by component tests; not exported by the package. */
 export function install(
@@ -27,18 +31,27 @@ export function install(
 
   const scopeRuntime = createScopeRuntime({ projectRoot: config.projectRoot })
   const retrievalRuntime = createProductionRetrievalRuntime(scopeRuntime)
-  const candidateWriter = createCandidateWriter()
+  const coordinator = createMutationCoordinator()
+  const candidateWriter = createCandidateWriter({ coordinator })
   const acquisitionRuntime = createAcquisitionRuntime({
     scopeRuntime,
     llm: llmRuntime,
     writer: candidateWriter,
     autoCapture: config.autoCapture,
   })
+  const managementRuntime = createManagementRuntime({
+    scopeRuntime,
+    coordinator,
+    onForgetCommitted: () => {
+      retrievalRuntime.clear()
+    },
+  })
 
   const sessionToAgent = new Map<string, Agent>()
 
   ctx.effect(() => async () => {
     await acquisitionRuntime.dispose()
+    await managementRuntime.dispose()
     retrievalRuntime.clear()
     scopeRuntime.clear()
     sessionToAgent.clear()
@@ -48,6 +61,9 @@ export function install(
   ctx.tools.register(createSearchTool(retrievalRuntime))
   ctx.tools.register(createOpenTool(retrievalRuntime))
   ctx.tools.register(createRememberTool({ scopeRuntime, writer: candidateWriter }))
+  ctx.tools.register(createListTool(managementRuntime))
+  ctx.tools.register(createPromoteTool(managementRuntime))
+  ctx.tools.register(createForgetTool(managementRuntime))
 
   ctx.on('agent/created', (payload: { agent: Agent }) => {
     const agent = payload?.agent

@@ -81,6 +81,20 @@ export const forbiddenExportSymbols = [
   'ACQUISITION_SYSTEM_PROMPT',
   'ACQUISITION_SYSTEM_PROMPT_SHA256',
   'buildAcquisitionUserPrompt',
+  'createManagementRuntime',
+  'ManagementRuntime',
+  'createListTool',
+  'createPromoteTool',
+  'createForgetTool',
+  'createMemoryForgetFact',
+  'validateMemoryForgetFact',
+  'computeForgetId',
+  'computeForgetContentSha256',
+  'validateListMemoriesParams',
+  'resolveBoundToolCall',
+  'computePromotedMemoryId',
+  'createMutationCoordinator',
+  'MutationCoordinator',
 ]
 
 export const forbiddenSeamSymbols = [

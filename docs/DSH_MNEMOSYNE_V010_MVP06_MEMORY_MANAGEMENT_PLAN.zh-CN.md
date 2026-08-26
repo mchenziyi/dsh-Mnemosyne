@@ -1,8 +1,8 @@
 # dsh-Mnemosyne v0.1.0 · MVP-06 基础记忆管理计划
 
-> 状态：🟡 设计完成（待 Gemini 3.7 Flash 实现）
+> 状态：🟢 实现完成（待 CTO 最终签收）
 >
-> 日期：2026-08-25
+> 日期：2026-08-25（2026-08-26 CTO 最终收口修复）
 >
 > 前置提交：`c6bfb79 feat: add automatic memory acquisition`
 >
@@ -476,19 +476,45 @@ git diff --cached --check
 
 ---
 
-## 十五、CTO 签收清单
+## 十五、CTO 最终收口修复说明
 
-- [ ] 只增加 list/promote/forget；
-- [ ] Forget Fact 不可变；short/long golden 不变；
-- [ ] list 无 body、无跨 Scope；
-- [ ] promote 同源确定性，保留 exact source ref；
-- [ ] promoted short 不与 long 重复进入 Generation；
-- [ ] forget 不物理删除，目标不进入新 Generation；
-- [ ] 被忘 long 的来源 short 不复活；
-- [ ] compile 失败旧 CURRENT 不变且可重试；
-- [ ] forget 成功清空 Grant；
-- [ ] durable call 绑定严格，无墙钟/模型/网络；
-- [ ] 并发测试不是单入口假阳性；
-- [ ] staged diff、全量门禁和生产包检查通过。
+在 MVP-06 最终 CTO Review 中，对以下架构与测试边界进行了最终收口：
+
+1. **跨入口共享 MutationCoordinator 真实屏障测试**：
+   - 编写 `tests/memory-management-coordinator.spec.ts`，引入 `RecordingCoordinator` 与确定性 deferred barrier；
+   - 证明 `CandidateWriter`（自动采集 / remember）与 `ManagementRuntime`（promote / forget）共用同一个项目级串行 FIFO 临界区；
+   - 第一个操作进入并被 barrier 阻塞时，第二个并发操作严格只能处于 `requested`，无法进入临界区；
+   - 证明 `getMaxConcurrent() === 1`，断开共享注入测试必然失败，彻底杜绝 `Promise.all` 假并发测试。
+
+2. **Identity-Safe Map 队列回收**：
+   - `MutationCoordinator` 使用 identity-safe cleanup 机制：为每次排队保存实际写入 Map 的 tail Promise；
+   - operation settle 后，仅当 `queues.get(projectScopeId) === tail` 时删除该 key；
+   - 若后续已有新任务接续，旧任务的 `finally` 绝不删除新 tail，保证 Map 不泄漏且并发链路不中断。
+
+3. **List 稳定错误码原样透传**：
+   - `managementRuntime.list()` 遇 `err instanceof MemoryStoreError` 时原样抛出，不再统一包装为 `memory_store_io_failed`；
+   - 经表驱动测试覆盖：`memory_store_symlink_rejected`、`memory_store_insecure_permissions`、`memory_store_hash_mismatch`、`memory_store_noncanonical` 等错误码稳定保真，未显式泄露任何敏感信息。
+
+4. **生产 Tool Schema 完整枚举闭包**：
+   - `mnemosyne_list` 参数 `tier` 与输出 `params.tier` 显式限定为 `['all', 'short_term', 'long_term']`；
+   - `mnemosyne_list` 输出 `items[].tier` 限定为 `['short_term', 'long_term']`，`items[].state` 限定为 `['active', 'promoted', 'expired', 'forgotten']`；
+   - `mnemosyne_forget` 参数 `tier` 与输出 `target.tier` 显式限定为 `['short_term', 'long_term']`。
+
+---
+
+## 十六、CTO 签收清单
+
+- [x] 只增加 list/promote/forget；
+- [x] Forget Fact 不可变；short/long golden 不变；
+- [x] list 无 body、无跨 Scope；
+- [x] promote 同源确定性，保留 exact source ref；
+- [x] promoted short 不与 long 重复进入 Generation；
+- [x] forget 不物理删除，目标不进入新 Generation；
+- [x] 被忘 long 的来源 short 不复活；
+- [x] compile 失败旧 CURRENT 不变且可重试；
+- [x] forget 成功清空 Grant；
+- [x] durable call 绑定严格，无墙钟/模型/网络；
+- [x] 并发测试使用确定性 deferred barrier，不是单入口假阳性；
+- [x] staged diff、全量门禁和生产包检查通过。
 
 MVP-06 签收后只进入 MVP-07 临时项目真实闭环与 v0.1.0 发布验收，不再增加产品功能。

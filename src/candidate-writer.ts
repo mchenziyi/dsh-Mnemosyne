@@ -8,10 +8,15 @@ import { createOKFCompiler, type OKFCompiler } from './okf-compiler.js'
 import { COMPILER_VERSION } from './okf-schema.js'
 import { computeFactHash, type ShortTermMemoryFact } from './memory-fact.js'
 import { MemoryStoreError } from './memory-store-error.js'
+import {
+  createMutationCoordinator,
+  type MutationCoordinator,
+} from './mutation-coordinator.js'
 
 export interface CandidateWriterOptions {
   storeFactory?: (scope: ResolvedScope) => MemoryFactStore
   compiler?: OKFCompiler
+  coordinator?: MutationCoordinator
 }
 
 export interface WriteCandidateParams {
@@ -42,9 +47,7 @@ export function createCandidateWriter(options: CandidateWriterOptions = {}): Can
     openMemoryFactStore({ project_root: scope.project_root, project_scope_id: scope.project_scope_id })
   )
   const compiler = options.compiler ?? createOKFCompiler()
-
-  // Project-level mutex chain to serialize "check + write" and prevent concurrency TOCTOU
-  let writeQueue: Promise<unknown> = Promise.resolve()
+  const coordinator = options.coordinator ?? createMutationCoordinator()
 
   async function executeWrite(params: WriteCandidateParams): Promise<WriteCandidateResult> {
     const { scope, candidate, memoryId, createdAt } = params
@@ -145,13 +148,7 @@ export function createCandidateWriter(options: CandidateWriterOptions = {}): Can
 
   return {
     async write(params: WriteCandidateParams): Promise<WriteCandidateResult> {
-      // Chain promise to serialize candidate writes per plugin instance
-      const current = writeQueue.then(
-        () => executeWrite(params),
-        () => executeWrite(params)
-      )
-      writeQueue = current.catch(() => {})
-      return await current
+      return await coordinator.run(params.scope.project_scope_id, () => executeWrite(params))
     },
   }
 }

@@ -17,13 +17,23 @@ describe('MVP-05 plugin integration', () => {
 
     const fiber = await ctx.plugin(MnemosynePlugin, { enabled: true, autoCapture: true })
 
-    for (const toolName of ['mnemosyne_status', 'mnemosyne_search', 'mnemosyne_open', 'mnemosyne_remember']) {
+    const allToolNames = [
+      'mnemosyne_status',
+      'mnemosyne_search',
+      'mnemosyne_open',
+      'mnemosyne_remember',
+      'mnemosyne_list',
+      'mnemosyne_promote',
+      'mnemosyne_forget',
+    ]
+
+    for (const toolName of allToolNames) {
       expect(ctx.tools.get(toolName)).toBeDefined()
     }
 
     await fiber.dispose()
 
-    for (const toolName of ['mnemosyne_status', 'mnemosyne_search', 'mnemosyne_open', 'mnemosyne_remember']) {
+    for (const toolName of allToolNames) {
       expect(ctx.tools.get(toolName)).toBeUndefined()
     }
   })

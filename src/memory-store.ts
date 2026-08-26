@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { link, lstat, open, readdir, unlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { compareCodePoints } from './protocol/canonical.js'
+import { compareCodePoints, canonicalBytes } from './protocol/canonical.js'
 import {
   assertUtcTimestamp,
   canonicalizeLongTermMemoryFact,
@@ -17,13 +17,19 @@ import { MemoryStoreError } from './memory-store-error.js'
 import {
   checkPathHierarchy,
   ensureDirectoryChain,
+  getForgetPath,
   getLongTermPath,
   getShortTermPath,
   getStoreLayout,
+  validateForgetId,
   validateMemoryId,
   validateProjectRoot,
   validateScopeId,
 } from './memory-store-path.js'
+import {
+  validateMemoryForgetFact,
+  type MemoryForgetFact,
+} from './protocol/management.js'
 import { computeProjectScopeId } from './runtime-scope.js'
 
 export type WriteStatus = 'created' | 'noop'
@@ -32,6 +38,12 @@ export interface WriteResult {
   status: WriteStatus
   tier: 'short_term' | 'long_term'
   memory_id: string
+  content_sha256: string
+}
+
+export interface WriteForgetResult {
+  status: WriteStatus
+  forget_id: string
   content_sha256: string
 }
 
@@ -52,6 +64,9 @@ export interface MemoryFactStore {
   putLongTerm(fact: LongTermMemoryFact): Promise<WriteResult>
   getLongTerm(memoryId: string): Promise<LongTermMemoryFact>
   listLongTerm(): Promise<LongTermMemoryFact[]>
+  putForget(fact: MemoryForgetFact): Promise<WriteForgetResult>
+  getForget(forgetId: string): Promise<MemoryForgetFact>
+  listForget(): Promise<MemoryForgetFact[]>
 }
 
 export interface MemoryStoreHooks {
@@ -369,6 +384,251 @@ async function atomicWriteFact(
   }
 }
 
+async function readForgetFile(
+  projectRoot: string,
+  filePath: string,
+  expectedProjectScope: string
+): Promise<MemoryForgetFact> {
+  await checkPathHierarchy(projectRoot, filePath)
+
+  let beforeStat
+  try {
+    beforeStat = await lstat(filePath)
+  } catch (err: unknown) {
+    const nodeErr = err as { code?: string }
+    if (nodeErr.code === 'ENOENT') {
+      throw new MemoryStoreError('memory_store_not_found')
+    }
+    throw new MemoryStoreError('memory_store_io_failed', err)
+  }
+
+  if (beforeStat.isSymbolicLink()) {
+    throw new MemoryStoreError('memory_store_symlink_rejected')
+  }
+  if (!beforeStat.isFile()) {
+    throw new MemoryStoreError('memory_store_path_unsafe')
+  }
+  if (beforeStat.size > MAX_FACT_FILE_BYTES) {
+    throw new MemoryStoreError('memory_store_file_too_large')
+  }
+  if ((beforeStat.mode & 0o777) !== 0o600) {
+    throw new MemoryStoreError('memory_store_insecure_permissions')
+  }
+
+  const openFlags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)
+  let fileHandle
+  try {
+    fileHandle = await open(filePath, openFlags)
+  } catch (err: unknown) {
+    const nodeErr = err as { code?: string }
+    if (nodeErr.code === 'ENOENT') {
+      throw new MemoryStoreError('memory_store_not_found')
+    }
+    if (nodeErr.code === 'ELOOP' || nodeErr.code === 'EMLINK') {
+      throw new MemoryStoreError('memory_store_symlink_rejected')
+    }
+    throw new MemoryStoreError('memory_store_io_failed', err)
+  }
+
+  try {
+    const handleStat = await fileHandle.stat()
+    if (handleStat.isSymbolicLink()) {
+      throw new MemoryStoreError('memory_store_symlink_rejected')
+    }
+    if (!handleStat.isFile()) {
+      throw new MemoryStoreError('memory_store_path_unsafe')
+    }
+    if (handleStat.dev !== beforeStat.dev || handleStat.ino !== beforeStat.ino) {
+      throw new MemoryStoreError('memory_store_path_unsafe')
+    }
+    if (handleStat.size > MAX_FACT_FILE_BYTES) {
+      throw new MemoryStoreError('memory_store_file_too_large')
+    }
+
+    const buffer = await fileHandle.readFile()
+
+    const afterStat = await lstat(filePath)
+    if (afterStat.isSymbolicLink()) {
+      throw new MemoryStoreError('memory_store_symlink_rejected')
+    }
+    if (!afterStat.isFile()) {
+      throw new MemoryStoreError('memory_store_path_unsafe')
+    }
+    if (
+      afterStat.dev !== beforeStat.dev ||
+      afterStat.ino !== beforeStat.ino ||
+      afterStat.dev !== handleStat.dev ||
+      afterStat.ino !== handleStat.ino
+    ) {
+      throw new MemoryStoreError('memory_store_path_unsafe')
+    }
+    if ((afterStat.mode & 0o777) !== 0o600) {
+      throw new MemoryStoreError('memory_store_insecure_permissions')
+    }
+    if (afterStat.size > MAX_FACT_FILE_BYTES) {
+      throw new MemoryStoreError('memory_store_file_too_large')
+    }
+    if (buffer.length !== afterStat.size || buffer.length !== handleStat.size || buffer.length > MAX_FACT_FILE_BYTES) {
+      throw new MemoryStoreError('memory_store_file_too_large')
+    }
+
+    let text: string
+    try {
+      text = utf8Decoder.decode(buffer)
+    } catch (err: unknown) {
+      throw new MemoryStoreError('memory_store_decode_failed', err)
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch (err: unknown) {
+      throw new MemoryStoreError('memory_store_decode_failed', err)
+    }
+
+    const fact = validateMemoryForgetFact(parsed)
+    if (fact.project_scope_id !== expectedProjectScope) {
+      throw new MemoryStoreError('memory_store_scope_mismatch')
+    }
+    const canonical = canonicalBytes(fact)
+    if (text !== canonical) {
+      throw new MemoryStoreError('memory_store_noncanonical')
+    }
+    return structuredClone(fact)
+  } finally {
+    await fileHandle.close()
+  }
+}
+
+async function atomicWriteForget(
+  projectRoot: string,
+  targetPath: string,
+  fact: MemoryForgetFact,
+  expectedProjectScope: string,
+  hooks?: MemoryStoreHooks
+): Promise<WriteForgetResult> {
+  if (fact.project_scope_id !== expectedProjectScope) {
+    throw new MemoryStoreError('memory_store_scope_mismatch')
+  }
+
+  await checkPathHierarchy(projectRoot, targetPath)
+
+  try {
+    const existing = await readForgetFile(projectRoot, targetPath, expectedProjectScope)
+    if (existing.content_sha256 === fact.content_sha256) {
+      return {
+        status: 'noop',
+        forget_id: fact.forget_id,
+        content_sha256: fact.content_sha256,
+      }
+    }
+    throw new MemoryStoreError('memory_store_identity_conflict')
+  } catch (err: unknown) {
+    if (err instanceof MemoryStoreError) {
+      if (err.code !== 'memory_store_not_found') {
+        throw err
+      }
+    } else {
+      throw new MemoryStoreError('memory_store_io_failed', err)
+    }
+  }
+
+  const layout = getStoreLayout(projectRoot)
+  await ensureDirectoryChain(projectRoot, dirname(targetPath))
+  await ensureDirectoryChain(projectRoot, layout.tmpRoot)
+
+  const tempFileName = `tmp_${randomUUID()}.tmp`
+  const tempPath = join(layout.tmpRoot, tempFileName)
+
+  let tempHandle
+  try {
+    tempHandle = await open(tempPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600)
+  } catch (err: unknown) {
+    throw new MemoryStoreError('memory_store_io_failed', err)
+  }
+
+  try {
+    const canonical = canonicalBytes(fact)
+    await tempHandle.writeFile(canonical, 'utf8')
+
+    if (hooks?.onTempFileFsync) {
+      await hooks.onTempFileFsync()
+    }
+
+    await tempHandle.sync()
+    await tempHandle.close()
+    tempHandle = null
+
+    if (hooks?.onLink) {
+      await hooks.onLink()
+    }
+
+    await link(tempPath, targetPath)
+  } catch (err: unknown) {
+    if (tempHandle) {
+      try {
+        await tempHandle.close()
+      } catch {}
+    }
+    try {
+      await unlink(tempPath)
+    } catch {}
+
+    const nodeErr = err as { code?: string }
+    if (nodeErr.code === 'EEXIST') {
+      const winner = await readForgetFile(projectRoot, targetPath, expectedProjectScope)
+      if (winner.content_sha256 === fact.content_sha256) {
+        return {
+          status: 'noop',
+          forget_id: fact.forget_id,
+          content_sha256: fact.content_sha256,
+        }
+      }
+      throw new MemoryStoreError('memory_store_identity_conflict')
+    }
+
+    if (err instanceof MemoryStoreError) {
+      throw err
+    }
+    throw new MemoryStoreError('memory_store_io_failed', err)
+  }
+
+  try {
+    if (hooks?.onTargetParentFsync) {
+      await hooks.onTargetParentFsync()
+    }
+
+    await syncDirectory(dirname(targetPath))
+    await unlink(tempPath)
+    await syncDirectory(layout.tmpRoot)
+    await checkPathHierarchy(projectRoot, targetPath)
+
+    if (hooks?.onReadback) {
+      await hooks.onReadback()
+    }
+
+    const readBack = await readForgetFile(projectRoot, targetPath, expectedProjectScope)
+    if (readBack.content_sha256 !== fact.content_sha256 || readBack.forget_id !== fact.forget_id) {
+      throw new MemoryStoreError('memory_store_hash_mismatch')
+    }
+  } catch (err: unknown) {
+    try {
+      await unlink(tempPath)
+    } catch {}
+
+    if (err instanceof MemoryStoreError) {
+      throw err
+    }
+    throw new MemoryStoreError('memory_store_io_failed', err)
+  }
+
+  return {
+    status: 'created',
+    forget_id: fact.forget_id,
+    content_sha256: fact.content_sha256,
+  }
+}
+
 export function openMemoryFactStore(scope: MemoryFactStoreOptions): MemoryFactStore {
   if (!scope || typeof scope !== 'object') {
     throw new MemoryStoreError('memory_store_invalid_input')
@@ -486,15 +746,15 @@ export function openMemoryFactStore(scope: MemoryFactStoreOptions): MemoryFactSt
         if (!entry.isDirectory()) {
           throw new MemoryStoreError('memory_store_path_unsafe')
         }
-        const sessionId = entry.name
-        validateScopeId(sessionId)
+        const sessionScopeId = entry.name
+        validateScopeId(sessionScopeId)
 
-        const dirPath = join(shortTermRoot, sessionId)
+        const dirPath = join(shortTermRoot, sessionScopeId)
         await checkPathHierarchy(root, dirPath)
-        results.push(sessionId)
+        results.push(sessionScopeId)
       }
 
-      return results.sort(compareCodePoints)
+      return results.sort((a, b) => compareCodePoints(a, b))
     },
 
     async putLongTerm(fact: LongTermMemoryFact): Promise<WriteResult> {
@@ -553,6 +813,62 @@ export function openMemoryFactStore(scope: MemoryFactStoreOptions): MemoryFactSt
       }
 
       return results.sort((a, b) => compareCodePoints(a.memory_id, b.memory_id))
+    },
+
+    async putForget(fact: MemoryForgetFact): Promise<WriteForgetResult> {
+      const root = await getValidProjectRoot()
+      const validated = validateMemoryForgetFact(fact)
+      if (validated.project_scope_id !== projectScopeId) {
+        throw new MemoryStoreError('memory_store_scope_mismatch')
+      }
+      const targetPath = getForgetPath(root, validated.forget_id)
+      return atomicWriteForget(root, targetPath, validated, projectScopeId, hooks)
+    },
+
+    async getForget(forgetId: string): Promise<MemoryForgetFact> {
+      const root = await getValidProjectRoot()
+      const validForgetId = validateForgetId(forgetId)
+      const targetPath = getForgetPath(root, validForgetId)
+      return readForgetFile(root, targetPath, projectScopeId)
+    },
+
+    async listForget(): Promise<MemoryForgetFact[]> {
+      const root = await getValidProjectRoot()
+      const targetDir = join(root, '.dsh-mnemosyne', 'facts', 'forget')
+
+      let entries
+      try {
+        await checkPathHierarchy(root, targetDir)
+        entries = await readdir(targetDir, { withFileTypes: true })
+      } catch (err: unknown) {
+        const nodeErr = err as { code?: string }
+        if (nodeErr.code === 'ENOENT') {
+          return []
+        }
+        if (err instanceof MemoryStoreError) {
+          if (err.code === 'memory_store_not_found') return []
+          throw err
+        }
+        throw new MemoryStoreError('memory_store_io_failed', err)
+      }
+
+      const results: MemoryForgetFact[] = []
+      for (const entry of entries) {
+        if (entry.isSymbolicLink()) {
+          throw new MemoryStoreError('memory_store_symlink_rejected')
+        }
+        if (!entry.isFile() || !entry.name.endsWith('.json')) {
+          throw new MemoryStoreError('memory_store_decode_failed')
+        }
+        const forgetId = entry.name.slice(0, -5)
+        validateForgetId(forgetId)
+
+        const filePath = join(targetDir, entry.name)
+        const fact = await readForgetFile(root, filePath, projectScopeId)
+        results.push(fact)
+      }
+
+      return results.sort((a, b) => compareCodePoints(a.forget_id, b.forget_id))
     },
   }
 }

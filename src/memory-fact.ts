@@ -34,6 +34,8 @@ export interface SourceShortTermRef {
   content_sha256: string
 }
 
+export type ShortTermSourceRef = SourceShortTermRef
+
 export interface LongTermMemoryFact {
   schema_version: 1
   tier: 'long_term'

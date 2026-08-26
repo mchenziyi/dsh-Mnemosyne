@@ -171,13 +171,92 @@ export function createOKFCompiler(options?: OKFCompilerOptions): OKFCompiler {
           const store = openMemoryFactStore({ project_root: root, project_scope_id: validatedReq.project_scope_id })
           const sessionScopes = await store.listShortTermSessionScopes()
 
-          const allShortFacts: ShortTermMemoryFact[] = []
+          // 1. Read all short-term facts (including expired, so we can validate source refs)
+          const allRawShortFacts: ShortTermMemoryFact[] = []
+          const shortFactByExactRef = new Map<string, ShortTermMemoryFact>() // key: session_scope_id:memory_id
           for (const sessionScope of sessionScopes) {
-            const sessionFacts = await store.listShortTerm(sessionScope, validatedReq.evaluation_at)
-            allShortFacts.push(...sessionFacts)
+            const sessionFacts = await store.listShortTerm(sessionScope, validatedReq.evaluation_at, { includeExpired: true })
+            for (const sf of sessionFacts) {
+              allRawShortFacts.push(sf)
+              shortFactByExactRef.set(`${sf.session_scope_id}:${sf.memory_id}`, sf)
+            }
           }
 
-          const allLongFacts = await store.listLongTerm()
+          // 2. Read all long-term facts
+          const allRawLongFacts = await store.listLongTerm()
+          const longFactByExactRef = new Map<string, LongTermMemoryFact>()
+          for (const lf of allRawLongFacts) {
+            longFactByExactRef.set(lf.memory_id, lf)
+          }
+
+          // 3. Read all forget facts
+          const allForgetFacts = await store.listForget()
+          const forgottenSet = new Set<string>() // key: tier:session:memory:hash
+
+          for (const ff of allForgetFacts) {
+            const t = ff.target
+            if (t.tier === 'short_term') {
+              const existingSf = shortFactByExactRef.get(`${t.session_scope_id}:${t.memory_id}`)
+              if (!existingSf || existingSf.content_sha256 !== t.content_sha256) {
+                throw new MemoryStoreError('memory_compile_invalid_input')
+              }
+              forgottenSet.add(`short_term:${t.session_scope_id}:${t.memory_id}:${t.content_sha256}`)
+            } else {
+              const existingLf = longFactByExactRef.get(t.memory_id)
+              if (!existingLf || existingLf.content_sha256 !== t.content_sha256) {
+                throw new MemoryStoreError('memory_compile_invalid_input')
+              }
+              forgottenSet.add(`long_term:null:${t.memory_id}:${t.content_sha256}`)
+            }
+          }
+
+          // 4. Validate and index long-term source_short_term_refs
+          const promotedShortSet = new Set<string>() // key: session:memory:hash
+
+          for (const lf of allRawLongFacts) {
+            for (const ref of lf.source_short_term_refs) {
+              if (ref.project_scope_id !== validatedReq.project_scope_id) {
+                throw new MemoryStoreError('memory_compile_invalid_input')
+              }
+              const existingSf = shortFactByExactRef.get(`${ref.session_scope_id}:${ref.memory_id}`)
+              if (!existingSf || existingSf.content_sha256 !== ref.content_sha256) {
+                throw new MemoryStoreError('memory_compile_invalid_input')
+              }
+              promotedShortSet.add(`${ref.session_scope_id}:${ref.memory_id}:${ref.content_sha256}`)
+            }
+          }
+
+          // 5. Filter active short facts
+          const evalMillis = Date.parse(validatedReq.evaluation_at)
+          const allShortFacts: ShortTermMemoryFact[] = []
+
+          for (const sf of allRawShortFacts) {
+            const forgetKey = `short_term:${sf.session_scope_id}:${sf.memory_id}:${sf.content_sha256}`
+            const promoteKey = `${sf.session_scope_id}:${sf.memory_id}:${sf.content_sha256}`
+
+            if (forgottenSet.has(forgetKey)) {
+              continue
+            }
+            if (promotedShortSet.has(promoteKey)) {
+              continue
+            }
+            if (evalMillis >= Date.parse(sf.expires_at)) {
+              continue
+            }
+
+            allShortFacts.push(sf)
+          }
+
+          // 6. Filter active long facts
+          const allLongFacts: LongTermMemoryFact[] = []
+
+          for (const lf of allRawLongFacts) {
+            const forgetKey = `long_term:null:${lf.memory_id}:${lf.content_sha256}`
+            if (forgottenSet.has(forgetKey)) {
+              continue
+            }
+            allLongFacts.push(lf)
+          }
 
           // Verify global memory_id uniqueness across all active facts
           const seenMemoryIds = new Set<string>()

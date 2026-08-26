@@ -4,10 +4,18 @@ import { isAbsolute, join, normalize, relative, resolve, sep } from 'node:path'
 import { MemoryStoreError } from './memory-store-error.js'
 
 const MEMORY_ID_REGEX = /^mem_[a-z0-9][a-z0-9._-]{0,63}$/
+const FORGET_ID_REGEX = /^forget_[0-9a-f]{64}$/
 const SCOPE_ID_REGEX = /^sha256_[0-9a-f]{64}$/
 
 export function validateMemoryId(id: unknown): string {
   if (typeof id !== 'string' || !MEMORY_ID_REGEX.test(id) || id.includes('..') || id.includes('/') || id.includes('\\') || id.includes('\0')) {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+  return id
+}
+
+export function validateForgetId(id: unknown): string {
+  if (typeof id !== 'string' || !FORGET_ID_REGEX.test(id) || id.includes('..') || id.includes('/') || id.includes('\\') || id.includes('\0')) {
     throw new MemoryStoreError('memory_store_invalid_input')
   }
   return id
@@ -64,6 +72,7 @@ export interface StoreLayout {
   factsRoot: string
   shortTermRoot: string
   longTermRoot: string
+  forgetRoot: string
   tmpRoot: string
 }
 
@@ -72,6 +81,7 @@ export function getStoreLayout(projectRoot: string): StoreLayout {
   const factsRoot = join(storeRoot, 'facts')
   const shortTermRoot = join(factsRoot, 'short-term')
   const longTermRoot = join(factsRoot, 'long-term')
+  const forgetRoot = join(factsRoot, 'forget')
   const tmpRoot = join(storeRoot, 'tmp')
 
   return {
@@ -80,6 +90,7 @@ export function getStoreLayout(projectRoot: string): StoreLayout {
     factsRoot,
     shortTermRoot,
     longTermRoot,
+    forgetRoot,
     tmpRoot,
   }
 }
@@ -93,6 +104,11 @@ export function getShortTermPath(projectRoot: string, sessionScopeId: string, me
 export function getLongTermPath(projectRoot: string, memoryId: string): string {
   const validMemoryId = validateMemoryId(memoryId)
   return join(projectRoot, '.dsh-mnemosyne', 'facts', 'long-term', `${validMemoryId}.json`)
+}
+
+export function getForgetPath(projectRoot: string, forgetId: string): string {
+  const validForgetId = validateForgetId(forgetId)
+  return join(projectRoot, '.dsh-mnemosyne', 'facts', 'forget', `${validForgetId}.json`)
 }
 
 export async function checkComponentPermissions(path: string, isFile = false): Promise<void> {
