@@ -20,6 +20,59 @@ describe('MVP-05 acquisition evidence extraction', () => {
     } as unknown as Session
   }
 
+  it('rejects missing completion reason and missing route, while accepting explicit rc.2 stop', () => {
+    const makeEvents = (reason: unknown, includeRoute = true): SessionEvent[] => {
+      const events: SessionEvent[] = []
+      if (includeRoute) {
+        events.push({
+          seq: 0,
+          time: '2026-08-25T07:59:50.000Z',
+          type: 'request/header',
+          turn: 1,
+          data: { header: { config: { provider: 'deepseek', model: 'deepseek-chat' } } },
+        } as never)
+      }
+      events.push(
+        {
+          seq: 1,
+          time: '2026-08-25T07:59:51.000Z',
+          type: 'user/message',
+          turn: 1,
+          data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'User text' }] },
+        } as never,
+        {
+          seq: 2,
+          time: '2026-08-25T07:59:52.000Z',
+          type: 'assistant/message',
+          turn: 1,
+          data: {
+            message: {
+              source: { kind: 'model' },
+              content: [{ type: 'text', text: 'Assistant text' }],
+            },
+          },
+        } as never,
+        {
+          seq: 3,
+          time: '2026-08-25T08:00:00.000Z',
+          type: 'turn/end',
+          turn: 1,
+          data: reason === undefined ? { turn: 1 } : { turn: 1, reason },
+        } as never,
+      )
+      return events
+    }
+
+    const missingReason = makeEvents(undefined)
+    expect(extractAcquisitionEvidence(createMockSession(missingReason), missingReason.at(-1)!, dummyScope)).toBeNull()
+
+    const missingRoute = makeEvents('stop', false)
+    expect(extractAcquisitionEvidence(createMockSession(missingRoute), missingRoute.at(-1)!, dummyScope)).toBeNull()
+
+    const explicitStop = makeEvents('stop')
+    expect(extractAcquisitionEvidence(createMockSession(explicitStop), explicitStop.at(-1)!, dummyScope)).not.toBeNull()
+  })
+
   it('extracts valid evidence from a completed turn with user message, assistant message, and route', () => {
     const turnEndEvent: SessionEvent = {
       seq: 5,

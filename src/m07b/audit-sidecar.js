@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { claimLlmRequest, recordLlmOutcome } from './budget-ledger.js'
-import { extractToolEventSummary, writeSessionEvidence } from './session-evidence.js'
+import { extractStrictSessionEvidence, writeStrictSessionEvidence } from './business-evidence.js'
 import { createSidecarLoadedReceipt, writeSidecarLoadedReceiptSync } from './wiring-receipt.js'
-import { computeSha256, FROZEN_CANARY_TASKS } from './canary-protocol.js'
+import { computeSha256, computeProjectScopeId, FROZEN_CANARY_TASKS } from './canary-protocol.js'
 
 export const name = 'canary-audit-sidecar'
 export const inject = ['sessionPersistence', 'llm']
@@ -76,29 +76,40 @@ export function apply(ctx, config) {
   let currentSession = null
 
   // 1. Session evidence flush helper
-  async function flushSessionEvidence(session) {
+  async function flushSessionEvidence(session, isFinal = false) {
     try {
-      if (ctx.sessionPersistence) {
+      let sp = null
+      try {
+        sp = ctx.root?.sessionPersistence || (typeof ctx.get === 'function' ? ctx.get('sessionPersistence') : null) || ctx.sessionPersistence
+      } catch {}
+      if (sp) {
         const target = session || currentSession
         let targetId = target?.id
-        if (!targetId && typeof ctx.sessionPersistence.list === 'function') {
-          const sessions = await ctx.sessionPersistence.list()
+        if (!targetId && typeof sp.list === 'function') {
+          const sessions = await sp.list()
           if (sessions && sessions.length > 0) {
             targetId = sessions[sessions.length - 1].id
           }
         }
 
-        if (targetId && typeof ctx.sessionPersistence.inspect === 'function') {
-          const inspected = await ctx.sessionPersistence.inspect(targetId)
-          if (inspected && inspected.events) {
-            const summary = extractToolEventSummary(inspected.events)
-            summary.session_id = targetId
-            await writeSessionEvidence(evidenceDir, runId, summary)
+        if (targetId && typeof sp.inspect === 'function') {
+          const inspected = await sp.inspect(targetId)
+          if (inspected && Array.isArray(inspected.events)) {
+            const projectScopeId = computeProjectScopeId(process.cwd())
+            const strictEvidence = extractStrictSessionEvidence({
+              runId,
+              projectScopeId,
+              sessionId: targetId,
+              sessionEvents: inspected.events,
+            })
+            await writeStrictSessionEvidence(evidenceDir, strictEvidence, { allowOverwrite: true })
           }
         }
       }
     } catch {
-      process.stderr.write('dsh: canary_sidecar_evidence_failed\n')
+      if (isFinal) {
+        process.stderr.write('dsh: canary_sidecar_evidence_failed\n')
+      }
     }
   }
 
@@ -108,8 +119,17 @@ export function apply(ctx, config) {
         currentSession = session
       }
       if (event && event.type === 'turn/end') {
-        flushSessionEvidence(session)
+        flushSessionEvidence(session, false)
+        setImmediate(() => flushSessionEvidence(session, false))
       }
+    })
+
+    ctx.on('session/disposed', (session) => {
+      flushSessionEvidence(session, true)
+    })
+
+    ctx.on('dispose', async () => {
+      await flushSessionEvidence(currentSession, true)
     })
 
     ctx.on('agent/created', (payload) => {
@@ -121,11 +141,19 @@ export function apply(ctx, config) {
     ctx.on(
       'llm/stream',
       (options, next) => {
+        const allMsgText = JSON.stringify(options?.messages || '')
+        const sysText = typeof options?.system === 'string'
+          ? options.system
+          : JSON.stringify(options?.system || '')
+
         if (
           options?.purpose === 'title' ||
           options?.purpose === 'session-title' ||
-          options?.messages?.[0]?.content?.[0]?.text?.includes('session title') ||
-          options?.system?.includes('session title')
+          options?.purpose === 'acquisition' ||
+          allMsgText.toLowerCase().includes('session title') ||
+          allMsgText.toLowerCase().includes('memory extraction') ||
+          sysText.toLowerCase().includes('session title') ||
+          sysText.toLowerCase().includes('memory extraction')
         ) {
           return next()
         }

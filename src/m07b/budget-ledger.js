@@ -1,13 +1,13 @@
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-export const MAX_MODEL_REQUESTS = 12
+export const MAX_MODEL_REQUESTS = 18
 export const MAX_HEADLESS_RUNS = 6
 export const CONSECUTIVE_ERROR_THRESHOLD = 2
 
 export const VALID_CANARY_RUN_IDS = new Set(['run_1', 'run_2', 'run_3', 'run_4', 'run_5', 'run_6'])
 const STRICT_ISO_UTC_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
-const CLAIM_FILE_REGEX = /^(0[1-9]|1[0-2])\.json$/
+const CLAIM_FILE_REGEX = /^(0[1-9]|1[0-8])\.json$/
 
 export function isValidStrictIsoUtc(value) {
   if (typeof value !== 'string' || !STRICT_ISO_UTC_REGEX.test(value)) {

@@ -35,7 +35,7 @@ export function install(
   const candidateWriter = createCandidateWriter({ coordinator })
   const acquisitionRuntime = createAcquisitionRuntime({
     scopeRuntime,
-    llm: llmRuntime,
+    getLlm: () => (ctx as any).llm || (ctx as any).root?.llm || (typeof (ctx as any).get === 'function' ? (ctx as any).get('llm') : undefined) || (typeof (ctx as any).root?.get === 'function' ? (ctx as any).root.get('llm') : undefined),
     writer: candidateWriter,
     autoCapture: config.autoCapture,
   })
@@ -83,16 +83,19 @@ export function install(
     }
   })
 
-  ctx.on('session/event', (session: Session, event: SessionEvent) => {
+  ctx.on('session/event', async (session: Session, event: SessionEvent) => {
     if (!session) return
     scopeRuntime.observeSession(session)
+    const sid = session.id ? String(session.id) : ''
+    const maybeAgent = (session as any)?.agent
+    if (maybeAgent && sid) {
+      sessionToAgent.set(sid, maybeAgent)
+    }
     if (event && event.type === 'turn/end') {
-      const endData = event.data as { reason?: { kind?: string } } | undefined
-      if (endData?.reason?.kind === 'completed') {
-        const sid = session.id ? String(session.id) : ''
-        if (sessionToAgent.has(sid)) {
-          acquisitionRuntime.enqueueTurn(session, event)
-        }
+      const data = event.data as { reason?: { kind?: string } | string } | undefined
+      const reason = typeof data?.reason === 'string' ? data.reason : data?.reason?.kind
+      if (reason === 'completed' || reason === 'stop') {
+        acquisitionRuntime.enqueueTurn(session, event)
       }
     }
     onSessionEvent()

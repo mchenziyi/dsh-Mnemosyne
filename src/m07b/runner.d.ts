@@ -1,7 +1,8 @@
-import type { RealCanaryPlan, RedactedCanaryReport } from './canary-protocol.js'
+import type { RealCanaryPlan, RedactedCanaryReport, RedactedCanaryReportV2 } from './canary-protocol.js'
 
 export declare function executeDryRun(params: {
   tarballPath: string
+  dshExecutable?: string
 }): Promise<{
   status: 'awaiting_user_approval'
   plan_id: string
@@ -28,9 +29,13 @@ export declare function executePrepare(params: {
 }>
 
 export declare function executeCanary(params: {
-  runRoot: string
-  approvalSha256: string
+  plan?: any
+  approval?: any
+  manifest?: any
+  runRoot?: string
+  approvalSha256?: string
   reportOutPath?: string
   dshExecutable?: string
   extraTestPatches?: string[]
-}): Promise<RedactedCanaryReport>
+  evaluationLevel?: 'business' | 'wiring_only'
+}): Promise<RedactedCanaryReport | RedactedCanaryReportV2>

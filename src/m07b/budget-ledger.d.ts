@@ -21,7 +21,7 @@ export interface BudgetSummary {
   readonly circuit_broken_reason: string | null
 }
 
-export declare const MAX_MODEL_REQUESTS: 12
+export declare const MAX_MODEL_REQUESTS: 18
 export declare const MAX_HEADLESS_RUNS: 6
 export declare const CONSECUTIVE_ERROR_THRESHOLD: 2
 export declare const VALID_CANARY_RUN_IDS: ReadonlySet<string>

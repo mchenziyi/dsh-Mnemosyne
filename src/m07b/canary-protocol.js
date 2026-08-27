@@ -524,7 +524,7 @@ export function validateRedactedCanaryReport(report) {
   if (typeof report.approval_sha256 !== 'string' || !HASH_REGEX.test(report.approval_sha256)) throw new Error('invalid_report')
 
   if (typeof report.run_count !== 'number' || !Number.isInteger(report.run_count) || report.run_count < 0 || report.run_count > 6) throw new Error('invalid_report')
-  if (typeof report.model_request_count !== 'number' || !Number.isInteger(report.model_request_count) || report.model_request_count < 0 || report.model_request_count > 12) throw new Error('invalid_report')
+  if (typeof report.model_request_count !== 'number' || !Number.isInteger(report.model_request_count) || report.model_request_count < 0 || report.model_request_count > 18) throw new Error('invalid_report')
 
   if (!report.checks || typeof report.checks !== 'object' || Array.isArray(report.checks)) throw new Error('invalid_report')
   const requiredCheckKeys = [
@@ -572,6 +572,167 @@ export function validateRedactedCanaryReport(report) {
     if (report.reason_code !== null) throw new Error('invalid_report')
   } else if (report.status === 'fail' || report.status === 'aborted') {
     if (ew === 'pass') throw new Error('invalid_report')
+    if (report.reason_code === null || typeof report.reason_code !== 'string' || !VALID_REASON_CODES.has(report.reason_code)) {
+      throw new Error('invalid_report')
+    }
+  }
+
+  if (typeof report.cleanup_clean !== 'boolean') throw new Error('invalid_report')
+
+  const computed = computeReportSha256(report)
+  if (report.report_sha256 !== computed) {
+    throw new Error('invalid_report')
+  }
+
+  return report
+}
+
+export function createRedactedCanaryReportV2(params) {
+  const {
+    status,
+    package_sha256,
+    plan_sha256,
+    approval_sha256,
+    run_count,
+    model_request_count,
+    checks,
+    reason_code = null,
+    cleanup_clean,
+  } = params
+
+  if (status === 'pass') {
+    const requiredPassKeys = [
+      'execution_wiring',
+      'automatic_capture',
+      'restart_persistence',
+      'progressive_disclosure',
+      'promotion',
+      'forget_and_grant',
+      'scope_isolation',
+    ]
+    for (const k of requiredPassKeys) {
+      if (!checks || checks[k] !== 'pass') {
+        throw new Error('invalid_report')
+      }
+    }
+  }
+
+  const base = {
+    schema_version: 2,
+    evaluation_level: 'business',
+    status,
+    dsh_version: '0.1.1-rc.2',
+    package_version: '0.0.0-dev',
+    package_sha256,
+    plan_sha256,
+    approval_sha256,
+    run_count,
+    model_request_count,
+    checks,
+    reason_code,
+    cleanup_clean,
+  }
+
+  const report_sha256 = computeReportSha256(base)
+  const report = {
+    ...base,
+    report_sha256,
+  }
+
+  return validateRedactedCanaryReportV2(report)
+}
+
+export function validateRedactedCanaryReportV2(report) {
+  if (!report || typeof report !== 'object' || Array.isArray(report)) {
+    throw new Error('invalid_report')
+  }
+
+  const expectedTopKeys = new Set([
+    'schema_version',
+    'evaluation_level',
+    'status',
+    'dsh_version',
+    'package_version',
+    'package_sha256',
+    'plan_sha256',
+    'approval_sha256',
+    'run_count',
+    'model_request_count',
+    'checks',
+    'reason_code',
+    'cleanup_clean',
+    'report_sha256',
+  ])
+
+  for (const k of Object.keys(report)) {
+    if (!expectedTopKeys.has(k) || FORBIDDEN_REPORT_KEYS.has(k)) {
+      throw new Error('invalid_report')
+    }
+  }
+
+  if (report.schema_version !== 2) throw new Error('invalid_report')
+  if (report.evaluation_level !== 'business') throw new Error('invalid_report')
+  if (!['pass', 'fail', 'aborted'].includes(report.status)) throw new Error('invalid_report')
+  if (report.dsh_version !== '0.1.1-rc.2') throw new Error('invalid_report')
+  if (report.package_version !== '0.0.0-dev') throw new Error('invalid_report')
+  if (typeof report.package_sha256 !== 'string' || !HASH_REGEX.test(report.package_sha256)) throw new Error('invalid_report')
+  if (typeof report.plan_sha256 !== 'string' || !HASH_REGEX.test(report.plan_sha256)) throw new Error('invalid_report')
+  if (typeof report.approval_sha256 !== 'string' || !HASH_REGEX.test(report.approval_sha256)) throw new Error('invalid_report')
+
+  if (typeof report.run_count !== 'number' || !Number.isInteger(report.run_count) || report.run_count < 0 || report.run_count > 6) throw new Error('invalid_report')
+  if (typeof report.model_request_count !== 'number' || !Number.isInteger(report.model_request_count) || report.model_request_count < 0 || report.model_request_count > 18) throw new Error('invalid_report')
+
+  if (!report.checks || typeof report.checks !== 'object' || Array.isArray(report.checks)) throw new Error('invalid_report')
+  const requiredCheckKeys = [
+    'execution_wiring',
+    'automatic_capture',
+    'restart_persistence',
+    'progressive_disclosure',
+    'promotion',
+    'forget_and_grant',
+    'scope_isolation',
+  ]
+  const checkKeys = Object.keys(report.checks)
+  if (checkKeys.length !== 7) throw new Error('invalid_report')
+  for (const k of requiredCheckKeys) {
+    if (!Object.prototype.hasOwnProperty.call(report.checks, k)) {
+      throw new Error('invalid_report')
+    }
+    const val = report.checks[k]
+    if (!['pass', 'fail', 'not_run'].includes(val)) {
+      throw new Error('invalid_report')
+    }
+  }
+
+  const businessKeys = [
+    'automatic_capture',
+    'restart_persistence',
+    'progressive_disclosure',
+    'promotion',
+    'forget_and_grant',
+    'scope_isolation',
+  ]
+
+  let seenNonPass = false
+  for (const bk of businessKeys) {
+    const val = report.checks[bk]
+    if (seenNonPass && val === 'pass') {
+      throw new Error('invalid_report')
+    }
+    if (val !== 'pass') {
+      seenNonPass = true
+    }
+  }
+
+  if (report.status === 'pass') {
+    if (report.checks.execution_wiring !== 'pass') throw new Error('invalid_report')
+    for (const bk of businessKeys) {
+      if (report.checks[bk] !== 'pass') throw new Error('invalid_report')
+    }
+    if (report.run_count !== 6) throw new Error('invalid_report')
+    if (report.model_request_count <= 0 || !Number.isInteger(report.model_request_count)) throw new Error('invalid_report')
+    if (report.reason_code !== null) throw new Error('invalid_report')
+  } else if (report.status === 'fail' || report.status === 'aborted') {
     if (report.reason_code === null || typeof report.reason_code !== 'string' || !VALID_REASON_CODES.has(report.reason_code)) {
       throw new Error('invalid_report')
     }

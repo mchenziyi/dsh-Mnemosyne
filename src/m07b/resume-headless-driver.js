@@ -3,12 +3,12 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { writeSessionEvidence, extractToolEventSummary } from './session-evidence.js'
+import { extractStrictSessionEvidence, writeStrictSessionEvidence } from './business-evidence.js'
 import { createResumeCompletedReceipt, writeResumeCompletedReceiptSync } from './wiring-receipt.js'
-import { computeSha256, FROZEN_CANARY_TASKS } from './canary-protocol.js'
+import { computeSha256, computeProjectScopeId, FROZEN_CANARY_TASKS } from './canary-protocol.js'
 
 export const name = 'canary-resume-headless-driver'
-export const inject = ['agentDefaultModel', 'agents', 'sessions', 'headlessStartup']
+export const inject = ['agentDefaultModel', 'agents', 'sessions', 'sessionPersistence', 'headlessStartup']
 
 function summarize(events, firstSeq) {
   let started = false
@@ -89,6 +89,7 @@ async function run(ctx, config, io) {
   }
   const agents = (typeof ctx.get === 'function' ? ctx.get('agents') : ctx.agents)
   const sessions = (typeof ctx.get === 'function' ? ctx.get('sessions') : ctx.sessions)
+  const sessionPersistence = (typeof ctx.get === 'function' ? ctx.get('sessionPersistence') : ctx.sessionPersistence)
   const defaultModel = (typeof ctx.get === 'function' ? ctx.get('agentDefaultModel') : ctx.agentDefaultModel)
   const headlessStartup = (typeof ctx.get === 'function' ? ctx.get('headlessStartup') : ctx.headlessStartup)
 
@@ -113,6 +114,36 @@ async function run(ctx, config, io) {
       const run1Path = join(evidenceDir, 'session-events', 'run_1.json')
       const raw = JSON.parse(readFileSync(run1Path, 'utf8'))
       run1SessionId = raw?.summary?.session_id || raw?.session_id || run1SessionId
+      if (!run1SessionId && raw?.session_id_sha256) {
+        if (sessionPersistence && typeof sessionPersistence.list === 'function') {
+          try {
+            const list = await sessionPersistence.list()
+            if (Array.isArray(list)) {
+              for (const item of list) {
+                const sid = typeof item === 'string' ? item : item?.id
+                if (sid && computeSha256(sid) === raw.session_id_sha256) {
+                  run1SessionId = sid
+                  break
+                }
+              }
+            }
+          } catch {}
+        }
+        if (!run1SessionId && sessions && typeof sessions.list === 'function') {
+          try {
+            const list = await sessions.list()
+            if (Array.isArray(list)) {
+              for (const item of list) {
+                const sid = typeof item === 'string' ? item : item?.id
+                if (sid && computeSha256(sid) === raw.session_id_sha256) {
+                  run1SessionId = sid
+                  break
+                }
+              }
+            }
+          } catch {}
+        }
+      }
       if (!resumeSessionId) {
         resumeSessionId = run1SessionId
       }
@@ -123,33 +154,43 @@ async function run(ctx, config, io) {
   }
 
   if (!resumeSessionId || !run1SessionId) {
+    process.stderr.write('dsh: canary_resume_failed\n')
     throw new Error('canary_resume_failed')
   }
 
   if (!agents || typeof agents.resume !== 'function') {
+    process.stderr.write('dsh: canary_resume_failed\n')
     throw new Error('canary_resume_failed')
   }
 
   const selection = defaultModel?.currentSelection?.()
 
-  const res = await agents.resume({
-    resumeSessionId,
-    setup: (agentCtx) => {
-      if (selection) {
-        installModelSelection(agentCtx, {
-          current: selection,
-          assembled: void 0,
-        })
-      }
-    },
-  })
+  let res
+  try {
+    res = await agents.resume({
+      resumeSessionId,
+      setup: (agentCtx) => {
+        if (selection) {
+          installModelSelection(agentCtx, {
+            current: selection,
+            assembled: void 0,
+          })
+        }
+      },
+    })
+  } catch {
+    process.stderr.write('dsh: canary_resume_failed\n')
+    throw new Error('canary_resume_failed')
+  }
   const agent = res.agent || res
 
   if (!agent || !agent.session) {
+    process.stderr.write('dsh: canary_resume_failed\n')
     throw new Error('canary_resume_failed')
   }
 
   if (agent.session.id !== run1SessionId) {
+    process.stderr.write('dsh: canary_resume_failed\n')
     throw new Error('canary_resume_failed')
   }
 
@@ -192,9 +233,18 @@ async function run(ctx, config, io) {
   const resolvedRunId = resolveRunIdFromTaskOrArgs(config, task)
 
   if (evidenceDir && agent.session) {
-    const summary = extractToolEventSummary(agent.session.events || [])
-    summary.session_id = agent.session.id
-    await writeSessionEvidence(evidenceDir, resolvedRunId, summary)
+    try {
+      const projectScopeId = computeProjectScopeId(process.cwd())
+      const strictEvidence = extractStrictSessionEvidence({
+        runId: resolvedRunId,
+        projectScopeId,
+        sessionId: agent.session.id,
+        sessionEvents: agent.session.events || [],
+      })
+      await writeStrictSessionEvidence(evidenceDir, strictEvidence, { allowOverwrite: true })
+    } catch {
+      process.stderr.write('dsh: canary_resume_evidence_failed\n')
+    }
 
     // Write ResumeCompletedReceipt
     if (resolvedRunId === 'run_2' || resolvedRunId === 'run_3') {
@@ -221,7 +271,7 @@ async function run(ctx, config, io) {
     io.stderr.write('dsh: canary_resume_failed\n')
   }
 
-  io.exit(outcome.reason?.kind === 'completed' || !outcome.reason ? 0 : 1)
+  io.exit(outcome.reason?.kind === 'completed' || outcome.reason?.kind === 'stop' || outcome.reason?.kind === 'tool-calls' || !outcome.reason ? 0 : 1)
 }
 
 export function apply(ctx, config) {

@@ -755,5 +755,14 @@ describe('MVP-05 acquisition runtime', () => {
       yield { type: 'finish', reason: { kind: 'stop' } }
     })
     expect(count11).toBe(1)
+
+    // 12. Displayed deltas and final block text must be byte-identical.
+    const count12 = await testStreamSequence(async function* () {
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: '{"schema_version":1,"decision":"skip","reason_code":"not_novel"}' }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: validCandidateJson } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    })
+    expect(count12).toBe(0)
   })
 })

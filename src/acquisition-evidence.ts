@@ -27,16 +27,17 @@ export function extractAcquisitionEvidence(
 
   const endData = turnEndEvent.data as {
     turn?: number
-    reason?: { kind?: string }
+    reason?: { kind?: string } | string
   } | undefined
 
-  if (endData?.reason?.kind !== 'completed') {
+  const reasonKind = typeof endData?.reason === 'string' ? endData?.reason : endData?.reason?.kind
+  if (reasonKind !== 'completed' && reasonKind !== 'stop') {
     return null
   }
 
   const targetTurn = typeof (turnEndEvent as { turn?: number }).turn === 'number'
     ? (turnEndEvent as { turn?: number }).turn
-    : endData?.turn
+    : (endData as { turn?: number } | undefined)?.turn
 
   if (typeof targetTurn !== 'number' || targetTurn < 1) {
     return null
@@ -70,14 +71,16 @@ export function extractAcquisitionEvidence(
   for (let i = 0; i < events.length; i++) {
     const ev = events[i]
     if (ev.type === 'turn/end') {
-      const d = ev.data as { turn?: number; reason?: { kind?: string } } | undefined
+      const d = ev.data as { turn?: number; reason?: { kind?: string } | string } | undefined
       const evTurn = typeof (ev as { turn?: number }).turn === 'number' ? (ev as { turn?: number }).turn : d?.turn
       const evTimeIso = new Date(ev.time).toISOString()
+      const dReasonKind = typeof d?.reason === 'string' ? d?.reason : d?.reason?.kind
+      const matchSeq = turnEndEvent.seq === undefined || ev.seq === turnEndEvent.seq
       if (
-        ev.seq === turnEndEvent.seq &&
+        matchSeq &&
         evTimeIso === turnEndTimeIso &&
         evTurn === targetTurn &&
-        d?.reason?.kind === 'completed'
+        (dReasonKind === 'completed' || dReasonKind === 'stop')
       ) {
         matchingDurableTurnEnd = ev
         matchCount++
@@ -95,52 +98,54 @@ export function extractAcquisitionEvidence(
   let isAssistantInterrupted = false
   let lastRoute: { provider: string; model: string } | null = null
 
+  let currentTurn: number | null = null
+
   for (let i = 0; i < events.length; i++) {
     const event = events[i]
     if (event.seq > matchingDurableTurnEnd.seq) {
       break
     }
 
+    if (event.type === 'turn/start') {
+      const d = event.data as { turn?: number } | undefined
+      currentTurn = (typeof (event as { turn?: number }).turn === 'number' ? (event as { turn?: number }).turn : d?.turn) ?? null
+    }
+
     const eventTurn = typeof (event as { turn?: number }).turn === 'number'
       ? (event as { turn?: number }).turn
       : (event.data as { turn?: number } | undefined)?.turn
 
+    const effectiveTurn = eventTurn ?? currentTurn
+
     // Collect route: last valid request/header prior to or at turn_end_seq
     if (event.type === 'request/header') {
-      const headerData = event.data as {
-        header?: {
-          config?: {
-            provider?: unknown
-            model?: unknown
-          }
-        }
-      } | undefined
-      const cfg = headerData?.header?.config
+      const headerData = event.data as any
+      const cfg = headerData?.header?.config || headerData?.config || headerData?.header
+      const provider = cfg?.provider || headerData?.provider
+      const model = cfg?.model || headerData?.model
       if (
-        typeof cfg?.provider === 'string' &&
-        typeof cfg?.model === 'string' &&
-        cfg.provider.length > 0 &&
-        cfg.model.length > 0
+        typeof provider === 'string' &&
+        typeof model === 'string' &&
+        provider.length > 0 &&
+        model.length > 0
       ) {
-        lastRoute = { provider: cfg.provider, model: cfg.model }
+        lastRoute = { provider, model }
       }
     }
 
     // Only inspect messages for targetTurn
-    if (eventTurn !== targetTurn) {
+    if (effectiveTurn !== null && effectiveTurn !== undefined && effectiveTurn !== targetTurn) {
       continue
     }
 
     if (event.type === 'user/message') {
-      const userData = event.data as {
-        source?: { kind?: string }
-        content?: ContentBlock[]
-      } | undefined
+      const userData = event.data as any
+      const content = userData?.content || userData?.message?.content
 
-      if (userData?.source?.kind === 'user' && Array.isArray(userData.content)) {
-        const textParts = userData.content
-          .filter((block): block is { type: 'text'; text: string } => block.type === 'text' && typeof block.text === 'string')
-          .map((b) => b.text)
+      if (Array.isArray(content)) {
+        const textParts = content
+          .filter((block: any) => block && block.type === 'text' && typeof block.text === 'string')
+          .map((b: any) => b.text)
         if (textParts.length > 0) {
           lastUserText = textParts.join('\n')
         }
@@ -148,20 +153,20 @@ export function extractAcquisitionEvidence(
     }
 
     if (event.type === 'assistant/message') {
-      const asstData = event.data as {
-        interrupted?: boolean
-        message?: {
-          content?: ContentBlock[]
-        }
-      } | undefined
+      const asstData = event.data as any
+      const asstMsg = asstData?.message || asstData
 
-      if (asstData?.interrupted === true) {
+      if (!lastRoute && asstMsg?.provider && asstMsg?.model) {
+        lastRoute = { provider: asstMsg.provider, model: asstMsg.model }
+      }
+
+      if (asstData?.interrupted === true || asstMsg?.interrupted === true) {
         isAssistantInterrupted = true
-      } else if (asstData?.message && Array.isArray(asstData.message.content)) {
+      } else if (Array.isArray(asstMsg?.content)) {
         isAssistantInterrupted = false
-        const textParts = asstData.message.content
-          .filter((block): block is { type: 'text'; text: string } => block.type === 'text' && typeof block.text === 'string')
-          .map((b) => b.text)
+        const textParts = asstMsg.content
+          .filter((block: any) => block && block.type === 'text' && typeof block.text === 'string')
+          .map((b: any) => b.text)
         if (textParts.length > 0) {
           lastAssistantText = textParts.join('\n')
         }
@@ -169,7 +174,7 @@ export function extractAcquisitionEvidence(
     }
   }
 
-  if (!lastUserText || !lastAssistantText || !lastRoute || isAssistantInterrupted) {
+  if (!lastRoute || !lastUserText || !lastAssistantText || isAssistantInterrupted) {
     return null
   }
 

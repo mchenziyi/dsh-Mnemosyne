@@ -92,7 +92,6 @@ export function createProductionRetrievalRuntime(scopeRuntime: ScopeRuntime): Pr
         sessionScopeId: session_scope_id,
         searchParams: rawArgs as OKFSearchInput,
       })
-
       if (searchResult.items.length > 0) {
         const grantKey = `${searchResult.retrieval_id}:${searchResult.content_sha256}`
         if (!grants.has(grantKey)) {

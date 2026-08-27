@@ -14,7 +14,7 @@ function extractStatusFromMessage(message) {
             if (parsed.is_error || parsed.error) return 'error'
             if (typeof parsed.status === 'string') {
               const s = parsed.status.toLowerCase()
-              if (['pass', 'created', 'promoted', 'forgotten', 'noop', 'opened', 'found'].includes(s)) {
+              if (['pass', 'created', 'promoted', 'forgotten', 'noop', 'opened', 'found', 'ready'].includes(s)) {
                 return s
               }
             }
@@ -26,17 +26,13 @@ function extractStatusFromMessage(message) {
 
         const text = block.text.toLowerCase()
         if (text.includes('"is_error":true') || text.includes('error:')) return 'error'
-        if (text.includes('status: created')) return 'created'
-        if (text.includes('status: promoted')) return 'promoted'
-        if (text.includes('status: forgotten')) return 'forgotten'
-        if (text.includes('status: noop') || text.includes('noop')) return 'noop'
-        if (text.includes('status: opened') || text.includes('opened')) return 'opened'
-        if (text.includes('status: pass') || text.includes('search_disclosure: pass') || text.includes('generation') || text.includes('mnemosyne')) {
-          return 'pass'
-        }
-        if (text.trim().length > 0) {
-          return 'pass'
-        }
+        if (text.includes('status: created') || text.includes('"status":"created"')) return 'created'
+        if (text.includes('status: promoted') || text.includes('"status":"promoted"')) return 'promoted'
+        if (text.includes('status: forgotten') || text.includes('"status":"forgotten"')) return 'forgotten'
+        if (text.includes('status: noop') || text.includes('"status":"noop"')) return 'noop'
+        if (text.includes('status: opened') || text.includes('"status":"opened"')) return 'opened'
+        if (text.includes('status: ready') || text.includes('"status":"ready"')) return 'ready'
+        if (text.includes('status: pass') || text.includes('"status":"pass"')) return 'pass'
       }
     }
   }
@@ -125,12 +121,14 @@ export async function writeSessionEvidence(evidenceDir, runId, summary) {
 
   const filePath = join(sessionEventsDir, `${runId}.json`)
   const payload = JSON.stringify(
-    {
-      schema_version: 1,
-      run_id: runId,
-      summary,
-      recorded_at: new Date().toISOString(),
-    },
+    summary && summary.schema_version === 2
+      ? summary
+      : {
+          schema_version: 1,
+          run_id: runId,
+          summary,
+          recorded_at: new Date().toISOString(),
+        },
     null,
     2
   )
@@ -143,7 +141,10 @@ export async function readSessionEvidence(evidenceDir, runId) {
   try {
     const raw = await readFile(filePath, 'utf8')
     const data = JSON.parse(raw)
-    return data.summary || null
+    if (data.schema_version === 2) {
+      return data
+    }
+    return data.summary || data || null
   } catch {
     return null
   }

@@ -170,3 +170,36 @@ export declare function createRedactedCanaryReport(params: {
 }): RedactedCanaryReport
 
 export declare function validateRedactedCanaryReport(report: unknown): RedactedCanaryReport
+
+export interface RedactedCanaryReportV2 {
+  readonly schema_version: 2
+  readonly evaluation_level: 'business'
+  readonly status: 'pass' | 'fail' | 'aborted'
+  readonly dsh_version: '0.1.1-rc.2'
+  readonly package_version: '0.0.0-dev'
+  readonly package_sha256: string
+  readonly plan_sha256: string
+  readonly approval_sha256: string
+  readonly run_count: number
+  readonly model_request_count: number
+  readonly checks: CanaryChecks
+  readonly reason_code: CanaryReasonCode | null
+  readonly cleanup_clean: boolean
+  readonly report_sha256: string
+}
+
+export declare function computeProjectScopeId(projectRoot: string): string
+
+export declare function createRedactedCanaryReportV2(params: {
+  status: 'pass' | 'fail' | 'aborted'
+  package_sha256: string
+  plan_sha256: string
+  approval_sha256: string
+  run_count: number
+  model_request_count: number
+  checks: CanaryChecks
+  reason_code?: CanaryReasonCode | null
+  cleanup_clean: boolean
+}): RedactedCanaryReportV2
+
+export declare function validateRedactedCanaryReportV2(report: unknown): RedactedCanaryReportV2

@@ -1,6 +1,6 @@
 # dsh-Mnemosyne v0.1.0 · MVP-07B-I2 业务证据闭环计划
 
-> 状态：🟡 设计完成，待实现
+> 状态：✅ 已实现并通过 CTO Review（2026-08-27）；MVP-07B-X 尚未执行
 >
 > 日期：2026-08-27
 >
@@ -572,16 +572,16 @@ git diff --check
 
 MVP-07B-I2 只有在以下条件全部满足时才能签收：
 
-- [ ] StrictSessionEvidence 不再存在自由文本成功推断；
-- [ ] Call/Result 一一绑定且所有 Tool Result 严格验证；
-- [ ] 六个 Run 的规范状态快照与身份账本可重放；
-- [ ] 六项业务 checks 在真实 DSH + 离线 Mock 下全部 pass；
-- [ ] 任一关键证据断开均准确 fail closed；
-- [ ] I1 Wiring、预算、Resume、cleanup 全部不回归；
-- [ ] v1 Wiring Report golden 保持，v2 Business Report 严格闭合；
-- [ ] Mock Provider 无 Store/evidence/Credential 读写；
-- [ ] 真实 Provider 调用数为 0；
-- [ ] 全部门禁通过；
-- [ ] CTO Review 无 blocking/should-fix。
+- [x] StrictSessionEvidence 不再存在自由文本成功推断；
+- [x] Call/Result 一一绑定且所有 Tool Result 严格验证；
+- [x] 六个 Run 的规范状态快照与身份账本可重放；
+- [x] 六项业务 checks 在真实 DSH + 离线 Mock 下全部 pass；
+- [x] 任一关键证据断开均准确 fail closed；
+- [x] I1 Wiring、预算、Resume、cleanup 全部不回归；
+- [x] v1 Wiring Report golden 保持，v2 Business Report 严格闭合；
+- [x] Mock Provider 无 Store/evidence/Credential 读写；
+- [x] 真实 Provider 调用数为 0；
+- [x] 全部门禁通过；
+- [x] CTO Review 无 blocking/should-fix。
 
 签收 I2 后，下一步才是 MVP-07B-X：用户提供临时 Credential 并显式批准精确 Approval SHA 的一次性真实 Provider Canary。

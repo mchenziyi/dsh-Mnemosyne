@@ -17,7 +17,8 @@ import { createCandidateWriter, type CandidateWriter } from './candidate-writer.
 
 export interface AcquisitionRuntimeOptions {
   scopeRuntime: ScopeRuntime
-  llm: LlmRuntime
+  llm?: LlmRuntime | (() => LlmRuntime | undefined)
+  getLlm?: () => LlmRuntime | undefined
   storeFactory?: (scope: ResolvedScope) => MemoryFactStore
   compiler?: OKFCompiler
   writer?: CandidateWriter
@@ -159,7 +160,7 @@ async function consumeModelStream(
             break
           }
 
-          if (chunk.block.type === 'text') {
+          if (activeBlockType === 'text') {
             if (blockEndText !== null) {
               hasInvalidChunk = true
               break
@@ -173,7 +174,7 @@ async function consumeModelStream(
               break
             }
             completedTextBlockCount++
-          } else if (chunk.block.type === 'reasoning') {
+          } else if (activeBlockType === 'reasoning') {
             completedReasoningBlockCount++
           }
 
@@ -236,18 +237,15 @@ async function consumeModelStream(
   if (textDeltaAccumulated.length > 0 && textDeltaAccumulated !== blockEndText) {
     throw new Error('inconsistent_stream_text')
   }
-
-  const finalText = blockEndText
-  if (Buffer.byteLength(finalText, 'utf8') > MAX_OUTPUT_BYTES) {
-    throw new Error('output_exceeded_byte_limit')
+  if (Buffer.byteLength(blockEndText, 'utf8') > MAX_OUTPUT_BYTES) {
+    throw new Error('stream_block_size_limit_exceeded')
   }
 
-  return finalText
+  return blockEndText
 }
 
 export function createAcquisitionRuntime(options: AcquisitionRuntimeOptions): AcquisitionRuntime {
   const scopeRuntime = options.scopeRuntime
-  const llm = options.llm
   const storeFactory = options.storeFactory ?? ((scope: ResolvedScope) =>
     openMemoryFactStore({ project_root: scope.project_root, project_scope_id: scope.project_scope_id })
   )
@@ -255,29 +253,34 @@ export function createAcquisitionRuntime(options: AcquisitionRuntimeOptions): Ac
   const writer = options.writer ?? createCandidateWriter({ storeFactory, compiler })
   const autoCapture = options.autoCapture !== false
 
-  let isDisposed = false
-  const abortController = new AbortController()
-
+  const queue: QueuedAcquisitionItem[] = []
   const seenEventKeys = new Set<string>()
   const seenEvidenceHashes = new Set<string>()
-  const queue: QueuedAcquisitionItem[] = []
   const sessionPendingCount = new Map<string, number>()
+  const drainResolvers: Array<() => void> = []
 
+  let isDisposed = false
   let isProcessing = false
   let activeProcessPromise: Promise<void> | null = null
-  let drainResolvers: (() => void)[] = []
+  const abortController = new AbortController()
 
   function checkDrain(): void {
     if (queue.length === 0 && !isProcessing && !activeProcessPromise) {
-      const resolvers = drainResolvers
-      drainResolvers = []
-      for (let i = 0; i < resolvers.length; i++) {
-        resolvers[i]()
+      while (drainResolvers.length > 0) {
+        const resolve = drainResolvers.shift()!
+        resolve()
       }
     }
   }
 
+  function resolveLlm(): LlmRuntime | undefined {
+    if (typeof options.llm === 'function') return options.llm()
+    if (options.getLlm) return options.getLlm()
+    return options.llm
+  }
+
   async function processItem(item: QueuedAcquisitionItem): Promise<void> {
+    const llm = resolveLlm()
     if (isDisposed || abortController.signal.aborted || !llm) {
       return
     }
@@ -384,6 +387,7 @@ export function createAcquisitionRuntime(options: AcquisitionRuntimeOptions): Ac
   }
 
   function enqueueTurn(session: Session, turnEndEvent: SessionEvent): boolean {
+    const llm = resolveLlm()
     if (isDisposed || !autoCapture || !llm) {
       return false
     }
@@ -392,8 +396,9 @@ export function createAcquisitionRuntime(options: AcquisitionRuntimeOptions): Ac
       return false
     }
 
-    const endData = turnEndEvent.data as { reason?: { kind?: string } } | undefined
-    if (endData?.reason?.kind !== 'completed') {
+    const endData = turnEndEvent.data as { reason?: { kind?: string } | string } | undefined
+    const reasonKind = typeof endData?.reason === 'string' ? endData?.reason : endData?.reason?.kind
+    if (reasonKind !== 'completed' && reasonKind !== 'stop') {
       return false
     }
 
@@ -411,7 +416,11 @@ export function createAcquisitionRuntime(options: AcquisitionRuntimeOptions): Ac
       return false
     }
 
-    const turnEndTimeIso = new Date(turnEndEvent.time).toISOString()
+    const evidence = extractAcquisitionEvidence(session, turnEndEvent, scope)
+    if (!evidence) {
+      return false
+    }
+
     let eventKey: string
     try {
       eventKey = computeEventKey({
@@ -419,8 +428,8 @@ export function createAcquisitionRuntime(options: AcquisitionRuntimeOptions): Ac
         project_scope_id: scope.project_scope_id,
         session_scope_id: scope.session_scope_id,
         turn,
-        turn_end_seq: turnEndEvent.seq,
-        turn_end_time: turnEndTimeIso,
+        turn_end_seq: evidence.turn_end_seq,
+        turn_end_time: evidence.turn_end_time,
       })
     } catch {
       return false
@@ -432,11 +441,6 @@ export function createAcquisitionRuntime(options: AcquisitionRuntimeOptions): Ac
 
     const pending = sessionPendingCount.get(session.id) ?? 0
     if (queue.length >= MAX_QUEUE_ITEMS || pending >= MAX_SESSION_PENDING) {
-      return false
-    }
-
-    const evidence = extractAcquisitionEvidence(session, turnEndEvent, scope)
-    if (!evidence) {
       return false
     }
 
@@ -482,9 +486,7 @@ export function createAcquisitionRuntime(options: AcquisitionRuntimeOptions): Ac
   async function dispose(): Promise<void> {
     clear()
     if (activeProcessPromise) {
-      try {
-        await activeProcessPromise
-      } catch {}
+      await activeProcessPromise
     }
     await drain()
   }

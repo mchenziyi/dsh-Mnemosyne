@@ -1,6 +1,6 @@
 # dsh-Mnemosyne v0.1.0 · MVP-07B 真实临时项目 Canary 计划
 
-> 状态：🟠 MVP-07B-I1 装配证明已签收；MVP-07B-I2 业务证据闭环待实现
+> 状态：🟠 MVP-07B-I1/I2 已签收；待 MVP-07B-X 一次性真实 Provider Canary
 >
 > 日期：2026-08-26
 >

@@ -311,3 +311,154 @@ export function validateListMemoriesParams(input: unknown): {
 
   return { tier, include_inactive, limit }
 }
+
+const LIST_OUTPUT_KEYS = [
+  'schema_version',
+  'project_scope_id',
+  'session_scope_id',
+  'evaluation_at',
+  'params',
+  'total_count',
+  'truncated',
+  'items',
+  'content_sha256',
+] as const
+
+const LIST_ITEM_KEYS = [
+  'tier',
+  'session_scope_id',
+  'memory_id',
+  'title',
+  'summary',
+  'tags',
+  'created_at',
+  'expires_at',
+  'state',
+  'content_sha256',
+] as const
+
+export function validateListMemoriesItem(input: unknown): ListMemoriesItem {
+  if (!isPlainObject(input)) {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+  safeAssertExactKeys(input, LIST_ITEM_KEYS)
+
+  if (input.tier !== 'short_term' && input.tier !== 'long_term') {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+
+  if (input.tier === 'short_term') {
+    if (typeof input.session_scope_id !== 'string') {
+      throw new MemoryStoreError('memory_store_invalid_input')
+    }
+    validateScopeId(input.session_scope_id)
+  } else {
+    if (input.session_scope_id !== null) {
+      throw new MemoryStoreError('memory_store_invalid_input')
+    }
+  }
+
+  if (typeof input.memory_id !== 'string') {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+  validateMemoryId(input.memory_id)
+
+  if (typeof input.title !== 'string' || typeof input.summary !== 'string') {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+
+  if (!Array.isArray(input.tags) || !input.tags.every((t) => typeof t === 'string')) {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+
+  if (typeof input.created_at !== 'string') {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+  assertUtcTimestamp(input.created_at)
+
+  if (input.expires_at !== null) {
+    if (typeof input.expires_at !== 'string') {
+      throw new MemoryStoreError('memory_store_invalid_input')
+    }
+    assertUtcTimestamp(input.expires_at)
+  }
+
+  if (input.state !== 'active' && input.state !== 'promoted' && input.state !== 'expired' && input.state !== 'forgotten') {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+
+  if (typeof input.content_sha256 !== 'string' || !HASH_REGEX.test(input.content_sha256)) {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+
+  return {
+    tier: input.tier,
+    session_scope_id: input.session_scope_id,
+    memory_id: input.memory_id,
+    title: input.title,
+    summary: input.summary,
+    tags: [...input.tags],
+    created_at: input.created_at,
+    expires_at: input.expires_at,
+    state: input.state,
+    content_sha256: input.content_sha256,
+  }
+}
+
+export function validateListMemoriesOutput(input: unknown): ListMemoriesOutput {
+  if (!isPlainObject(input)) {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+  safeAssertExactKeys(input, LIST_OUTPUT_KEYS)
+
+  if (input.schema_version !== 1) {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+
+  if (typeof input.project_scope_id !== 'string') {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+  validateScopeId(input.project_scope_id)
+
+  if (typeof input.session_scope_id !== 'string') {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+  validateScopeId(input.session_scope_id)
+
+  if (typeof input.evaluation_at !== 'string') {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+  assertUtcTimestamp(input.evaluation_at)
+
+  const validatedParams = validateListMemoriesParams(input.params)
+
+  if (typeof input.total_count !== 'number' || !Number.isInteger(input.total_count) || input.total_count < 0) {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+
+  if (typeof input.truncated !== 'boolean') {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+
+  if (!Array.isArray(input.items)) {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+
+  const items = input.items.map(validateListMemoriesItem)
+
+  if (typeof input.content_sha256 !== 'string' || !HASH_REGEX.test(input.content_sha256)) {
+    throw new MemoryStoreError('memory_store_invalid_input')
+  }
+
+  return {
+    schema_version: 1,
+    project_scope_id: input.project_scope_id,
+    session_scope_id: input.session_scope_id,
+    evaluation_at: input.evaluation_at,
+    params: validatedParams,
+    total_count: input.total_count,
+    truncated: input.truncated,
+    items,
+    content_sha256: input.content_sha256,
+  }
+}
