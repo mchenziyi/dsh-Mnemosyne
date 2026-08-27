@@ -39,7 +39,7 @@ export function resolveBoundToolCall(
   // Verify strict monotonic seq ordering
   for (let i = 0; i < events.length; i++) {
     const ev = events[i]
-    if (!ev || typeof ev.seq !== 'number' || typeof ev.type !== 'string' || !ev.time) {
+    if (!ev || typeof ev.seq !== 'number' || typeof ev.type !== 'string' || ev.time == null) {
       throw new MemoryStoreError('memory_store_invalid_input')
     }
     if (i > 0 && ev.seq <= events[i - 1].seq) {
@@ -68,11 +68,17 @@ export function resolveBoundToolCall(
     throw new MemoryStoreError('memory_store_invalid_input')
   }
 
-  if (!isValidIsoUtc(matchingToolCall.time)) {
+  let evaluationAt: string
+  if (typeof matchingToolCall.time === 'number' && Number.isFinite(matchingToolCall.time)) {
+    evaluationAt = new Date(matchingToolCall.time).toISOString()
+  } else if (typeof matchingToolCall.time === 'string') {
+    if (!isValidIsoUtc(matchingToolCall.time)) {
+      throw new MemoryStoreError('memory_store_invalid_input')
+    }
+    evaluationAt = matchingToolCall.time
+  } else {
     throw new MemoryStoreError('memory_store_invalid_input')
   }
-
-  const evaluationAt = matchingToolCall.time
 
   return {
     scope,

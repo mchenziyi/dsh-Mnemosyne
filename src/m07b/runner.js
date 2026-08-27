@@ -1,0 +1,766 @@
+import { readFile, writeFile, mkdir, realpath, readdir } from 'node:fs/promises'
+import { join, resolve, basename } from 'node:path'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { verifyCanaryArtifact } from '../m07/artifact.js'
+import {
+  createRealCanaryPlan,
+  validateRealCanaryPlan,
+  validateApprovalReceipt,
+  createRedactedCanaryReport,
+  createExecutionManifest,
+  validateExecutionManifest,
+  computeExecutionManifestSha256,
+  computeSha256,
+  FROZEN_CANARY_TASKS,
+  VALID_REASON_CODES,
+  REQUIRED_RUNTIME_MODULE_ROLES,
+} from './canary-protocol.js'
+import {
+  setupRunRootLayout,
+  verifyCredentialMetadataOnly,
+  cleanupRunRoot,
+  isInsideOrSameDirectory,
+  createSanitizedEnv,
+  spawnProcessGroup,
+  resolveExecutableRealpath,
+} from './isolation.js'
+import { verifyApprovalBinding, claimApproval } from './authorization.js'
+import { summarizeLlmBudget, readValidLlmClaims } from './budget-ledger.js'
+import { writeRedactedCanaryReport } from './report.js'
+import { readSidecarLoadedReceipt, readResumeCompletedReceipt } from './wiring-receipt.js'
+import { readSessionEvidence } from './session-evidence.js'
+
+const execFileAsync = promisify(execFile)
+
+export async function executeDryRun(params) {
+  const { tarballPath, dshExecutable = 'dsh' } = params
+  const artifact = await verifyCanaryArtifact(tarballPath)
+
+  let realDsh = dshExecutable
+  try {
+    realDsh = await resolveExecutableRealpath(dshExecutable)
+  } catch {}
+
+  const realTarball = await realpath(tarballPath)
+
+  const now = new Date()
+  const createdAt = now.toISOString()
+  const expiresAt = new Date(now.getTime() + 30 * 60 * 1000).toISOString()
+  const nonce = 'dry_run_nonce_' + Math.random().toString(36).slice(2)
+  const runRootIdentity = computeSha256(nonce)
+
+  const runs = [
+    { id: 'run_1', is_resume: false, cwd_rel: 'project-a', task: FROZEN_CANARY_TASKS.run_1, patch_hashes: ['sha256_' + '0'.repeat(64)] },
+    { id: 'run_2', is_resume: true, cwd_rel: 'project-a', task: FROZEN_CANARY_TASKS.run_2, patch_hashes: ['sha256_' + '0'.repeat(64), 'sha256_' + '1'.repeat(64)] },
+    { id: 'run_3', is_resume: true, cwd_rel: 'project-a', task: FROZEN_CANARY_TASKS.run_3, patch_hashes: ['sha256_' + '0'.repeat(64), 'sha256_' + '1'.repeat(64)] },
+    { id: 'run_4', is_resume: false, cwd_rel: 'project-a', task: FROZEN_CANARY_TASKS.run_4, patch_hashes: ['sha256_' + '0'.repeat(64)] },
+    { id: 'run_5', is_resume: false, cwd_rel: 'project-a', task: FROZEN_CANARY_TASKS.run_5, patch_hashes: ['sha256_' + '0'.repeat(64)] },
+    { id: 'run_6', is_resume: false, cwd_rel: 'project-b', task: FROZEN_CANARY_TASKS.run_6, patch_hashes: ['sha256_' + '0'.repeat(64)] },
+  ]
+
+  const mockRuntimeModules = REQUIRED_RUNTIME_MODULE_ROLES.map((role) => ({
+    role,
+    realpath: `/app/${role.replace(/_/g, '-')}.js`,
+    content_sha256: 'sha256_' + '0'.repeat(64),
+  }))
+
+  const manifest = createExecutionManifest({
+    dsh_executable_realpath: realDsh,
+    tarball_realpath: realTarball,
+    tarball_sha256: artifact.packageSha256,
+    profile_dependency_value: 'file:' + realTarball,
+    sidecar_patch_sha256: 'sha256_' + '0'.repeat(64),
+    resume_patch_sha256: 'sha256_' + '1'.repeat(64),
+    run_root_identity: runRootIdentity,
+    runtime_module_files: mockRuntimeModules,
+    runs,
+    extra_patches: [],
+  })
+
+  const manifestHash = computeExecutionManifestSha256(manifest)
+
+  const plan = createRealCanaryPlan({
+    package_sha256: artifact.packageSha256,
+    run_root_identity: runRootIdentity,
+    execution_manifest_sha256: manifestHash,
+    created_at: createdAt,
+    expires_at: expiresAt,
+    nonce,
+  })
+
+  return {
+    status: 'awaiting_user_approval',
+    plan_id: plan.plan_id,
+    plan_sha256: plan.plan_sha256,
+    package_sha256: plan.package_sha256,
+    budgets: plan.budgets,
+    runs: plan.runs,
+    mode: 'dry_run',
+  }
+}
+
+export async function executePrepare(params) {
+  const { tarballPath, tempParent, dshExecutable = 'dsh', extraPatches = [] } = params
+  const artifact = await verifyCanaryArtifact(tarballPath)
+  const layout = await setupRunRootLayout(tempParent)
+
+  const realTarball = await realpath(tarballPath)
+  const realDsh = await resolveExecutableRealpath(dshExecutable)
+
+  // Verify DSH version before prepare
+  let dshVersionOut = ''
+  try {
+    const { stdout } = await execFileAsync(realDsh, ['--version'], {
+      env: createSanitizedEnv(),
+    })
+    dshVersionOut = stdout.trim()
+  } catch {
+    throw new Error('dsh_version_check_failed')
+  }
+
+  if (dshVersionOut !== '0.1.1-rc.2') {
+    throw new Error('dsh_version_mismatch')
+  }
+
+  // 1. Install tarball into isolated DSH_HOME profile
+  await execFileAsync(realDsh, ['plugin', '--profile', 'headless', 'add', realTarball], {
+    env: createSanitizedEnv({ DSH_HOME: layout.dshHomePath }),
+  })
+
+  // 2. Verify Profile package.json exact binding
+  const profilePkgJsonPath = join(layout.dshHomePath, 'profiles', 'headless', 'package.json')
+  const profilePkgRaw = JSON.parse(await readFile(profilePkgJsonPath, 'utf8'))
+  const depVal = profilePkgRaw?.dependencies?.['dsh-mnemosyne']
+  if (!depVal || typeof depVal !== 'string' || !depVal.startsWith('file:')) {
+    throw new Error('package_binding_invalid')
+  }
+  const boundPath = depVal.slice('file:'.length)
+  const resolvedBoundPath = await realpath(resolve(join(layout.dshHomePath, 'profiles', 'headless'), boundPath))
+  if (resolvedBoundPath !== realTarball) {
+    throw new Error('package_binding_path_mismatch')
+  }
+
+  // 3. Create Canary-only static patch files & resolve all runtime module files
+  const patchesDir = join(layout.evidencePath, 'patches')
+  await mkdir(patchesDir, { recursive: true })
+
+  const sidecarModulePath = resolve(join(new URL('.', import.meta.url).pathname, 'audit-sidecar.js'))
+  const resumeModulePath = resolve(join(new URL('.', import.meta.url).pathname, 'resume-headless-driver.js'))
+  const budgetModulePath = resolve(join(new URL('.', import.meta.url).pathname, 'budget-ledger.js'))
+  const sessionModulePath = resolve(join(new URL('.', import.meta.url).pathname, 'session-evidence.js'))
+
+  const sidecarRealpath = await realpath(sidecarModulePath)
+  const resumeRealpath = await realpath(resumeModulePath)
+  const budgetRealpath = await realpath(budgetModulePath)
+  const sessionRealpath = await realpath(sessionModulePath)
+
+  const sidecarModuleSha256 = computeSha256(await readFile(sidecarRealpath, 'utf8'))
+  const resumeModuleSha256 = computeSha256(await readFile(resumeRealpath, 'utf8'))
+  const budgetModuleSha256 = computeSha256(await readFile(budgetRealpath, 'utf8'))
+  const sessionModuleSha256 = computeSha256(await readFile(sessionRealpath, 'utf8'))
+
+  const runtimeModuleFiles = [
+    { role: 'audit_sidecar', realpath: sidecarRealpath, content_sha256: sidecarModuleSha256 },
+    { role: 'resume_driver', realpath: resumeRealpath, content_sha256: resumeModuleSha256 },
+    { role: 'budget_ledger', realpath: budgetRealpath, content_sha256: budgetModuleSha256 },
+    { role: 'session_evidence', realpath: sessionRealpath, content_sha256: sessionModuleSha256 },
+  ]
+
+  const sidecarPatchContent = [
+    '- insert:',
+    '    - id: canary-audit-sidecar',
+    `      name: '${sidecarRealpath}'`,
+    '      config:',
+    `        evidenceDir: '${layout.evidencePath}'`,
+    `        expectedModuleSha256: '${sidecarModuleSha256}'`,
+  ].join('\n') + '\n'
+
+  const resumePatchContent = [
+    '- id: headless-runner',
+    '  disabled: true',
+    '- insert:',
+    '    - id: canary-resume-headless-driver',
+    `      name: '${resumeRealpath}'`,
+    '      config:',
+    `        evidenceDir: '${layout.evidencePath}'`,
+    `        expectedModuleSha256: '${resumeModuleSha256}'`,
+  ].join('\n') + '\n'
+
+  const sidecarPatchPath = join(patchesDir, 'sidecar-patch.yml')
+  const resumePatchPath = join(patchesDir, 'resume-patch.yml')
+
+  await writeFile(sidecarPatchPath, sidecarPatchContent, { mode: 0o600 })
+  await writeFile(resumePatchPath, resumePatchContent, { mode: 0o600 })
+
+  const sidecarPatchHash = computeSha256(sidecarPatchContent)
+  const resumePatchHash = computeSha256(resumePatchContent)
+
+  // Handle extra patches (e.g. offline test mock interceptor) if declared in prepare
+  const SAFE_NAME_REGEX = /^[a-zA-Z0-9._-]+$/
+  const RELATIVE_IMPORT_REGEX = /(?:import\s+(?:[^;]+from\s+)?|import\s*\(|require\s*\(|export\s+(?:[^;]+from\s+)?)['"]\.\.?\//
+  const manifestedExtraPatches = []
+  const seenExtraNames = new Set()
+  let extraIdx = 0
+
+  for (const ep of extraPatches) {
+    extraIdx++
+    const epName = typeof ep === 'string' ? basename(ep) : ep.name || `extra-patch-${extraIdx}.yml`
+
+    if (typeof epName !== 'string' || !SAFE_NAME_REGEX.test(epName) || epName.includes('/') || epName.includes('\\') || epName.includes('..')) {
+      throw new Error('invalid_extra_patch_name')
+    }
+    if (seenExtraNames.has(epName)) {
+      throw new Error('duplicate_extra_patch_name')
+    }
+    seenExtraNames.add(epName)
+
+    const epPath = typeof ep === 'string' ? ep : ep.path
+    const epContent = ep.content || (epPath ? await readFile(epPath, 'utf8') : '')
+    const epHash = computeSha256(epContent)
+    const targetFile = join(patchesDir, epName.endsWith('.yml') ? epName : `${epName}.yml`)
+    await writeFile(targetFile, epContent, { mode: 0o600 })
+
+    // Find and realpath module
+    let epModuleRealpath = ''
+    let epModuleSha256 = ''
+    let candidateModPath = (typeof ep === 'object' && (ep.modulePath || ep.module_realpath)) ? (ep.modulePath || ep.module_realpath) : ''
+    if (!candidateModPath) {
+      const m = epContent.match(/name:\s*['"]?([^'"\s\n]+)['"]?/)
+      if (m && (m[1].startsWith('/') || m[1].startsWith('.'))) {
+        candidateModPath = m[1]
+      }
+    }
+    if (candidateModPath) {
+      epModuleRealpath = await realpath(candidateModPath)
+      const modContent = await readFile(epModuleRealpath, 'utf8')
+      if (RELATIVE_IMPORT_REGEX.test(modContent)) {
+        throw new Error('extra_module_relative_import_forbidden')
+      }
+      epModuleSha256 = computeSha256(modContent)
+    }
+
+    manifestedExtraPatches.push({
+      name: epName,
+      patch_sha256: epHash,
+      module_realpath: epModuleRealpath,
+      module_sha256: epModuleSha256,
+      path: targetFile,
+    })
+  }
+
+  const extraHashes = manifestedExtraPatches.map((p) => p.patch_sha256)
+
+  // Construct deterministic run descriptors
+  const runs = [
+    { id: 'run_1', is_resume: false, cwd_rel: 'project-a', task: FROZEN_CANARY_TASKS.run_1, patch_hashes: [sidecarPatchHash, ...extraHashes] },
+    { id: 'run_2', is_resume: true, cwd_rel: 'project-a', task: FROZEN_CANARY_TASKS.run_2, patch_hashes: [sidecarPatchHash, resumePatchHash, ...extraHashes] },
+    { id: 'run_3', is_resume: true, cwd_rel: 'project-a', task: FROZEN_CANARY_TASKS.run_3, patch_hashes: [sidecarPatchHash, resumePatchHash, ...extraHashes] },
+    { id: 'run_4', is_resume: false, cwd_rel: 'project-a', task: FROZEN_CANARY_TASKS.run_4, patch_hashes: [sidecarPatchHash, ...extraHashes] },
+    { id: 'run_5', is_resume: false, cwd_rel: 'project-a', task: FROZEN_CANARY_TASKS.run_5, patch_hashes: [sidecarPatchHash, ...extraHashes] },
+    { id: 'run_6', is_resume: false, cwd_rel: 'project-b', task: FROZEN_CANARY_TASKS.run_6, patch_hashes: [sidecarPatchHash, ...extraHashes] },
+  ]
+
+  // 4. Create and write ExecutionManifest
+  const executionManifest = createExecutionManifest({
+    dsh_executable_realpath: realDsh,
+    tarball_realpath: realTarball,
+    tarball_sha256: artifact.packageSha256,
+    profile_dependency_value: depVal,
+    sidecar_patch_sha256: sidecarPatchHash,
+    resume_patch_sha256: resumePatchHash,
+    run_root_identity: layout.rootIdentity,
+    runtime_module_files: runtimeModuleFiles,
+    runs,
+    extra_patches: manifestedExtraPatches.map((p) => ({
+      name: p.name,
+      patch_sha256: p.patch_sha256,
+      module_realpath: p.module_realpath,
+      module_sha256: p.module_sha256,
+    })),
+  })
+
+  const manifestSha256 = computeExecutionManifestSha256(executionManifest)
+
+  await writeFile(
+    join(layout.evidencePath, 'canary-execution-manifest.json'),
+    JSON.stringify(executionManifest, null, 2),
+    { mode: 0o600 }
+  )
+
+  // 5. Save prepared receipt
+  const preparedReceipt = {
+    schema_version: 1,
+    tarball_sha256: artifact.packageSha256,
+    tarball_path: realTarball,
+    dsh_version: '0.1.1-rc.2',
+    run_root_identity: layout.rootIdentity,
+    profile: 'headless',
+    execution_manifest_sha256: manifestSha256,
+    patch_hashes: {
+      sidecar: sidecarPatchHash,
+      resume: resumePatchHash,
+    },
+    prepared_at: new Date().toISOString(),
+  }
+
+  await writeFile(
+    join(layout.evidencePath, 'canary-prepared-receipt.json'),
+    JSON.stringify(preparedReceipt, null, 2),
+    { mode: 0o600 }
+  )
+
+  const now = new Date()
+  const createdAt = now.toISOString()
+  const expiresAt = new Date(now.getTime() + 60 * 60 * 1000).toISOString()
+  const nonce = 'canary_nonce_' + Math.random().toString(36).slice(2)
+
+  const plan = createRealCanaryPlan({
+    package_sha256: artifact.packageSha256,
+    run_root_identity: layout.rootIdentity,
+    execution_manifest_sha256: manifestSha256,
+    created_at: createdAt,
+    expires_at: expiresAt,
+    nonce,
+  })
+
+  await writeFile(
+    join(layout.evidencePath, 'canary-plan.json'),
+    JSON.stringify(plan, null, 2),
+    { mode: 0o600 }
+  )
+
+  return {
+    status: 'prepared',
+    plan_id: plan.plan_id,
+    plan_sha256: plan.plan_sha256,
+    package_sha256: plan.package_sha256,
+    execution_manifest_sha256: manifestSha256,
+    run_root: layout.rootPath,
+    credential_target: join(layout.dshHomePath, '.credentials.yaml'),
+    evidence_dir: layout.evidencePath,
+  }
+}
+
+export async function executeCanary(params) {
+  const { runRoot, approvalSha256, reportOutPath, dshExecutable = 'dsh', extraTestPatches = [] } = params
+
+  if (reportOutPath) {
+    if (isInsideOrSameDirectory(runRoot, reportOutPath)) {
+      throw new Error('report_out_must_be_outside_run_root')
+    }
+  }
+
+  const evidenceDir = join(runRoot, 'evidence')
+  const planPath = join(evidenceDir, 'canary-plan.json')
+  const approvalPath = join(evidenceDir, 'canary-approval.json')
+  const manifestPath = join(evidenceDir, 'canary-execution-manifest.json')
+
+  // Step 1: Read and validate Plan & Approval
+  const planRaw = JSON.parse(await readFile(planPath, 'utf8'))
+  const plan = validateRealCanaryPlan(planRaw)
+
+  const approvalRaw = JSON.parse(await readFile(approvalPath, 'utf8'))
+  const approval = validateApprovalReceipt(approvalRaw)
+
+  if (approval.approval_sha256 !== approvalSha256) {
+    throw new Error('approval_sha256_mismatch')
+  }
+
+  verifyApprovalBinding(plan, approval)
+
+  // Step 2: Verify DSH Executable realpath & version
+  let realDsh = ''
+  let dshVersionOut = ''
+  try {
+    realDsh = await resolveExecutableRealpath(dshExecutable)
+    const { stdout } = await execFileAsync(realDsh, ['--version'], {
+      env: createSanitizedEnv(),
+    })
+    dshVersionOut = stdout.trim()
+  } catch {
+    throw new Error('dsh_version_check_failed')
+  }
+
+  if (dshVersionOut !== '0.1.1-rc.2') {
+    throw new Error('dsh_version_mismatch')
+  }
+
+  // Step 3: Read and validate ExecutionManifest
+  const manifestRaw = JSON.parse(await readFile(manifestPath, 'utf8'))
+  const manifest = validateExecutionManifest(manifestRaw)
+
+  const computedManifestSha256 = computeExecutionManifestSha256(manifest)
+  if (computedManifestSha256 !== plan.execution_manifest_sha256) {
+    throw new Error('execution_manifest_hash_mismatch')
+  }
+
+  if (manifest.dsh_executable_realpath !== realDsh) {
+    throw new Error('dsh_executable_realpath_mismatch')
+  }
+  if (manifest.dsh_version !== '0.1.1-rc.2') {
+    throw new Error('dsh_version_mismatch')
+  }
+
+  // Step 4: Verify Tarball, Profile package.json, Module Hashes, and Patch Hashes against ExecutionManifest
+  const currentArtifact = await verifyCanaryArtifact(manifest.tarball_realpath)
+  if (currentArtifact.packageSha256 !== manifest.tarball_sha256 || currentArtifact.packageSha256 !== plan.package_sha256) {
+    throw new Error('tarball_hash_mismatch')
+  }
+
+  const dshHome = join(runRoot, 'dsh-home')
+  const homePath = join(runRoot, 'home')
+  const tmpPath = join(runRoot, 'tmp')
+
+  const profilePkgJsonPath = join(dshHome, 'profiles', 'headless', 'package.json')
+  const profilePkgRaw = JSON.parse(await readFile(profilePkgJsonPath, 'utf8'))
+  const depVal = profilePkgRaw?.dependencies?.['dsh-mnemosyne']
+  if (!depVal || typeof depVal !== 'string' || !depVal.startsWith('file:')) {
+    throw new Error('package_binding_invalid')
+  }
+  const boundPath = depVal.slice('file:'.length)
+  const resolvedBoundPath = await realpath(resolve(join(dshHome, 'profiles', 'headless'), boundPath))
+  if (resolvedBoundPath !== manifest.tarball_realpath || depVal !== manifest.profile_dependency_value) {
+    throw new Error('package_binding_path_mismatch')
+  }
+
+  // Verify Runtime Module Files closure
+  for (const rmf of manifest.runtime_module_files) {
+    const curRealpath = await realpath(rmf.realpath)
+    if (curRealpath !== rmf.realpath) {
+      throw new Error(`runtime_module_${rmf.role}_realpath_mismatch`)
+    }
+    const curBytes = await readFile(curRealpath, 'utf8')
+    if (computeSha256(curBytes) !== rmf.content_sha256) {
+      throw new Error(`runtime_module_${rmf.role}_hash_mismatch`)
+    }
+  }
+
+  const sidecarPatchPath = join(evidenceDir, 'patches', 'sidecar-patch.yml')
+  const resumePatchPath = join(evidenceDir, 'patches', 'resume-patch.yml')
+  const sidecarContent = await readFile(sidecarPatchPath, 'utf8')
+  const resumeContent = await readFile(resumePatchPath, 'utf8')
+
+  if (computeSha256(sidecarContent) !== manifest.sidecar_patch_sha256) {
+    throw new Error('sidecar_patch_hash_mismatch')
+  }
+  if (computeSha256(resumeContent) !== manifest.resume_patch_sha256) {
+    throw new Error('resume_patch_hash_mismatch')
+  }
+
+  // Verify extra patches declared in manifest and their modules
+  const extraPatchPaths = []
+  const RELATIVE_IMPORT_REGEX_EXEC = /(?:import\s+(?:[^;]+from\s+)?|import\s*\(|require\s*\(|export\s+(?:[^;]+from\s+)?)['"]\.\.?\//
+  for (const ep of manifest.extra_patches) {
+    const epPath = join(evidenceDir, 'patches', ep.name.endsWith('.yml') ? ep.name : `${ep.name}.yml`)
+    const epContent = await readFile(epPath, 'utf8')
+    if (computeSha256(epContent) !== ep.patch_sha256) {
+      throw new Error(`extra_patch_${ep.name}_hash_mismatch`)
+    }
+    if (ep.module_realpath) {
+      const curEpModRealpath = await realpath(ep.module_realpath)
+      if (curEpModRealpath !== ep.module_realpath) {
+        throw new Error(`extra_module_${ep.name}_realpath_mismatch`)
+      }
+      const epModBytes = await readFile(curEpModRealpath, 'utf8')
+      if (RELATIVE_IMPORT_REGEX_EXEC.test(epModBytes)) {
+        throw new Error('extra_module_relative_import_forbidden')
+      }
+      if (computeSha256(epModBytes) !== ep.module_sha256) {
+        throw new Error(`extra_module_${ep.name}_hash_mismatch`)
+      }
+    }
+    extraPatchPaths.push(epPath)
+  }
+
+  // Verify no unmanifested extraTestPatches were passed
+  if (extraTestPatches && extraTestPatches.length > 0) {
+    for (const ep of extraTestPatches) {
+      const epContent = await readFile(ep, 'utf8')
+      const epHash = computeSha256(epContent)
+      const found = manifest.extra_patches.some((p) => p.patch_sha256 === epHash)
+      if (!found) {
+        throw new Error('unmanifested_extra_patch_rejected')
+      }
+    }
+  }
+
+  // Step 5: Verify Credential metadata (read-only precheck)
+  await verifyCredentialMetadataOnly(dshHome)
+
+  // Step 6: Atomic Claim Approval (ALL prechecks passed, now claim!)
+  await claimApproval(evidenceDir, plan, approval)
+
+  // Step 7: Unified try/finally execution block with guaranteed cleanup
+  const checks = {
+    execution_wiring: 'not_run',
+    automatic_capture: 'not_run',
+    restart_persistence: 'not_run',
+    progressive_disclosure: 'not_run',
+    promotion: 'not_run',
+    forget_and_grant: 'not_run',
+    scope_isolation: 'not_run',
+  }
+
+  let executedRuns = 0
+  let canaryStatus = 'pass'
+  let reasonCode = null
+  let totalClaimedBudget = 0
+  let memoryReport = null
+
+  const totalTimeoutMs = plan.budgets?.total_timeout_ms || 720000
+  const perRunTimeoutMs = plan.budgets?.per_run_timeout_ms || 120000
+  const startTimestamp = Date.now()
+  const deadline = startTimestamp + totalTimeoutMs
+
+  const sanitizedEnv = createSanitizedEnv({
+    DSH_HOME: dshHome,
+    HOME: homePath,
+    TMPDIR: tmpPath,
+  })
+
+  try {
+    for (const runCfg of manifest.runs) {
+      if (canaryStatus !== 'pass') break
+
+      const now = Date.now()
+      const remainingTime = deadline - now
+      if (remainingTime <= 0) {
+        canaryStatus = 'fail'
+        reasonCode = 'subprocess_timeout'
+        break
+      }
+
+      const effectiveTimeout = Math.min(perRunTimeoutMs, remainingTime)
+      const runCwd = join(runRoot, runCfg.cwd_rel)
+
+      const args = ['--profile', 'headless']
+
+      // Mount sidecar patch
+      args.push('--patch', sidecarPatchPath)
+
+      // Mount resume patch if run is resume
+      if (runCfg.is_resume) {
+        args.push('--patch', resumePatchPath)
+      }
+
+      // Mount extra manifest patches
+      for (const epPath of extraPatchPaths) {
+        args.push('--patch', epPath)
+      }
+
+      args.push(runCfg.task)
+
+      // Verify actualPatchHashes strictly equals runCfg.patch_hashes
+      const actualPatchHashes = []
+      for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--patch' && i + 1 < args.length) {
+          const pContent = await readFile(args[i + 1], 'utf8')
+          actualPatchHashes.push(computeSha256(pContent))
+        }
+      }
+
+      if (actualPatchHashes.length !== runCfg.patch_hashes.length) {
+        throw new Error('manifest_patch_hashes_mismatch')
+      }
+      for (let i = 0; i < actualPatchHashes.length; i++) {
+        if (actualPatchHashes[i] !== runCfg.patch_hashes[i]) {
+          throw new Error('manifest_patch_hashes_mismatch')
+        }
+      }
+
+      try {
+        const childExec = await spawnProcessGroup(realDsh, args, {
+          cwd: runCwd,
+          env: sanitizedEnv,
+          timeout: effectiveTimeout,
+          maxBuffer: 1048576,
+        })
+        await childExec.promise
+      } catch (err) {
+        canaryStatus = 'fail'
+        if (err && typeof err === 'object' && (err.killed || err.timedOut || err.message === 'subprocess_timeout')) {
+          reasonCode = 'subprocess_timeout'
+        } else {
+          reasonCode = 'dsh_compatibility_failed'
+        }
+        break
+      }
+
+      // Step 7.1: Verify SidecarLoadedReceipt for this run
+      let sidecarReceipt = null
+      try {
+        sidecarReceipt = await readSidecarLoadedReceipt(evidenceDir, runCfg.id)
+      } catch {
+        canaryStatus = 'fail'
+        reasonCode = 'dsh_compatibility_failed'
+        break
+      }
+
+      if (!sidecarReceipt || sidecarReceipt.run_id !== runCfg.id) {
+        canaryStatus = 'fail'
+        reasonCode = 'dsh_compatibility_failed'
+        break
+      }
+
+      const expectedSidecarModHash = manifest.runtime_module_files.find((f) => f.role === 'audit_sidecar')?.content_sha256
+      if (sidecarReceipt.module_sha256 !== expectedSidecarModHash) {
+        canaryStatus = 'fail'
+        reasonCode = 'dsh_compatibility_failed'
+        break
+      }
+
+      // Step 7.2: Verify LLM claims: at least one valid claim in evidence/llm-claims/ must have run_id === runCfg.id
+      let validClaims = []
+      try {
+        validClaims = await readValidLlmClaims(evidenceDir)
+      } catch {
+        canaryStatus = 'fail'
+        reasonCode = 'dsh_compatibility_failed'
+        break
+      }
+
+      const runClaimsCount = validClaims.filter((c) => c.run_id === runCfg.id).length
+      if (runClaimsCount === 0) {
+        canaryStatus = 'fail'
+        reasonCode = 'dsh_compatibility_failed'
+        break
+      }
+
+      // Step 7.3: For resume runs (run_2, run_3), verify ResumeCompletedReceipt
+      if (runCfg.is_resume) {
+        let resumeReceipt = null
+        try {
+          resumeReceipt = await readResumeCompletedReceipt(evidenceDir, runCfg.id)
+        } catch {
+          canaryStatus = 'fail'
+          reasonCode = 'dsh_compatibility_failed'
+          break
+        }
+
+        if (!resumeReceipt || resumeReceipt.run_id !== runCfg.id) {
+          canaryStatus = 'fail'
+          reasonCode = 'dsh_compatibility_failed'
+          break
+        }
+
+        const expectedResumeModHash = manifest.runtime_module_files.find((f) => f.role === 'resume_driver')?.content_sha256
+        if (resumeReceipt.module_sha256 !== expectedResumeModHash) {
+          canaryStatus = 'fail'
+          reasonCode = 'dsh_compatibility_failed'
+          break
+        }
+
+        if (resumeReceipt.same_session !== true) {
+          canaryStatus = 'fail'
+          reasonCode = 'dsh_compatibility_failed'
+          break
+        }
+
+        if (resumeReceipt.resumed_session_id_sha256 !== resumeReceipt.run_1_session_id_sha256) {
+          canaryStatus = 'fail'
+          reasonCode = 'dsh_compatibility_failed'
+          break
+        }
+
+        const run1Evidence = await readSessionEvidence(evidenceDir, 'run_1')
+        if (!run1Evidence || !run1Evidence.session_id) {
+          canaryStatus = 'fail'
+          reasonCode = 'dsh_compatibility_failed'
+          break
+        }
+
+        const run1SessionHash = computeSha256(run1Evidence.session_id)
+        if (resumeReceipt.resumed_session_id_sha256 !== run1SessionHash || resumeReceipt.run_1_session_id_sha256 !== run1SessionHash) {
+          canaryStatus = 'fail'
+          reasonCode = 'dsh_compatibility_failed'
+          break
+        }
+      }
+
+      executedRuns++
+    }
+
+    // Step 8: Read Budget & Summary BEFORE cleanup
+    const budgetSummary = await summarizeLlmBudget(evidenceDir)
+    totalClaimedBudget = budgetSummary.total_claimed
+
+    // Step 9: Set execution wiring check status (I1 does not mark business checks as pass)
+    const isWiringPass = executedRuns === 6 && canaryStatus === 'pass' && totalClaimedBudget > 0 && totalClaimedBudget <= 12
+    checks.execution_wiring = isWiringPass ? 'pass' : 'fail'
+    if (canaryStatus === 'pass' && !isWiringPass) {
+      canaryStatus = 'fail'
+      reasonCode = reasonCode || 'dsh_compatibility_failed'
+    }
+
+    // Step 10: Build in-memory report BEFORE cleanup
+    memoryReport = createRedactedCanaryReport({
+      status: canaryStatus,
+      package_sha256: plan.package_sha256,
+      plan_sha256: plan.plan_sha256,
+      approval_sha256: approval.approval_sha256,
+      run_count: executedRuns,
+      model_request_count: totalClaimedBudget,
+      checks,
+      reason_code: canaryStatus === 'pass' ? null : (reasonCode || 'product_invariant_failed'),
+      cleanup_clean: false,
+    })
+  } catch (err) {
+    canaryStatus = 'fail'
+    if (!reasonCode) {
+      if (err && typeof err === 'object' && err.message && VALID_REASON_CODES.has(err.message)) {
+        reasonCode = err.message
+      } else {
+        reasonCode = 'product_invariant_failed'
+      }
+    }
+    checks.execution_wiring = 'fail'
+    memoryReport = createRedactedCanaryReport({
+      status: 'fail',
+      package_sha256: plan.package_sha256,
+      plan_sha256: plan.plan_sha256,
+      approval_sha256: approval.approval_sha256,
+      run_count: executedRuns,
+      model_request_count: totalClaimedBudget,
+      checks,
+      reason_code: reasonCode,
+      cleanup_clean: false,
+    })
+  } finally {
+    // Step 11: Guaranteed Cleanup on all paths after claim
+    let cleanupClean = false
+    try {
+      const cleanupRes = await cleanupRunRoot(runRoot, plan.run_root_identity)
+      if (cleanupRes && cleanupRes.success === true) {
+        cleanupClean = true
+      }
+    } catch {
+      cleanupClean = false
+    }
+
+    if (!cleanupClean) {
+      memoryReport = createRedactedCanaryReport({
+        ...memoryReport,
+        status: 'fail',
+        reason_code: 'cleanup_failed',
+        cleanup_clean: false,
+        checks: {
+          ...memoryReport.checks,
+          execution_wiring: 'fail',
+        },
+      })
+    } else {
+      memoryReport = createRedactedCanaryReport({
+        ...memoryReport,
+        cleanup_clean: true,
+      })
+    }
+  }
+
+  // Step 12: Write report to external path if requested
+  if (reportOutPath) {
+    await writeRedactedCanaryReport(reportOutPath, memoryReport)
+  }
+
+  return memoryReport
+}
