@@ -119,6 +119,30 @@ describe('MVP-07B-I2 Phase I2-D: Runner & Report v2', () => {
       ).toThrow('invalid_report')
     })
 
+    it('rejects a report that exceeds the approved 18-request budget', () => {
+      expect(() =>
+        createRedactedCanaryReportV2({
+          status: 'fail',
+          package_sha256: dummyPkgHash,
+          plan_sha256: dummyPlanHash,
+          approval_sha256: dummyApprovalHash,
+          run_count: 0,
+          model_request_count: 19,
+          checks: {
+            execution_wiring: 'fail',
+            automatic_capture: 'fail',
+            restart_persistence: 'not_run',
+            progressive_disclosure: 'not_run',
+            promotion: 'not_run',
+            forget_and_grant: 'not_run',
+            scope_isolation: 'not_run',
+          },
+          reason_code: 'product_invariant_failed',
+          cleanup_clean: true,
+        })
+      ).toThrow('invalid_report')
+    })
+
     it('validates fail-closed prefix: passed prefix, current failed, remaining not_run', () => {
       const failedV2 = createRedactedCanaryReportV2({
         status: 'fail',

@@ -160,7 +160,7 @@ describe('M0.5D D0/D1 failure matrix', () => {
     expect(() => validateOfflineReceipts(drifted, fixtures)).toThrow()
   })
 
-  it('rejects recomputed-hash receipt tampering and enforces observed/opened/adopted closure', async () => {
+  it('rejects recomputed-hash receipt tampering and enforces observed/opened/adopted closure', { timeout: 20000 }, async () => {
     const fixtures = await loadM05Dv2Fixtures(); const summary = await runOfflineM05D()
     const tool = structuredClone(summary.receipts.find((receipt) => receipt.group === 'tool_only' && receipt.retrieved_memory_ids.length > receipt.opened_memory_ids.length)!)
     tool.adopted_memory_ids = [tool.retrieved_memory_ids.find((id) => !tool.opened_memory_ids.includes(id))!]

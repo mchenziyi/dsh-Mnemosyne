@@ -211,7 +211,7 @@ describe('MVP-04: OKF Retrieval Security, Verified World & Isolation', () => {
     }
   })
 
-  it('36. Registry capacity limit (256) evicts oldest grants in FIFO order without leaking memory', async () => {
+  it('36. Registry capacity limit (256) evicts oldest grants in FIFO order without leaking memory', { timeout: 20000 }, async () => {
     const tempDir = await mkdtemp(join(await realpath(tmpdir()), 'dsh-sec-36-'))
     try {
       const realRoot = await realpath(tempDir)

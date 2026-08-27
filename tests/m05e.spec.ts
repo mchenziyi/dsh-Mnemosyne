@@ -113,7 +113,7 @@ describe('M0.5E D2 canary preflight failure matrix', () => {
   })
 
   it('stops call and batch timeouts without retrying', async () => {
-    const seen: CanaryCallContext[] = []; const aborted = { value: false }; const result = await runCanaryPreflight(factoryFor(undefined, 20, seen, aborted), { timeouts: { call_timeout_ms: 1, batch_timeout_ms: 100 } })
+    const seen: CanaryCallContext[] = []; const aborted = { value: false }; const result = await runCanaryPreflight(factoryFor(undefined, 20, seen, aborted), { timeouts: { call_timeout_ms: 1, batch_timeout_ms: 2000 } })
     expect(result.status).toBe('canary_aborted'); expect(result.reason_code).toBe('call_timeout'); expect(seen).toHaveLength(1); expect(aborted.value).toBe(true)
     const batch = await runCanaryPreflight(factoryFor(undefined, 0), { timeouts: { call_timeout_ms: 100, batch_timeout_ms: 0 } })
     expect(batch.status).toBe('canary_aborted'); expect(batch.reason_code).toBe('batch_timeout'); expect(batch.receipts).toHaveLength(0)

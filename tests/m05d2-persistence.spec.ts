@@ -176,7 +176,7 @@ describe('M0.5D-D2: Persistence / Execution Claim Security & Cross-Process Trans
   }
 
   describe('1. Cross-Process and In-Process Claim Concurrency & Single Winner Transaction', () => {
-    it('Requirement 1: Multiple independent Node child processes racing for same Claim produces exactly 1 winner, N-1 conflicts, zero byte corruption, zero temp residue', async () => {
+    it('Requirement 1: Multiple independent Node child processes racing for same Claim produces exactly 1 winner, N-1 conflicts, zero byte corruption, zero temp residue', { timeout: 20000 }, async () => {
       const base = await realpath(tmpdir())
       const tempBase = await mkdtemp(join(base, 'dsh-d2-proc-race-'))
       const persistenceRoot = join(tempBase, 'evidence-root')

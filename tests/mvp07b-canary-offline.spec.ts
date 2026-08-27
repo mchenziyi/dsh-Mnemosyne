@@ -3570,7 +3570,7 @@ try {
       expect(report.status).toBe('pass')
       expect(report.run_count).toBe(6)
       expect(report.model_request_count).toBeGreaterThan(0)
-      expect(report.model_request_count).toBeLessThanOrEqual(12)
+      expect(report.model_request_count).toBeLessThanOrEqual(18)
       expect(report.checks.execution_wiring).toBe('pass')
       expect(report.checks.automatic_capture).toBe('not_run')
       expect(report.checks.restart_persistence).toBe('not_run')

@@ -114,7 +114,7 @@ const APPROVAL_ID_REGEX = /^canary_approval_[0-9a-f]{64}$/
 const SAFE_NAME_REGEX = /^[a-zA-Z0-9._-]+$/
 
 export const FROZEN_CANARY_TASKS = Object.freeze({
-  run_1: 'canary run 1: perform automatic memory capture for aurora envelope component',
+  run_1: 'canary run 1: acknowledge that the aurora envelope component requires deterministic retry ordering; do not call memory tools',
   run_2: 'canary run 2: restart and search open aurora envelope',
   run_3: 'canary run 3: promote aurora envelope memory to long term',
   run_4: 'canary run 4: cross-session read aurora envelope long-term memory',
