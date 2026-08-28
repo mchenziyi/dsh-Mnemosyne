@@ -4,6 +4,19 @@
 >
 > 本文档是 dsh-Mnemosyne 的主设计文档。总体架构、协议决议、阶段计划和每一步实现设计均在本文持续维护；实现代码不得先于对应设计落地。
 
+## 0. v0.2.0 规范覆盖说明
+
+`v0.2.0` 是一次不兼容的产品重构。当前规范以 `DSH_MNEMOSYNE_V020_ZERO_OPERATION_OKF_MEMORY_PLAN.zh-CN.md` 为准：
+
+- 用户和主会话不再看到或调用任何 `mnemosyne_*` Tool；
+- 每条记忆本身是独立 OKF Memory，而不是普通 Fact 经编译后才成为 OKF 页面；
+- 模型沿 Catalog 严格按 `Title → Summary → Content` 自主回忆，插件不做关键词相关性排序；
+- Recall 通过持久 `source.kind=plugin, form=recall` 消息进入正常 Session 链路；
+- 每个正常 turn 结束后自动判断并沉淀项目级新记忆；
+- v0.1.0 的短期/长期 Fact、Search/Open/管理 Tool 与治理设计作为历史设计保留，但不属于 v0.2.0 产品路径。
+
+本文后续未标明版本的旧章节描述 v0.1.0 及更远期愿景；若与 v0.2.0 实施计划冲突，以 v0.2.0 实施计划为准。
+
 ## 1. 项目定位
 
 dsh-Mnemosyne 是 DeepSeek Harness 的原生插件，为 Agent 提供：
