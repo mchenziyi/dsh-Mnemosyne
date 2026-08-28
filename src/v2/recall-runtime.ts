@@ -1,0 +1,296 @@
+import { createUserMessage, type LlmRuntime, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import type { UserMessage } from '@deepseek-ai/dsh-session'
+import type { ResolvedScope, ScopeRuntime } from '../runtime-scope.js'
+import { readCurrentOKFGenerationV2, type CompiledOKFGenerationV2 } from './okf-compiler.js'
+
+export type RecallNavigationStageV2 = 'root_titles' | 'node_summary' | 'node_titles' | 'memory_summaries' | 'related_titles'
+
+export interface RecallNavigationItemV2 {
+  ref: string
+  title: string
+  summary?: string
+  kind: 'node' | 'memory'
+}
+
+export interface RecallNavigationRequestV2 {
+  schema_version: 1
+  stage: RecallNavigationStageV2
+  task: string
+  step: number
+  items: RecallNavigationItemV2[]
+}
+
+export interface RecallNavigationDecisionV2 {
+  selected_refs: string[]
+}
+
+export type RecallNavigatorV2 = (
+  request: RecallNavigationRequestV2,
+  route: { provider: string; model: string; signal: AbortSignal },
+) => Promise<RecallNavigationDecisionV2>
+
+export interface RecallRequestV2 {
+  scope: ResolvedScope
+  task: string
+  provider: string
+  model: string
+  signal: AbortSignal
+}
+
+export type RecallResultV2 = {
+  status: 'completed'
+  reason_code: null
+  selected_memory_refs: string[]
+  expansion_steps: number
+  message: UserMessage
+} | {
+  status: 'empty' | 'no_match' | 'failed'
+  reason_code: 'memory_empty' | 'recall_no_match' | 'recall_selection_invalid' | 'recall_navigation_failed' | 'recall_generation_invalid'
+  selected_memory_refs: string[]
+  expansion_steps: number
+  message?: undefined
+}
+
+export interface RecallRuntimeV2 {
+  recall(request: RecallRequestV2): Promise<RecallResultV2>
+}
+
+export interface RecallRuntimeV2Options {
+  loadWorld?: (scope: ResolvedScope) => Promise<CompiledOKFGenerationV2>
+  navigator: RecallNavigatorV2
+}
+
+interface IndexEntry { ref: string; title: string }
+interface RootIndex { schema_version: 1; root_node_id: string; children: IndexEntry[] }
+interface NodeIndex { schema_version: 1; node_id: string; title: string; summary: string; children: IndexEntry[]; memories: IndexEntry[] }
+interface SummaryView { schema_version: 1; memory_id: string; title: string; summary: string }
+
+function parseJson<T>(value: string | undefined): T {
+  if (value === undefined) throw new Error('missing_view')
+  return JSON.parse(value) as T
+}
+
+function validateDecision(raw: unknown, offered: readonly string[], limit: number): string[] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).length !== 1 || !Object.hasOwn(raw, 'selected_refs')) {
+    throw new Error('invalid_selection')
+  }
+  const refs = (raw as { selected_refs?: unknown }).selected_refs
+  if (!Array.isArray(refs) || refs.some((ref) => typeof ref !== 'string') || new Set(refs).size !== refs.length) {
+    throw new Error('invalid_selection')
+  }
+  const allowed = new Set(offered)
+  if (refs.some((ref) => !allowed.has(ref as string))) throw new Error('invalid_selection')
+  return (refs as string[]).slice(0, limit)
+}
+
+function relatedRefs(content: string): string[] {
+  const marker = '\n## 相关记忆\n'
+  const section = content.includes(marker) ? content.slice(content.lastIndexOf(marker) + marker.length) : ''
+  const refs: string[] = []
+  for (const line of section.split('\n')) {
+    const match = line.match(/\((mem_[a-z0-9][a-z0-9._-]{0,63})\)$/)
+    if (match && !refs.includes(match[1]!)) refs.push(match[1]!)
+  }
+  return refs
+}
+
+function recallMessage(selected: Array<{ ref: string; content: string }>): UserMessage {
+  const sections = selected.map(({ ref, content }) => `<!-- memory_ref:${ref} -->\n${content}`)
+  return createUserMessage({
+    content: [{ type: 'text', text: `[Mnemosyne Recall v2 — plugin generated; not user authored]\n\n${sections.join('\n\n---\n\n')}` }],
+    source: { kind: 'plugin', plugin: 'dsh-mnemosyne', form: 'recall' },
+  })
+}
+
+export function createRecallRuntimeV2(options: RecallRuntimeV2Options): RecallRuntimeV2 {
+  const loadWorld = options.loadWorld ?? ((scope: ResolvedScope) => readCurrentOKFGenerationV2({
+    project_root: scope.project_root,
+    project_scope_id: scope.project_scope_id,
+  }))
+
+  return {
+    async recall(request: RecallRequestV2): Promise<RecallResultV2> {
+      let world: CompiledOKFGenerationV2
+      try {
+        world = await loadWorld(request.scope)
+      } catch (error: unknown) {
+        if ((error as { code?: string }).code === 'memory_compile_not_found') {
+          return { status: 'empty', reason_code: 'memory_empty', selected_memory_refs: [], expansion_steps: 0 }
+        }
+        return { status: 'failed', reason_code: 'recall_generation_invalid', selected_memory_refs: [], expansion_steps: 0 }
+      }
+
+      let steps = 0
+      const selected: Array<{ ref: string; content: string }> = []
+      const selectedIds = new Set<string>()
+      const route = { provider: request.provider, model: request.model, signal: request.signal }
+
+      const choose = async (stage: RecallNavigationStageV2, items: RecallNavigationItemV2[], limit: number): Promise<string[]> => {
+        if (steps >= 6 || items.length === 0) return []
+        steps++
+        const decision = await options.navigator({ schema_version: 1, stage, task: request.task, step: steps, items }, route)
+        return validateDecision(decision, items.map((item) => item.ref), limit)
+      }
+
+      try {
+        const root = parseJson<RootIndex>(world.files.get('indexes/root.json'))
+        let nodeSelection = await choose('root_titles', root.children.map((item) => ({ ...item, kind: 'node' as const })), 1)
+        if (nodeSelection.length === 0) return { status: 'no_match', reason_code: 'recall_no_match', selected_memory_refs: [], expansion_steps: steps }
+
+        let memoryCandidates: string[] = []
+        while (nodeSelection.length > 0 && steps < 6) {
+          const node = parseJson<NodeIndex>(world.files.get(`indexes/nodes/${nodeSelection[0]}.json`))
+          const expand = await choose('node_summary', [{ ref: node.node_id, title: node.title, summary: node.summary, kind: 'node' }], 1)
+          if (expand.length === 0 || steps >= 6) break
+          const choices = await choose('node_titles', [
+            ...node.children.map((item) => ({ ...item, kind: 'node' as const })),
+            ...node.memories.map((item) => ({ ...item, kind: 'memory' as const })),
+          ], 6)
+          const child = choices.find((ref) => node.children.some((item) => item.ref === ref))
+          if (child) {
+            nodeSelection = [child]
+            continue
+          }
+          memoryCandidates = choices.filter((ref) => node.memories.some((item) => item.ref === ref)).slice(0, 5)
+          break
+        }
+
+        if (memoryCandidates.length > 0 && steps < 6) {
+          const summaryItems = memoryCandidates.map((id) => {
+            const view = parseJson<SummaryView>(world.files.get(`summaries/${id}.json`))
+            return { ref: view.memory_id, title: view.title, summary: view.summary, kind: 'memory' as const }
+          })
+          const confirmed = await choose('memory_summaries', summaryItems, 3)
+          for (const id of confirmed) {
+            const content = world.files.get(`contents/${id}.md`)
+            if (content === undefined) throw new Error('missing_content')
+            selected.push({ ref: id, content })
+            selectedIds.add(id)
+          }
+        }
+
+        if (selected.length > 0 && selected.length < 3 && steps < 6) {
+          const related = [...new Set(selected.flatMap((item) => relatedRefs(item.content)))]
+            .filter((id) => !selectedIds.has(id))
+            .slice(0, 5)
+          const relatedTitles = related.map((id) => {
+            const view = parseJson<SummaryView>(world.files.get(`summaries/${id}.json`))
+            return { ref: id, title: view.title, kind: 'memory' as const }
+          })
+          const chosenRelated = await choose('related_titles', relatedTitles, 5)
+          if (chosenRelated.length > 0 && steps < 6) {
+            const summaries = chosenRelated.map((id) => {
+              const view = parseJson<SummaryView>(world.files.get(`summaries/${id}.json`))
+              return { ref: id, title: view.title, summary: view.summary, kind: 'memory' as const }
+            })
+            const confirmed = await choose('memory_summaries', summaries, 3 - selected.length)
+            for (const id of confirmed) {
+              const content = world.files.get(`contents/${id}.md`)
+              if (content === undefined) throw new Error('missing_content')
+              selected.push({ ref: id, content })
+              selectedIds.add(id)
+            }
+          }
+        }
+
+        if (selected.length === 0) return { status: 'no_match', reason_code: 'recall_no_match', selected_memory_refs: [], expansion_steps: steps }
+        return {
+          status: 'completed', reason_code: null, selected_memory_refs: selected.map((item) => item.ref),
+          expansion_steps: steps, message: recallMessage(selected),
+        }
+      } catch (error: unknown) {
+        const reason = error instanceof Error && error.message === 'invalid_selection' ? 'recall_selection_invalid' : 'recall_navigation_failed'
+        return { status: 'failed', reason_code: reason, selected_memory_refs: [], expansion_steps: steps }
+      }
+    },
+  }
+}
+
+function taskText(messages: readonly UserMessage[]): string {
+  const values: string[] = []
+  for (const message of messages) {
+    if (message.source.kind !== 'user') continue
+    for (const block of message.content) if (block.type === 'text') values.push(block.text)
+  }
+  return values.join('\n').slice(0, 32768)
+}
+
+export interface RecallPreStepHandlerV2Options {
+  runtime: RecallRuntimeV2
+  scopeRuntime: ScopeRuntime
+}
+
+export function createRecallPreStepHandlerV2(options: RecallPreStepHandlerV2Options): (
+  payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal },
+  next: () => Promise<PreStepDecision>,
+) => Promise<PreStepDecision> {
+  return async (payload, next): Promise<PreStepDecision> => {
+    const decision = await next()
+    if (decision.kind === 'reject' || payload.step !== 1) return decision
+    const provider = payload.agent.options.provider
+    const model = payload.agent.options.model
+    if (!provider || !model) return decision
+    const resolved = options.scopeRuntime.observeSession(payload.agent.session)
+    if (resolved.status !== 'ready') return decision
+    const result = await options.runtime.recall({
+      scope: resolved.scope,
+      task: taskText(decision.messages),
+      provider,
+      model,
+      signal: payload.signal,
+    })
+    if (result.status !== 'completed') return decision
+    return { kind: 'enter', messages: [result.message, ...decision.messages] }
+  }
+}
+
+async function consumeStrictText(stream: AsyncIterable<StreamChunk>): Promise<string> {
+  let text: string | null = null
+  let active: { index: number; type: 'text' | 'reasoning' } | null = null
+  let finish = false
+  for await (const chunk of stream) {
+    if (finish) throw new Error('invalid_stream')
+    if (chunk.type === 'block-start') {
+      if (active || (chunk.blockType !== 'text' && chunk.blockType !== 'reasoning')) throw new Error('invalid_stream')
+      active = { index: chunk.index, type: chunk.blockType }
+    } else if (chunk.type === 'text-delta') {
+      if (!active || active.type !== 'text' || active.index !== chunk.index) throw new Error('invalid_stream')
+    } else if (chunk.type === 'reasoning-delta') {
+      if (!active || active.type !== 'reasoning' || active.index !== chunk.index) throw new Error('invalid_stream')
+    } else if (chunk.type === 'block-end') {
+      if (!active || active.index !== chunk.index || active.type !== chunk.block.type) throw new Error('invalid_stream')
+      if (chunk.block.type === 'text') {
+        if (text !== null || Buffer.byteLength(chunk.block.text, 'utf8') > 8192) throw new Error('invalid_stream')
+        text = chunk.block.text
+      }
+      active = null
+    } else if (chunk.type === 'finish') {
+      if (active || finish || chunk.reason?.kind !== 'stop') throw new Error('invalid_stream')
+      finish = true
+    } else if (chunk.type === 'usage') {
+      if (active) throw new Error('invalid_stream')
+    } else {
+      throw new Error('invalid_stream')
+    }
+  }
+  if (!finish || active || text === null) throw new Error('invalid_stream')
+  return text
+}
+
+export function createLlmRecallNavigatorV2(llm: LlmRuntime): RecallNavigatorV2 {
+  return async (request, route): Promise<RecallNavigationDecisionV2> => {
+    const stream = llm.stream({
+      provider: route.provider,
+      model: route.model,
+      system: 'You navigate project memory. Return exactly one JSON object: {"selected_refs":[...]}. Select only offered refs. Do not include reasoning or markdown.',
+      messages: [createUserMessage({ content: [{ type: 'text', text: JSON.stringify(request) }], source: { kind: 'plugin', plugin: 'dsh-mnemosyne', form: 'notice', summary: 'memory navigation request' } })],
+      tools: [],
+      maxTokens: 256,
+      signal: route.signal,
+    })
+    const text = (await consumeStrictText(stream)).trim()
+    if (!text.startsWith('{') || !text.endsWith('}')) throw new Error('invalid_selection')
+    return JSON.parse(text) as RecallNavigationDecisionV2
+  }
+}
