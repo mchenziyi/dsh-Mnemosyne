@@ -9,7 +9,8 @@ describe('M0 bundle manifest', () => {
     const manifest = JSON.parse(await readFile(`${root}/package.json`, 'utf8'))
     expect(manifest.dsh.bundle.patch).toBe('./cordis.patch.yml')
     expect(manifest.packageManager).toBe('pnpm@11.7.0')
-    expect(manifest.files).toEqual(['dist', 'cordis.patch.yml', 'README.md'])
+    expect(manifest.files).toEqual(['dist', 'cordis.patch.yml', 'README.md', 'LICENSE'])
+    expect(manifest.license).toBe('MIT')
     expect(manifest.dependencies).toBeUndefined()
     expect(manifest.peerDependencies).toEqual({
       '@deepseek-ai/cordis': '4.0.1',

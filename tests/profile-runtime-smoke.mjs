@@ -27,7 +27,7 @@ const [{ Context }, { default: ToolRuntime }, { default: SystemPrompt }, { CallI
   load('@deepseek-ai/dsh-tools'),
   load('@deepseek-ai/dsh-system-prompt'),
   load('@deepseek-ai/dsh-llm'),
-  load('dsh-mnemosyne'),
+  load('@cziyi/dsh-mnemosyne'),
 ])
 
 const ctx = new Context()

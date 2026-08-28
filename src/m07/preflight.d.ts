@@ -7,7 +7,7 @@ export interface PreflightOptions {
 
 export interface PreflightResult {
   status: 'awaiting_user_approval'
-  package_name: 'dsh-mnemosyne'
+  package_name: '@cziyi/dsh-mnemosyne'
   package_version: '0.0.0-dev' | '0.1.0'
   dsh_version: '0.1.1-rc.2'
   package_sha256: string

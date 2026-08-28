@@ -71,6 +71,7 @@ describe('MVP-07A Final CTO Review: Isolated Profile Release Smoke', () => {
     expect(countLayersInDump('name: dsh-mnemosyne\n')).toBe(1)
     expect(countLayersInDump('name: "dsh-mnemosyne"\n')).toBe(1)
     expect(countLayersInDump("name: 'dsh-mnemosyne'\n")).toBe(1)
+    expect(countLayersInDump("name: '@cziyi/dsh-mnemosyne'\n")).toBe(1)
 
     // 2 layers
     expect(countLayersInDump('dsh-mnemosyne:\n  enabled: true\nname: dsh-mnemosyne\n')).toBe(2)

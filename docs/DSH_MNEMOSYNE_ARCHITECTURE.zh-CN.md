@@ -780,7 +780,7 @@ Bundle patch 固定为一个 insert 层：
         enabled: true
 ```
 
-插件模块导出 `name = 'dsh-mnemosyne'`、`inject = ['tools']`、Schemastery `Config` 和 `apply(ctx, config)`。不得在 patch 与模块中重复声明两套依赖逻辑。
+插件模块导出 `name = 'dsh-mnemosyne'`、`inject = ['tools']`、Schemastery `Config` 和 `apply(ctx, config)`；发布 Patch 使用 npm 解析名 `@cziyi/dsh-mnemosyne` 加载该模块。不得在 patch 与模块中重复声明两套依赖逻辑。
 
 规则：
 

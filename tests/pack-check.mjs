@@ -8,12 +8,12 @@ const execFileAsync = promisify(execFile)
 const artifactDir = new URL('../', import.meta.url)
 const names = await readdir(artifactDir)
 const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
-const tarball = `dsh-mnemosyne-${packageJson.version}.tgz`
+const tarball = `${packageJson.name.replace(/^@/, '').replace('/', '-')}-${packageJson.version}.tgz`
 if (!names.includes(tarball)) throw new Error('pack:check: release tarball not found')
 const tarballPath = join(artifactDir.pathname, tarball)
 const { stdout } = await execFileAsync('tar', ['-tzf', tarballPath])
 const entries = stdout.trim().split('\n').filter(Boolean)
-const allowed = /^(package\/(dist\/|cordis\.patch\.yml$|README\.md$|package\.json$))/
+const allowed = /^(package\/(dist\/|cordis\.patch\.yml$|README\.md$|LICENSE$|package\.json$))/
 const forbidden = entries.filter((entry) => !allowed.test(entry))
 if (forbidden.length) throw new Error(`pack:check: unexpected files: ${forbidden.join(', ')}`)
 

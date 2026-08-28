@@ -79,7 +79,10 @@ export function countLayersInDump(dumpText) {
       trimmed === '- dsh-mnemosyne' ||
       trimmed === 'name: dsh-mnemosyne' ||
       trimmed === 'name: "dsh-mnemosyne"' ||
-      trimmed === "name: 'dsh-mnemosyne'"
+      trimmed === "name: 'dsh-mnemosyne'" ||
+      trimmed === 'name: @cziyi/dsh-mnemosyne' ||
+      trimmed === 'name: "@cziyi/dsh-mnemosyne"' ||
+      trimmed === "name: '@cziyi/dsh-mnemosyne'"
     ) {
       count++
     }
@@ -175,7 +178,7 @@ const [{ Context }, { default: ToolRuntime }, { default: SystemPrompt }, { defau
   load('@deepseek-ai/dsh-tools'),
   load('@deepseek-ai/dsh-system-prompt'),
   load('@deepseek-ai/dsh-llm'),
-  load('dsh-mnemosyne'),
+  load('@cziyi/dsh-mnemosyne'),
 ])
 
 const ctx = new Context()

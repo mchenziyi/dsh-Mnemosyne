@@ -11,6 +11,7 @@ const MAX_BUFFER = 4 * 1024 * 1024
 export const REQUIRED_CANARY_TARBALL_FILES = Object.freeze([
   'package/package.json',
   'package/README.md',
+  'package/LICENSE',
   'package/cordis.patch.yml',
   'package/dist/index.mjs',
   'package/dist/index.d.mts',
@@ -93,7 +94,7 @@ export async function verifyCanaryArtifact(tarballPath) {
     throw new Error('tarball_manifest_invalid_json')
   }
 
-  if (manifest.name !== 'dsh-mnemosyne') {
+  if (manifest.name !== '@cziyi/dsh-mnemosyne') {
     throw new Error('invalid_package_name_in_tarball')
   }
   if (manifest.version !== '0.0.0-dev' && manifest.version !== '0.1.0') {

@@ -1,6 +1,6 @@
 # dsh-Mnemosyne v0.1.0 · MVP-07 真实闭环与发布验收计划
 
-> 状态：🟢 `v0.1.0` MVP 与发布门禁完成；待发布提交签收、许可证与发行通道确认
+> 状态：🟢 `v0.1.0` MVP 与发布门禁完成；npm 身份冻结为 `@cziyi/dsh-mnemosyne`，许可证冻结为 MIT
 >
 > 日期：2026-08-26
 >
@@ -246,7 +246,8 @@ report_sha256: sha256_...
    - 明确 v0.1.0 限制和不包含自进化；
 2. `package.json` 版本由 `0.0.0-dev` 改为 `0.1.0`；
 3. 仅用 `pnpm install --lockfile-only` 或项目既有方式同步 lockfile，不升级任何依赖；
-4. `pnpm pack` 产物名必须为 `dsh-mnemosyne-0.1.0.tgz`；
+4. npm 发布身份必须为 `@cziyi/dsh-mnemosyne@0.1.0`，插件内部 Cordis 名称保持 `dsh-mnemosyne`；
+5. `pnpm pack` 产物名必须为 `cziyi-dsh-mnemosyne-0.1.0.tgz`，并包含标准 MIT `LICENSE`；
 5. 对最终 0.1.0 tarball 重跑 Gate B 和全部自动门禁；
 6. 提交发布收口；
 7. 用户确认提交 SHA 后创建 annotated tag：

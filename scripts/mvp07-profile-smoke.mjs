@@ -141,7 +141,7 @@ async function main() {
     const profileDir = join(dshHome, 'profiles', parsed.profile)
     const profilePkgPath = join(profileDir, 'package.json')
     const profilePkg = JSON.parse(await readFile(profilePkgPath, 'utf8'))
-    const depVal = profilePkg.dependencies?.['dsh-mnemosyne']
+    const depVal = profilePkg.dependencies?.['@cziyi/dsh-mnemosyne']
 
     await verifyProfileDependencyBinding(depVal, profileDir, artifact.realTarballPath)
 
@@ -156,7 +156,7 @@ async function main() {
     if (process.env.__TEST_FAIL_AT === 'remove') throw new SmokeError('injected_stage_failed')
 
     // Step 4: remove plugin from profile
-    await execFileAsync('dsh', ['plugin', '--profile', parsed.profile, 'remove', 'dsh-mnemosyne'], {
+    await execFileAsync('dsh', ['plugin', '--profile', parsed.profile, 'remove', '@cziyi/dsh-mnemosyne'], {
       env: sanitizedEnv,
       timeout: SMOKE_TIMEOUT_MS,
       maxBuffer: SMOKE_MAX_BUFFER,

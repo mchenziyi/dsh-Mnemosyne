@@ -148,7 +148,7 @@ export async function executePrepare(params) {
   // 2. Verify Profile package.json exact binding
   const profilePkgJsonPath = join(layout.dshHomePath, 'profiles', 'headless', 'package.json')
   const profilePkgRaw = JSON.parse(await readFile(profilePkgJsonPath, 'utf8'))
-  const depVal = profilePkgRaw?.dependencies?.['dsh-mnemosyne']
+  const depVal = profilePkgRaw?.dependencies?.['@cziyi/dsh-mnemosyne']
   if (!depVal || typeof depVal !== 'string' || !depVal.startsWith('file:')) {
     throw new Error('package_binding_invalid')
   }
@@ -333,6 +333,7 @@ export async function executePrepare(params) {
   const nonce = 'canary_nonce_' + Math.random().toString(36).slice(2)
 
   const plan = createRealCanaryPlan({
+    package_version: artifact.packageVersion,
     package_sha256: artifact.packageSha256,
     run_root_identity: layout.rootIdentity,
     execution_manifest_sha256: manifestSha256,
@@ -438,7 +439,7 @@ export async function executeCanary(params) {
 
   const profilePkgJsonPath = join(dshHome, 'profiles', 'headless', 'package.json')
   const profilePkgRaw = JSON.parse(await readFile(profilePkgJsonPath, 'utf8'))
-  const depVal = profilePkgRaw?.dependencies?.['dsh-mnemosyne']
+  const depVal = profilePkgRaw?.dependencies?.['@cziyi/dsh-mnemosyne']
   if (!depVal || typeof depVal !== 'string' || !depVal.startsWith('file:')) {
     throw new Error('package_binding_invalid')
   }

@@ -37,7 +37,7 @@ async function run() {
     const pkg = {
       name: 'dsh-profile-' + profile,
       dependencies: {
-        'dsh-mnemosyne': 'file:' + tarball,
+        '@cziyi/dsh-mnemosyne': 'file:' + tarball,
       },
     }
     await writeFile(pkgPath, JSON.stringify(pkg, null, 2), 'utf8')

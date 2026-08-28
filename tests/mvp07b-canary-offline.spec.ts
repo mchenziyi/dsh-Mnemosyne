@@ -1186,7 +1186,7 @@ describe('MVP-07B-I TDD Item 1 & 10: Real Six-Run State Machine Execution with F
       const { promisify } = await import('node:util')
       const execFileAsync = promisify(execFile)
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       // 2. Create mock offline stream interceptor module
       const mockAdapterPluginPath = join(tempParent, 'mock-offline-interceptor.mjs')
@@ -1233,6 +1233,7 @@ describe('MVP-07B-I TDD Item 1 & 10: Real Six-Run State Machine Execution with F
       })
 
       expect(report.schema_version).toBe(1)
+      expect(report.package_version).toBe('0.1.0')
       expect(report.status).toBe('pass')
       expect(report.run_count).toBe(6)
       expect(report.model_request_count).toBeGreaterThan(0)
@@ -1269,8 +1270,9 @@ describe('MVP-07B-I TDD Item 1 & 10: Real Six-Run State Machine Execution with F
     try {
       const buildDir = join(tempParent, 'pkg-fixture')
       await mkdir(join(buildDir, 'package', 'dist'), { recursive: true })
-      await writeFile(join(buildDir, 'package', 'package.json'), JSON.stringify({ name: 'dsh-mnemosyne', version: '0.0.0-dev', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+      await writeFile(join(buildDir, 'package', 'package.json'), JSON.stringify({ name: '@cziyi/dsh-mnemosyne', version: '0.0.0-dev', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
       await writeFile(join(buildDir, 'package', 'README.md'), '# readme\n')
+      await writeFile(join(buildDir, 'package', 'LICENSE'), 'MIT License\n')
       await writeFile(join(buildDir, 'package', 'cordis.patch.yml'), '# patch\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.mjs'), 'export default {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.mts'), 'export default {}\n')
@@ -1278,7 +1280,7 @@ describe('MVP-07B-I TDD Item 1 & 10: Real Six-Run State Machine Execution with F
       const { execFile } = await import('node:child_process')
       const { promisify } = await import('node:util')
       const execFileAsync = promisify(execFile)
-      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts'])
+      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/LICENSE', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts'])
 
       // Create crashing Fake DSH
       const crashDshPath = join(tempParent, 'crash-dsh.mjs')
@@ -1293,7 +1295,7 @@ if (process.argv.includes("plugin")) {
   const tarballArg = process.argv[process.argv.length - 1]
   const profDir = join(dshHome, 'profiles', 'headless')
   mkdirSync(profDir, { recursive: true })
-  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { 'dsh-mnemosyne': 'file:' + tarballArg } }))
+  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { '@cziyi/dsh-mnemosyne': 'file:' + tarballArg } }))
   process.exit(0);
 }
 process.exit(1)
@@ -1340,8 +1342,9 @@ process.exit(1)
     try {
       const buildDir = join(tempParent, 'pkg-fixture')
       await mkdir(join(buildDir, 'package', 'dist'), { recursive: true })
-      await writeFile(join(buildDir, 'package', 'package.json'), JSON.stringify({ name: 'dsh-mnemosyne', version: '0.0.0-dev', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+      await writeFile(join(buildDir, 'package', 'package.json'), JSON.stringify({ name: '@cziyi/dsh-mnemosyne', version: '0.0.0-dev', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
       await writeFile(join(buildDir, 'package', 'README.md'), '# readme\n')
+      await writeFile(join(buildDir, 'package', 'LICENSE'), 'MIT License\n')
       await writeFile(join(buildDir, 'package', 'cordis.patch.yml'), '# patch\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.mjs'), 'export default {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.mts'), 'export default {}\n')
@@ -1349,7 +1352,7 @@ process.exit(1)
       const { execFile } = await import('node:child_process')
       const { promisify } = await import('node:util')
       const execFileAsync = promisify(execFile)
-      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts'])
+      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/LICENSE', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts'])
 
       const prepRes = await executePrepare({ tarballPath, tempParent })
       await writeFile(prepRes.credential_target, 'DEEPSEEK_API_KEY: fake-offline-key\n', { mode: 0o600 })
@@ -1390,8 +1393,9 @@ process.exit(1)
     try {
       const buildDir = join(tempParent, 'pkg-fixture')
       await mkdir(join(buildDir, 'package', 'dist'), { recursive: true })
-      await writeFile(join(buildDir, 'package', 'package.json'), JSON.stringify({ name: 'dsh-mnemosyne', version: '0.0.0-dev', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+      await writeFile(join(buildDir, 'package', 'package.json'), JSON.stringify({ name: '@cziyi/dsh-mnemosyne', version: '0.0.0-dev', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
       await writeFile(join(buildDir, 'package', 'README.md'), '# readme\n')
+      await writeFile(join(buildDir, 'package', 'LICENSE'), 'MIT License\n')
       await writeFile(join(buildDir, 'package', 'cordis.patch.yml'), '# patch\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.mjs'), 'export default {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.mts'), 'export default {}\n')
@@ -1399,7 +1403,7 @@ process.exit(1)
       const { execFile } = await import('node:child_process')
       const { promisify } = await import('node:util')
       const execFileAsync = promisify(execFile)
-      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts'])
+      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/LICENSE', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts'])
 
       const prepRes = await executePrepare({ tarballPath, tempParent })
       await writeFile(prepRes.credential_target, 'DEEPSEEK_API_KEY: fake-offline-key\n', { mode: 0o600 })
@@ -1417,7 +1421,7 @@ process.exit(1)
       const wrongFile = join(tempParent, 'wrong.tgz')
       await writeFile(wrongFile, 'fake')
       const profilePkgJson = join(prepRes.run_root, 'dsh-home', 'profiles', 'headless', 'package.json')
-      await writeFile(profilePkgJson, JSON.stringify({ name: 'dsh-profile-headless', dependencies: { 'dsh-mnemosyne': `file:${wrongFile}` } }))
+      await writeFile(profilePkgJson, JSON.stringify({ name: 'dsh-profile-headless', dependencies: { '@cziyi/dsh-mnemosyne': `file:${wrongFile}` } }))
 
       await expect(
         executeCanary({
@@ -1442,8 +1446,9 @@ process.exit(1)
     try {
       const buildDir = join(tempParent, 'pkg-fixture')
       await mkdir(join(buildDir, 'package', 'dist'), { recursive: true })
-      await writeFile(join(buildDir, 'package', 'package.json'), JSON.stringify({ name: 'dsh-mnemosyne', version: '0.0.0-dev', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+      await writeFile(join(buildDir, 'package', 'package.json'), JSON.stringify({ name: '@cziyi/dsh-mnemosyne', version: '0.0.0-dev', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
       await writeFile(join(buildDir, 'package', 'README.md'), '# readme\n')
+      await writeFile(join(buildDir, 'package', 'LICENSE'), 'MIT License\n')
       await writeFile(join(buildDir, 'package', 'cordis.patch.yml'), '# patch\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.mjs'), 'export default {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.mts'), 'export default {}\n')
@@ -1451,7 +1456,7 @@ process.exit(1)
       const { execFile } = await import('node:child_process')
       const { promisify } = await import('node:util')
       const execFileAsync = promisify(execFile)
-      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts'])
+      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/LICENSE', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts'])
 
       const prepRes = await executePrepare({ tarballPath, tempParent })
       await writeFile(prepRes.credential_target, 'DEEPSEEK_API_KEY: fake-offline-key\n', { mode: 0o600 })
@@ -1492,8 +1497,9 @@ process.exit(1)
     try {
       const buildDir = join(tempParent, 'pkg-fixture')
       await mkdir(join(buildDir, 'package', 'dist'), { recursive: true })
-      await writeFile(join(buildDir, 'package', 'package.json'), JSON.stringify({ name: 'dsh-mnemosyne', version: '0.0.0-dev', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+      await writeFile(join(buildDir, 'package', 'package.json'), JSON.stringify({ name: '@cziyi/dsh-mnemosyne', version: '0.0.0-dev', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
       await writeFile(join(buildDir, 'package', 'README.md'), '# readme\n')
+      await writeFile(join(buildDir, 'package', 'LICENSE'), 'MIT License\n')
       await writeFile(join(buildDir, 'package', 'cordis.patch.yml'), '# patch\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.mjs'), 'export default {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.mts'), 'export default {}\n')
@@ -1501,7 +1507,7 @@ process.exit(1)
       const { execFile } = await import('node:child_process')
       const { promisify } = await import('node:util')
       const execFileAsync = promisify(execFile)
-      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts'])
+      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/LICENSE', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts'])
 
       const prepRes = await executePrepare({ tarballPath, tempParent })
       await writeFile(prepRes.credential_target, 'DEEPSEEK_API_KEY: fake-offline-key\n', { mode: 0o600 })
@@ -1541,8 +1547,9 @@ process.exit(1)
     try {
       const buildDir = join(tempParent, 'pkg-fixture')
       await mkdir(join(buildDir, 'package', 'dist'), { recursive: true })
-      await writeFile(join(buildDir, 'package', 'package.json'), JSON.stringify({ name: 'dsh-mnemosyne', version: '0.0.0-dev', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+      await writeFile(join(buildDir, 'package', 'package.json'), JSON.stringify({ name: '@cziyi/dsh-mnemosyne', version: '0.0.0-dev', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
       await writeFile(join(buildDir, 'package', 'README.md'), '# readme\n')
+      await writeFile(join(buildDir, 'package', 'LICENSE'), 'MIT License\n')
       await writeFile(join(buildDir, 'package', 'cordis.patch.yml'), '# patch\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.mjs'), 'export default {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.mts'), 'export default {}\n')
@@ -1550,7 +1557,7 @@ process.exit(1)
       const { execFile } = await import('node:child_process')
       const { promisify } = await import('node:util')
       const execFileAsync = promisify(execFile)
-      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts'])
+      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/LICENSE', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts'])
 
       const prepRes = await executePrepare({ tarballPath, tempParent })
       await writeFile(prepRes.credential_target, 'DEEPSEEK_API_KEY: fake-offline-key\n', { mode: 0o600 })
@@ -1595,13 +1602,14 @@ process.exit(1)
     try {
       const buildDir = join(tempParent, 'pkg-fixture')
       await mkdir(join(buildDir, 'package', 'dist'), { recursive: true })
-      await writeFile(join(buildDir, 'package', 'package.json'), JSON.stringify({ name: 'dsh-mnemosyne', version: '0.0.0-dev', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+      await writeFile(join(buildDir, 'package', 'package.json'), JSON.stringify({ name: '@cziyi/dsh-mnemosyne', version: '0.0.0-dev', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
       await writeFile(join(buildDir, 'package', 'README.md'), '# readme\n')
+      await writeFile(join(buildDir, 'package', 'LICENSE'), 'MIT License\n')
       await writeFile(join(buildDir, 'package', 'cordis.patch.yml'), '# patch\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.mjs'), 'export default {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.mts'), 'export default {}\n')
       const tarballPath = join(tempParent, 'fixture.tgz')
-      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts'])
+      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/LICENSE', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts'])
 
       const scriptPath = join(new URL('../scripts/mvp07b-real-canary.mjs', import.meta.url).pathname)
 
@@ -1747,7 +1755,7 @@ describe('MVP-07B-I1 Final CTO Review: Strict Execution Wiring & Isolation Gates
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       const prepRes = await executePrepare({ tarballPath, tempParent })
       await writeFile(prepRes.credential_target, 'DEEPSEEK_API_KEY: fake-offline-key\n', { mode: 0o600 })
@@ -1790,7 +1798,7 @@ if (process.argv.includes("plugin")) {
   const tarballArg = process.argv[process.argv.length - 1]
   const profDir = join(dshHome, 'profiles', 'headless')
   mkdirSync(profDir, { recursive: true })
-  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { 'dsh-mnemosyne': 'file:' + tarballArg } }))
+  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { '@cziyi/dsh-mnemosyne': 'file:' + tarballArg } }))
   process.exit(0);
 }
 // When DSH runs for Run 1, mutate the patch file so Run 2 enters outer catch via actualPatchHashes mismatch!
@@ -1871,7 +1879,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       // 1. Extra Module containing relative import is rejected during prepare
       const badExtraModulePath = join(tempParent, 'bad-extra-module.mjs')
@@ -2114,7 +2122,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       // Test with failing dsh (fails during run loop)
       const crashDshPath = join(tempParent, 'fail-loop-dsh.mjs')
@@ -2129,7 +2137,7 @@ if (process.argv.includes("plugin")) {
   const tarballArg = process.argv[process.argv.length - 1]
   const profDir = join(dshHome, 'profiles', 'headless')
   mkdirSync(profDir, { recursive: true })
-  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { 'dsh-mnemosyne': 'file:' + tarballArg } }))
+  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { '@cziyi/dsh-mnemosyne': 'file:' + tarballArg } }))
   process.exit(0);
 }
 process.exit(1)
@@ -2192,7 +2200,7 @@ process.exit(1)
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       const mockModulePath = join(tempParent, 'mock-offline-interceptor.mjs')
       await writeFile(mockModulePath, mockInterceptorCode, { mode: 0o600 })
@@ -2352,7 +2360,7 @@ describe('MVP-07B-I1 Final Wiring Proof: Strict Wiring Receipt & Effective Execu
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       // Fake DSH that ignores patches and exits 0 on everything
       const fakeDshPath = join(tempParent, 'fake-ignoring-dsh.mjs')
@@ -2367,7 +2375,7 @@ if (process.argv.includes("plugin")) {
   const tarballArg = process.argv[process.argv.length - 1]
   const profDir = join(dshHome, 'profiles', 'headless')
   mkdirSync(profDir, { recursive: true })
-  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { 'dsh-mnemosyne': 'file:' + tarballArg } }))
+  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { '@cziyi/dsh-mnemosyne': 'file:' + tarballArg } }))
   process.exit(0);
 }
 // Do not load sidecar, do not write receipt, do not claim budget, exit 0
@@ -2420,7 +2428,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       // DSH claims budget and writes session evidence but DOES NOT write sidecar receipt
       const fakeDshPath = join(tempParent, 'no-receipt-dsh.mjs')
@@ -2435,7 +2443,7 @@ if (process.argv.includes("plugin")) {
   const tarballArg = process.argv[process.argv.length - 1]
   const profDir = join(dshHome, 'profiles', 'headless')
   mkdirSync(profDir, { recursive: true })
-  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { 'dsh-mnemosyne': 'file:' + tarballArg } }))
+  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { '@cziyi/dsh-mnemosyne': 'file:' + tarballArg } }))
   process.exit(0);
 }
 // Write LLM claim but no wiring receipt
@@ -2490,7 +2498,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       const corruptDshPath = join(tempParent, 'corrupt-dsh.mjs')
       await writeFile(
@@ -2504,7 +2512,7 @@ if (process.argv.includes("plugin")) {
   const tarballArg = process.argv[process.argv.length - 1]
   const profDir = join(dshHome, 'profiles', 'headless')
   mkdirSync(profDir, { recursive: true })
-  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { 'dsh-mnemosyne': 'file:' + tarballArg } }))
+  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { '@cziyi/dsh-mnemosyne': 'file:' + tarballArg } }))
   process.exit(0);
 }
 const evidenceDir = join(process.env.DSH_HOME, '..', 'evidence')
@@ -2574,7 +2582,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       const fakeDshPath = join(tempParent, 'mismatch-runid-dsh.mjs')
       await writeFile(
@@ -2589,7 +2597,7 @@ if (process.argv.includes("plugin")) {
   const tarballArg = process.argv[process.argv.length - 1]
   const profDir = join(dshHome, 'profiles', 'headless')
   mkdirSync(profDir, { recursive: true })
-  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { 'dsh-mnemosyne': 'file:' + tarballArg } }))
+  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { '@cziyi/dsh-mnemosyne': 'file:' + tarballArg } }))
   process.exit(0);
 }
 const evidenceDir = join(process.env.DSH_HOME, '..', 'evidence')
@@ -2668,7 +2676,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       const fakeDshPath = join(tempParent, 'missing-claim-dsh.mjs')
       await writeFile(
@@ -2683,7 +2691,7 @@ if (process.argv.includes("plugin")) {
   const tarballArg = process.argv[process.argv.length - 1]
   const profDir = join(dshHome, 'profiles', 'headless')
   mkdirSync(profDir, { recursive: true })
-  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { 'dsh-mnemosyne': 'file:' + tarballArg } }))
+  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { '@cziyi/dsh-mnemosyne': 'file:' + tarballArg } }))
   process.exit(0);
 }
 const evidenceDir = join(process.env.DSH_HOME, '..', 'evidence')
@@ -2759,7 +2767,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       const fakeDshPath = join(tempParent, 'corrupt-claim-dsh.mjs')
       await writeFile(
@@ -2774,7 +2782,7 @@ if (process.argv.includes("plugin")) {
   const tarballArg = process.argv[process.argv.length - 1]
   const profDir = join(dshHome, 'profiles', 'headless')
   mkdirSync(profDir, { recursive: true })
-  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { 'dsh-mnemosyne': 'file:' + tarballArg } }))
+  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { '@cziyi/dsh-mnemosyne': 'file:' + tarballArg } }))
   process.exit(0);
 }
 const evidenceDir = join(process.env.DSH_HOME, '..', 'evidence')
@@ -2859,7 +2867,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       const fakeDshPath = join(tempParent, 'no-resume-receipt-dsh.mjs')
       await writeFile(
@@ -2874,7 +2882,7 @@ if (process.argv.includes("plugin")) {
   const tarballArg = process.argv[process.argv.length - 1]
   const profDir = join(dshHome, 'profiles', 'headless')
   mkdirSync(profDir, { recursive: true })
-  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { 'dsh-mnemosyne': 'file:' + tarballArg } }))
+  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { '@cziyi/dsh-mnemosyne': 'file:' + tarballArg } }))
   process.exit(0);
 }
 const evidenceDir = join(process.env.DSH_HOME, '..', 'evidence')
@@ -2971,7 +2979,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       const fakeDshPath = join(tempParent, 'not-same-session-dsh.mjs')
       await writeFile(
@@ -2986,7 +2994,7 @@ if (process.argv.includes("plugin")) {
   const tarballArg = process.argv[process.argv.length - 1]
   const profDir = join(dshHome, 'profiles', 'headless')
   mkdirSync(profDir, { recursive: true })
-  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { 'dsh-mnemosyne': 'file:' + tarballArg } }))
+  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { '@cziyi/dsh-mnemosyne': 'file:' + tarballArg } }))
   process.exit(0);
 }
 const evidenceDir = join(process.env.DSH_HOME, '..', 'evidence')
@@ -3099,7 +3107,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       const badResumeDshPath = join(tempParent, 'bad-resume-dsh.mjs')
       await writeFile(
@@ -3114,7 +3122,7 @@ if (process.argv.includes("plugin")) {
   const tarballArg = process.argv[process.argv.length - 1]
   const profDir = join(dshHome, 'profiles', 'headless')
   mkdirSync(profDir, { recursive: true })
-  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { 'dsh-mnemosyne': 'file:' + tarballArg } }))
+  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { '@cziyi/dsh-mnemosyne': 'file:' + tarballArg } }))
   process.exit(0);
 }
 const evidenceDir = join(process.env.DSH_HOME, '..', 'evidence')
@@ -3226,7 +3234,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       const fakeDshPath = join(tempParent, 'bad-modhash-dsh.mjs')
       await writeFile(
@@ -3241,7 +3249,7 @@ if (process.argv.includes("plugin")) {
   const tarballArg = process.argv[process.argv.length - 1]
   const profDir = join(dshHome, 'profiles', 'headless')
   mkdirSync(profDir, { recursive: true })
-  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { 'dsh-mnemosyne': 'file:' + tarballArg } }))
+  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { '@cziyi/dsh-mnemosyne': 'file:' + tarballArg } }))
   process.exit(0);
 }
 const evidenceDir = join(process.env.DSH_HOME, '..', 'evidence')
@@ -3355,7 +3363,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       // DSH modifies module bytes during execution (after runner pre-checks and claimApproval)
       const fakeDshPath = join(tempParent, 'tamper-exec-dsh.mjs')
@@ -3370,7 +3378,7 @@ if (process.argv.includes("plugin")) {
   const tarballArg = process.argv[process.argv.length - 1]
   const profDir = join(dshHome, 'profiles', 'headless')
   mkdirSync(profDir, { recursive: true })
-  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { 'dsh-mnemosyne': 'file:' + tarballArg } }))
+  writeFileSync(join(profDir, 'package.json'), JSON.stringify({ dependencies: { '@cziyi/dsh-mnemosyne': 'file:' + tarballArg } }))
   process.exit(0);
 }
 
@@ -3545,7 +3553,7 @@ try {
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       const mockModulePath = join(tempParent, 'mock-offline-interceptor.mjs')
       await writeFile(mockModulePath, mockInterceptorCode, { mode: 0o600 })
@@ -3621,7 +3629,7 @@ try {
     try {
       await execFileAsync('corepack', ['pnpm', 'build'])
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
+      const tarballPath = join(tempParent, 'cziyi-dsh-mnemosyne-0.1.0.tgz')
 
       const mockBusinessInterceptorCode = `
 export const name = 'mock-business-interceptor'

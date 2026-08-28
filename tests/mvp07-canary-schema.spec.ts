@@ -38,7 +38,7 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
   }
 
   const validPkgJson = JSON.stringify({
-    name: 'dsh-mnemosyne',
+    name: '@cziyi/dsh-mnemosyne',
     version: '0.0.0-dev',
     dsh: { bundle: { patch: './cordis.patch.yml' } },
   })
@@ -49,6 +49,7 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
     sharedTarballPath = await makeTestTarball(fixtureTarballDir, 'standard-fixture', {
       'package/package.json': validPkgJson,
       'package/README.md': '# dsh-mnemosyne\n',
+      'package/LICENSE': 'MIT License\n',
       'package/cordis.patch.yml': '# cordis patch\n',
       'package/dist/index.mjs': 'export default {}\n',
       'package/dist/index.d.mts': 'export default {}\n',
@@ -242,7 +243,7 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
 
     const result = JSON.parse(stdout)
     expect(result.status).toBe('awaiting_user_approval')
-    expect(result.package_name).toBe('dsh-mnemosyne')
+    expect(result.package_name).toBe('@cziyi/dsh-mnemosyne')
     expect(result.package_version).toBe('0.0.0-dev')
     expect(result.dsh_version).toBe('0.1.1-rc.2')
     expect(result.package_sha256).toMatch(/^sha256_[0-9a-f]{64}$/)
@@ -256,29 +257,31 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
 
   it('tests artifact verification: valid tarball returns verified info, invalid tarball fails closed across comprehensive attack matrix', async () => {
     const info = await verifyCanaryArtifact(sharedTarballPath)
-    expect(info.packageName).toBe('dsh-mnemosyne')
+    expect(info.packageName).toBe('@cziyi/dsh-mnemosyne')
     expect(info.packageVersion).toBe('0.0.0-dev')
     expect(info.packageSha256).toMatch(/^sha256_[0-9a-f]{64}$/)
     expect(info.realTarballPath).toBe(sharedTarballPath)
-    expect(REQUIRED_CANARY_TARBALL_FILES.length).toBe(5)
+    expect(REQUIRED_CANARY_TARBALL_FILES.length).toBe(6)
 
     const base = await realpath(tmpdir())
     const tempBadDir = await mkdtemp(join(base, 'dsh-bad-tarball-'))
 
     try {
-      // 1. Missing a required file (4 files instead of 5)
+      // 1. Missing a required file (5 files instead of 6)
       const tgzMissing = await makeTestTarball(tempBadDir, 'missing-readme', {
         'package/package.json': validPkgJson,
+        'package/LICENSE': 'MIT License\n',
         'package/cordis.patch.yml': '# patch',
         'package/dist/index.mjs': 'export default {}',
         'package/dist/index.d.mts': 'export default {}',
       })
       await expect(verifyCanaryArtifact(tgzMissing)).rejects.toThrow('tarball_file_count_invalid')
 
-      // 2. Extra unexpected file (6 files instead of 5)
+      // 2. Extra unexpected file (7 files instead of 6)
       const tgzExtra = await makeTestTarball(tempBadDir, 'extra-file', {
         'package/package.json': validPkgJson,
         'package/README.md': '# readme',
+        'package/LICENSE': 'MIT License\n',
         'package/cordis.patch.yml': '# patch',
         'package/dist/index.mjs': 'export default {}',
         'package/dist/index.d.mts': 'export default {}',
@@ -286,10 +289,11 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
       })
       await expect(verifyCanaryArtifact(tgzExtra)).rejects.toThrow('tarball_file_count_invalid')
 
-      // 3. Duplicate entry in tarball (e.g. package.json added twice, total 5 entries with duplicate)
+      // 3. Duplicate entry in tarball (e.g. package.json added twice, total 6 entries with duplicate)
       const dupDir = join(tempBadDir, 'dup-entry')
       await mkdir(join(dupDir, 'package', 'dist'), { recursive: true })
       await writeFile(join(dupDir, 'package', 'package.json'), validPkgJson, 'utf8')
+      await writeFile(join(dupDir, 'package', 'LICENSE'), 'MIT License\n', 'utf8')
       await writeFile(join(dupDir, 'package', 'cordis.patch.yml'), '# patch', 'utf8')
       await writeFile(join(dupDir, 'package', 'dist', 'index.mjs'), 'export default {}', 'utf8')
       await writeFile(join(dupDir, 'package', 'dist', 'index.d.mts'), 'export default {}', 'utf8')
@@ -301,6 +305,7 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
         dupDir,
         'package/package.json',
         'package/package.json',
+        'package/LICENSE',
         'package/cordis.patch.yml',
         'package/dist/index.mjs',
         'package/dist/index.d.mts',
@@ -315,6 +320,7 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
           dsh: { bundle: { patch: './cordis.patch.yml' } },
         }),
         'package/README.md': '# readme',
+        'package/LICENSE': 'MIT License\n',
         'package/cordis.patch.yml': '# patch',
         'package/dist/index.mjs': 'export default {}',
         'package/dist/index.d.mts': 'export default {}',
@@ -324,11 +330,12 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
       // 5. Bad package version in manifest
       const tgzBadVersion = await makeTestTarball(tempBadDir, 'bad-version', {
         'package/package.json': JSON.stringify({
-          name: 'dsh-mnemosyne',
+          name: '@cziyi/dsh-mnemosyne',
           version: '99.9.9',
           dsh: { bundle: { patch: './cordis.patch.yml' } },
         }),
         'package/README.md': '# readme',
+        'package/LICENSE': 'MIT License\n',
         'package/cordis.patch.yml': '# patch',
         'package/dist/index.mjs': 'export default {}',
         'package/dist/index.d.mts': 'export default {}',
@@ -338,10 +345,11 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
       // 6. Missing dsh.bundle.patch
       const tgzMissingPatch = await makeTestTarball(tempBadDir, 'missing-patch', {
         'package/package.json': JSON.stringify({
-          name: 'dsh-mnemosyne',
+          name: '@cziyi/dsh-mnemosyne',
           version: '0.0.0-dev',
         }),
         'package/README.md': '# readme',
+        'package/LICENSE': 'MIT License\n',
         'package/cordis.patch.yml': '# patch',
         'package/dist/index.mjs': 'export default {}',
         'package/dist/index.d.mts': 'export default {}',

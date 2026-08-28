@@ -1,5 +1,5 @@
 {
-  "name": "dsh-mnemosyne",
+  "name": "@cziyi/dsh-mnemosyne",
   "version": "0.1.0",
   "description": "DeepSeek Harness memory management and progressive disclosure plugin",
   "keywords": [
@@ -29,8 +29,10 @@
   "files": [
     "dist",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
+  "license": "MIT",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

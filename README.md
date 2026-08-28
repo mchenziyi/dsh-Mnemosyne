@@ -36,7 +36,7 @@ fail-closed 路径校验与原子提交。
 要求 Node.js `>=22.19.0`，DSH CLI 与公开 SDK 基线为 `0.1.1-rc.2`。
 
 ```bash
-dsh plugin add dsh-mnemosyne
+dsh plugin add @cziyi/dsh-mnemosyne
 ```
 
 插件默认启用自动采集。可在 DSH 插件配置中使用：
@@ -73,4 +73,4 @@ autoCapture: true
 
 ## 许可证
 
-当前仓库尚未授予开源许可证。公开 npm 发布前，维护者必须先确定许可证。
+本项目采用 [MIT License](./LICENSE)。
