@@ -15,6 +15,7 @@ import {
   type ApprovalReceipt,
   type RedactedCanaryReport,
 } from '../src/m07b/canary-protocol.js'
+import { MAX_MODEL_REQUESTS } from '../src/m07b/budget-ledger.js'
 
 describe('MVP-07B-I TDD Item 2: Recursive Canonical JSON & Strict Formatting', () => {
   const samplePlan = createRealCanaryPlan({
@@ -38,9 +39,22 @@ describe('MVP-07B-I TDD Item 2: Recursive Canonical JSON & Strict Formatting', (
     expect(samplePlan.plan_sha256).toMatch(/^sha256_[0-9a-f]{64}$/)
     expect(computePlanSha256(samplePlan)).toBe(samplePlan.plan_sha256)
     expect(samplePlan.budgets.max_headless_runs).toBe(6)
-    expect(samplePlan.budgets.max_model_requests).toBe(12)
+    expect(samplePlan.budgets.max_model_requests).toBe(18)
+    expect(samplePlan.budgets.max_model_requests).toBe(MAX_MODEL_REQUESTS)
     expect(samplePlan.budgets.retry_count).toBe(0)
     expect(samplePlan.budgets.consecutive_provider_or_protocol_errors).toBe(2)
+  })
+
+  it('binds the release package version into the approved plan', () => {
+    const releasePlan = createRealCanaryPlan({
+      package_version: '0.1.0',
+      package_sha256: 'sha256_' + 'a'.repeat(64),
+      run_root_identity: 'sha256_' + 'b'.repeat(64),
+      created_at: '2026-08-26T16:00:00.000Z',
+      expires_at: '2026-08-26T16:30:00.000Z',
+      nonce: 'nonce_release_12345',
+    })
+    expect(validateRealCanaryPlan(releasePlan).package_version).toBe('0.1.0')
   })
 
   it('proves that modifying ANY nested field alters plan_sha256', () => {
@@ -1172,7 +1186,7 @@ describe('MVP-07B-I TDD Item 1 & 10: Real Six-Run State Machine Execution with F
       const { promisify } = await import('node:util')
       const execFileAsync = promisify(execFile)
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       // 2. Create mock offline stream interceptor module
       const mockAdapterPluginPath = join(tempParent, 'mock-offline-interceptor.mjs')
@@ -1733,7 +1747,7 @@ describe('MVP-07B-I1 Final CTO Review: Strict Execution Wiring & Isolation Gates
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       const prepRes = await executePrepare({ tarballPath, tempParent })
       await writeFile(prepRes.credential_target, 'DEEPSEEK_API_KEY: fake-offline-key\n', { mode: 0o600 })
@@ -1857,7 +1871,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       // 1. Extra Module containing relative import is rejected during prepare
       const badExtraModulePath = join(tempParent, 'bad-extra-module.mjs')
@@ -2100,7 +2114,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       // Test with failing dsh (fails during run loop)
       const crashDshPath = join(tempParent, 'fail-loop-dsh.mjs')
@@ -2178,7 +2192,7 @@ process.exit(1)
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       const mockModulePath = join(tempParent, 'mock-offline-interceptor.mjs')
       await writeFile(mockModulePath, mockInterceptorCode, { mode: 0o600 })
@@ -2338,7 +2352,7 @@ describe('MVP-07B-I1 Final Wiring Proof: Strict Wiring Receipt & Effective Execu
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       // Fake DSH that ignores patches and exits 0 on everything
       const fakeDshPath = join(tempParent, 'fake-ignoring-dsh.mjs')
@@ -2406,7 +2420,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       // DSH claims budget and writes session evidence but DOES NOT write sidecar receipt
       const fakeDshPath = join(tempParent, 'no-receipt-dsh.mjs')
@@ -2476,7 +2490,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       const corruptDshPath = join(tempParent, 'corrupt-dsh.mjs')
       await writeFile(
@@ -2560,7 +2574,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       const fakeDshPath = join(tempParent, 'mismatch-runid-dsh.mjs')
       await writeFile(
@@ -2654,7 +2668,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       const fakeDshPath = join(tempParent, 'missing-claim-dsh.mjs')
       await writeFile(
@@ -2745,7 +2759,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       const fakeDshPath = join(tempParent, 'corrupt-claim-dsh.mjs')
       await writeFile(
@@ -2845,7 +2859,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       const fakeDshPath = join(tempParent, 'no-resume-receipt-dsh.mjs')
       await writeFile(
@@ -2957,7 +2971,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       const fakeDshPath = join(tempParent, 'not-same-session-dsh.mjs')
       await writeFile(
@@ -3085,7 +3099,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       const badResumeDshPath = join(tempParent, 'bad-resume-dsh.mjs')
       await writeFile(
@@ -3212,7 +3226,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       const fakeDshPath = join(tempParent, 'bad-modhash-dsh.mjs')
       await writeFile(
@@ -3341,7 +3355,7 @@ process.exit(0);
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       // DSH modifies module bytes during execution (after runner pre-checks and claimApproval)
       const fakeDshPath = join(tempParent, 'tamper-exec-dsh.mjs')
@@ -3531,7 +3545,7 @@ try {
 
     try {
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       const mockModulePath = join(tempParent, 'mock-offline-interceptor.mjs')
       await writeFile(mockModulePath, mockInterceptorCode, { mode: 0o600 })
@@ -3607,7 +3621,7 @@ try {
     try {
       await execFileAsync('corepack', ['pnpm', 'build'])
       await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
-      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.0.0-dev.tgz')
+      const tarballPath = join(tempParent, 'dsh-mnemosyne-0.1.0.tgz')
 
       const mockBusinessInterceptorCode = `
 export const name = 'mock-business-interceptor'

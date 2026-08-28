@@ -1,6 +1,6 @@
 export interface CanaryBudgets {
   readonly max_headless_runs: 6
-  readonly max_model_requests: 12
+  readonly max_model_requests: 18
   readonly retry_count: 0
   readonly per_run_timeout_ms: 120000
   readonly total_timeout_ms: 720000
@@ -68,7 +68,7 @@ export interface RealCanaryPlan {
   readonly plan_id: string
   readonly plan_sha256: string
   readonly dsh_version: '0.1.1-rc.2'
-  readonly package_version: '0.0.0-dev'
+  readonly package_version: '0.0.0-dev' | '0.1.0'
   readonly package_sha256: string
   readonly profile: 'headless'
   readonly run_root_identity: string
@@ -109,7 +109,7 @@ export interface RedactedCanaryReport {
   readonly schema_version: 1
   readonly status: 'pass' | 'fail' | 'aborted'
   readonly dsh_version: '0.1.1-rc.2'
-  readonly package_version: '0.0.0-dev'
+  readonly package_version: '0.0.0-dev' | '0.1.0'
   readonly package_sha256: string
   readonly plan_sha256: string
   readonly approval_sha256: string
@@ -136,6 +136,7 @@ export declare function createExecutionManifest(params: any): ExecutionManifest
 export declare function validateExecutionManifest(manifest: unknown): ExecutionManifest
 
 export declare function createRealCanaryPlan(params: {
+  package_version?: '0.0.0-dev' | '0.1.0'
   package_sha256: string
   run_root_identity: string
   created_at: string
@@ -158,6 +159,7 @@ export declare function createApprovalReceipt(params: {
 export declare function validateApprovalReceipt(receipt: unknown): ApprovalReceipt
 
 export declare function createRedactedCanaryReport(params: {
+  package_version?: '0.0.0-dev' | '0.1.0'
   status: 'pass' | 'fail' | 'aborted'
   package_sha256: string
   plan_sha256: string
@@ -176,7 +178,7 @@ export interface RedactedCanaryReportV2 {
   readonly evaluation_level: 'business'
   readonly status: 'pass' | 'fail' | 'aborted'
   readonly dsh_version: '0.1.1-rc.2'
-  readonly package_version: '0.0.0-dev'
+  readonly package_version: '0.0.0-dev' | '0.1.0'
   readonly package_sha256: string
   readonly plan_sha256: string
   readonly approval_sha256: string
@@ -191,6 +193,7 @@ export interface RedactedCanaryReportV2 {
 export declare function computeProjectScopeId(projectRoot: string): string
 
 export declare function createRedactedCanaryReportV2(params: {
+  package_version?: '0.0.0-dev' | '0.1.0'
   status: 'pass' | 'fail' | 'aborted'
   package_sha256: string
   plan_sha256: string

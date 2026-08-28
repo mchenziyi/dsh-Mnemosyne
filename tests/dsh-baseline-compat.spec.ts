@@ -9,6 +9,7 @@ import { SessionId, SessionStore } from '@deepseek-ai/dsh-session'
 import { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { ToolRuntime } from '@deepseek-ai/dsh-tools'
 import { ProtocolValidationError, canonicalBytes, canonicalHash, withoutHash } from '../src/protocol/canonical.js'
+import { AUDIT_COMMIT, DSH_VERSION } from '../src/compatibility.js'
 import {
   createDshBaselineAudit,
   resolveDirectDshPackages,
@@ -37,6 +38,11 @@ const VALID_COMPATIBILITY: CompatibilityAudit = {
 }
 
 describe('DSH baseline upgrade compatibility suite', () => {
+  it('binds compatibility metadata to the audited upstream DSH release', () => {
+    expect(DSH_VERSION).toBe(TARGET_DSH_VERSION)
+    expect(AUDIT_COMMIT).toBe('b150a551b8d465e31e418e1b2eaf5e79bbb7d28e')
+  })
+
   it('enforces that all direct @deepseek-ai/dsh-* dependencies in package.json are exact 0.1.1-rc.2', () => {
     const pkgJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'))
     const dshPeers = Object.entries(pkgJson.peerDependencies || {}).filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))

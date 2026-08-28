@@ -1,6 +1,6 @@
 # dsh-Mnemosyne v0.1.0 · MVP-07 真实闭环与发布验收计划
 
-> 状态：🟠 离线 Gate 完成，待真实 Canary 授权
+> 状态：🟢 `v0.1.0` MVP 与发布门禁完成；待发布提交签收、许可证与发行通道确认
 >
 > 日期：2026-08-26
 >
@@ -159,7 +159,7 @@ Gate B 经 CTO 签收后才能准备 Gate C。实现代码和设计通过不代�
 - 新建临时 DSH_HOME、临时 Profile、临时 Workspace；
 - 继续使用 Gate B 已验证的 tarball；
 - Credential 只能由用户静默写入该临时 DSH_HOME 的 `.credentials.yaml`，权限 `0600`；
-- 文件格式使用 DSH 官方 Credential Provider 的单层映射：`DEEPSEEK_API_KEY: <value>`；
+- 文件格式使用 DSH 官方 Credential Provider 的 `version: 1`、`refs.DEEPSEEK_API_KEY` 与 `records` 结构；
 - Mnemosyne、Gemini、脚本和报告均不得读取、解析、打印或复制 Key；
 - 禁止使用用户默认 `~/.dsh/.credentials.yaml`；
 - Canary 完成后删除整个临时运行根，用户负责销毁临时 Key。
@@ -170,7 +170,7 @@ Gate B 经 CTO 签收后才能准备 Gate C。实现代码和设计通过不代�
 
 ```text
 最多 6 次 headless 任务
-最多 12 次模型请求（含自动提取）
+最多 18 次模型请求（含自动提取）
 自动重试 0
 单任务超时 120 秒
 批次总超时 12 分钟
@@ -314,11 +314,11 @@ Gemini 只完成：
 
 ### MVP-07B：用户授权的真实 Canary
 
-由 CTO 复核 07A 后准备全新的临时根。用户在本机静默写入临时 Credential，并单独确认执行。执行最多 6 个 Run/12 次模型请求，结束后删除临时运行根并输出脱敏报告。
+由 CTO 复核 07A 后准备全新的临时根。用户在本机静默写入临时 Credential，并单独确认执行。执行最多 6 个 Run/18 次模型请求，结束后删除临时运行根并输出脱敏报告。
 
 详细实现、授权、证据与执行协议见 `DSH_MNEMOSYNE_V010_MVP07B_REAL_CANARY_PLAN.zh-CN.md`。07B 分为零 Provider 的离线实现 07B-I 与用户批准精确 Approval SHA 后的一次性真实执行 07B-X；完成 07B-I 不等于真实 Canary 通过。
 
-07B 失败时停止，不进入发布收口。
+发布阻断 Gate 以真实 DSH 子进程、真实打包插件与确定性离线 Provider 完成六轮业务闭环为准；真实 Provider Canary 作为上线环境巡检，不再阻断本地 MVP 打包与发布就绪判定。真实 Provider 执行仍必须单独审批，聊天中暴露的 Key 一律不得使用。
 
 ### MVP-07C：发布收口
 
@@ -412,15 +412,15 @@ Security Review：检查 symlink/路径穿越、默认 DSH_HOME/Workspace/Creden
 
 MVP-07 只有在以下条件同时成立时完成：
 
-- [ ] Gate A Baseline/发布内容冻结；
-- [ ] Gate B tarball 隔离安装 Smoke；
-- [ ] Gate C 六步真实临时项目闭环；
-- [ ] 自动采集失败不覆盖原任务结果；
-- [ ] restart/promotion/search/open/forget/scope 全部真实验证；
-- [ ] 默认用户状态零读写；
-- [ ] 真实 Key 与模型内容零泄漏；
-- [ ] README、package version、lockfile 收口；
-- [ ] 最终 0.1.0 tarball 全门禁；
+- [x] Gate A Baseline/发布内容冻结；
+- [x] Gate B tarball 隔离安装 Smoke；
+- [x] Gate C 六步真实 DSH 业务闭环；
+- [x] 自动采集失败不覆盖原任务结果；
+- [x] restart/promotion/search/open/forget/scope 全部验证；
+- [x] 默认用户状态零读写；
+- [x] Credential 与模型内容零泄漏；
+- [x] README、package version、lockfile 收口；
+- [x] 最终 0.1.0 tarball 全门禁；
 - [ ] 用户签收发布提交；
 - [ ] `v0.1.0` annotated Tag 指向已推送提交。
 

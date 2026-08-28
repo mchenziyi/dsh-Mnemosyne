@@ -376,7 +376,7 @@ describe('MVP-01: Runtime & Project/Session Scope TDD Matrix', () => {
       const outReady = await tool.execute({}, execReady)
       expect(outReady).toEqual({
         plugin: 'dsh-Mnemosyne',
-        version: '0.0.0-dev',
+        version: '0.1.0',
         protocol_version: 3,
         memory_enabled: true,
         status: 'ready',
@@ -402,7 +402,7 @@ describe('MVP-01: Runtime & Project/Session Scope TDD Matrix', () => {
       const outUnavailable = await tool.execute({}, execUnavailable)
       expect(outUnavailable).toEqual({
         plugin: 'dsh-Mnemosyne',
-        version: '0.0.0-dev',
+        version: '0.1.0',
         protocol_version: 3,
         memory_enabled: true,
         status: 'ready',
@@ -428,7 +428,7 @@ describe('MVP-01: Runtime & Project/Session Scope TDD Matrix', () => {
       const outConflict = await tool.execute({}, execConflict)
       expect(outConflict).toEqual({
         plugin: 'dsh-Mnemosyne',
-        version: '0.0.0-dev',
+        version: '0.1.0',
         protocol_version: 3,
         memory_enabled: true,
         status: 'ready',

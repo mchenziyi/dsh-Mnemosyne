@@ -1,4 +1,4 @@
-import { readdir } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -7,8 +7,9 @@ const execFileAsync = promisify(execFile)
 
 const artifactDir = new URL('../', import.meta.url)
 const names = await readdir(artifactDir)
-const tarball = names.find((name) => name.endsWith('.tgz'))
-if (!tarball) throw new Error('pack:check: no tarball found')
+const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+const tarball = `dsh-mnemosyne-${packageJson.version}.tgz`
+if (!names.includes(tarball)) throw new Error('pack:check: release tarball not found')
 const tarballPath = join(artifactDir.pathname, tarball)
 const { stdout } = await execFileAsync('tar', ['-tzf', tarballPath])
 const entries = stdout.trim().split('\n').filter(Boolean)
@@ -18,6 +19,11 @@ if (forbidden.length) throw new Error(`pack:check: unexpected files: ${forbidden
 
 const { stdout: bundledJs } = await execFileAsync('tar', ['-xOzf', tarballPath, 'package/dist/index.mjs'])
 const { stdout: bundledDts } = await execFileAsync('tar', ['-xOzf', tarballPath, 'package/dist/index.d.mts'])
+const { stdout: packedManifestText } = await execFileAsync('tar', ['-xOzf', tarballPath, 'package/package.json'])
+const packedManifest = JSON.parse(packedManifestText)
+if (packedManifest.name !== packageJson.name || packedManifest.version !== packageJson.version) {
+  throw new Error('pack:check: package identity mismatch')
+}
 
 export const forbiddenExportSymbols = [
   'createScopeRuntime',

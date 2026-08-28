@@ -237,7 +237,7 @@ describe('MVP-04A: OKF Retrieval Protocol & Disclosure Schemas', () => {
   it('7. Status v3 schema validates ready, empty, unavailable and invalid states', () => {
     const readyStatus: StatusV3Output = {
       plugin: 'dsh-Mnemosyne',
-      version: '0.0.0-dev',
+      version: '0.1.0',
       protocol_version: 3,
       memory_enabled: true,
       status: 'ready',
@@ -367,7 +367,7 @@ describe('MVP-04A: OKF Retrieval Protocol & Disclosure Schemas', () => {
   it('10. Status v3 strict state matrix: rejects all invalid scope/memory combinations', () => {
     const baseReady: StatusV3Output = {
       plugin: 'dsh-Mnemosyne',
-      version: '0.0.0-dev',
+      version: '0.1.0',
       protocol_version: 3,
       memory_enabled: true,
       status: 'ready',
@@ -716,7 +716,7 @@ describe('MVP-04A: OKF Retrieval Protocol & Disclosure Schemas', () => {
     for (const code of validCodes) {
       const validStatus: StatusV3Output = {
         plugin: 'dsh-Mnemosyne',
-        version: '0.0.0-dev',
+        version: '0.1.0',
         protocol_version: 3,
         memory_enabled: true,
         status: 'ready',
@@ -747,7 +747,7 @@ describe('MVP-04A: OKF Retrieval Protocol & Disclosure Schemas', () => {
     for (const badReason of rejectedReasons) {
       const badStatus: StatusV3Output = {
         plugin: 'dsh-Mnemosyne',
-        version: '0.0.0-dev',
+        version: '0.1.0',
         protocol_version: 3,
         memory_enabled: true,
         status: 'ready',

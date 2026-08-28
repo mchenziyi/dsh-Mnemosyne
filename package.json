@@ -1,7 +1,21 @@
 {
   "name": "dsh-mnemosyne",
-  "version": "0.0.0-dev",
-  "description": "Native DeepSeek Harness plugin for Mnemosyne memory experiments",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness memory management and progressive disclosure plugin",
+  "keywords": [
+    "deepseek-harness",
+    "memory",
+    "okf",
+    "progressive-disclosure"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mchenziyi/dsh-Mnemosyne.git"
+  },
+  "homepage": "https://github.com/mchenziyi/dsh-Mnemosyne#readme",
+  "bugs": {
+    "url": "https://github.com/mchenziyi/dsh-Mnemosyne/issues"
+  },
   "packageManager": "pnpm@11.7.0",
   "type": "module",
   "main": "dist/index.mjs",

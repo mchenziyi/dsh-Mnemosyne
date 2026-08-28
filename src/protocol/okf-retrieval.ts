@@ -807,7 +807,7 @@ export interface StatusV3MemoryPayload {
 
 export interface StatusV3Output {
   plugin: 'dsh-Mnemosyne'
-  version: '0.0.0-dev'
+  version: '0.1.0'
   protocol_version: 3
   memory_enabled: true
   status: 'ready'
@@ -848,7 +848,7 @@ export function validateStatusV3Output(value: unknown): StatusV3Output {
 
   const obj = value as Record<string, unknown>
   if (obj.plugin !== 'dsh-Mnemosyne') invalid('plugin must be dsh-Mnemosyne')
-  if (obj.version !== '0.0.0-dev') invalid('version must be 0.0.0-dev')
+  if (obj.version !== '0.1.0') invalid('version must be 0.1.0')
   if (obj.protocol_version !== 3) invalid('protocol_version must be 3')
   if (obj.memory_enabled !== true) invalid('memory_enabled must be true')
   if (obj.status !== 'ready') invalid('status must be ready')
@@ -960,7 +960,7 @@ export function validateStatusV3Output(value: unknown): StatusV3Output {
 
   return Object.freeze({
     plugin: 'dsh-Mnemosyne',
-    version: '0.0.0-dev',
+    version: '0.1.0',
     protocol_version: 3,
     memory_enabled: true,
     status: 'ready',

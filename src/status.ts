@@ -39,7 +39,7 @@ export type { StatusV3Output as StatusOutput }
 
 export const STATUS_OUTPUT: StatusV3Output = Object.freeze({
   plugin: 'dsh-Mnemosyne',
-  version: '0.0.0-dev',
+  version: '0.1.0',
   protocol_version: 3,
   memory_enabled: true,
   status: 'ready',
@@ -65,7 +65,7 @@ const STATUS_SCHEMA = {
   additionalProperties: false,
   properties: {
     plugin: { type: 'string', required: true, const: 'dsh-Mnemosyne' },
-    version: { type: 'string', required: true, const: '0.0.0-dev' },
+    version: { type: 'string', required: true, const: '0.1.0' },
     protocol_version: { type: 'integer', required: true, const: 3 },
     memory_enabled: { type: 'boolean', required: true, const: true },
     status: { type: 'string', required: true, const: 'ready' },
@@ -130,7 +130,7 @@ export function createStatusTool(runtime?: StatusScopeResolver): ReturnType<type
         }
         const out: StatusV3Output = {
           plugin: 'dsh-Mnemosyne',
-          version: '0.0.0-dev',
+          version: '0.1.0',
           protocol_version: 3,
           memory_enabled: true,
           status: 'ready',
@@ -200,7 +200,7 @@ export function createStatusTool(runtime?: StatusScopeResolver): ReturnType<type
 
       const out: StatusV3Output = {
         plugin: 'dsh-Mnemosyne',
-        version: '0.0.0-dev',
+        version: '0.1.0',
         protocol_version: 3,
         memory_enabled: true,
         status: 'ready',

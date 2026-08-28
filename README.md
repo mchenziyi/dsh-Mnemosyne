@@ -13,28 +13,58 @@
 - 保留来源、生命周期、健康度和冻结语义；
 - 通过 DeepSeek Harness 的插件与 Session/Event 扩展点完成集成。
 
-## 第一阶段范围
+## v0.1.0 能力
 
-第一阶段只实现记忆能力：
+当前 MVP 已实现完整记忆管理闭环：
 
 ```text
 Harness Session/Event
-  -> 记忆提取
-  -> OKF 存储与索引
-  -> Librarian 检索
-  -> 渐进式披露
-  -> 模型上下文注入
+  -> 自动采集或 mnemosyne_remember
+  -> 不可变 Fact Store
+  -> 确定性 OKF Generation
+  -> mnemosyne_search（L2，无正文）
+  -> mnemosyne_open（L3，绑定 Search Grant）
+  -> list / promote / forget
 ```
 
-插件自进化属于后续阶段。届时将设计一套受治理的闭环，用于插件提案、沙箱验证、
-Canary 运行、观测、晋升、冻结和回滚。插件不得直接修改 Harness 安全核心，也不得
-静默重写规范记忆事实。
+短期记忆按 Session + Project 隔离；长期记忆可在同一 Project 的后续 Session 中检索。
+`forget` 只更新逻辑可见性并保留不可变审计事实；所有写入和 Generation 发布均采用
+fail-closed 路径校验与原子提交。
 
-## 当前状态
+## 安装
 
-项目处于早期设计与实现阶段。在启用生产行为前，会先完成协议和插件集成点文档。
+要求 Node.js `>=22.19.0`，DSH CLI 与公开 SDK 基线为 `0.1.1-rc.2`。
 
-当前路线先完成 M0 插件接口验证，再执行 M0.5 最小纵向切片，以“无记忆 / Tool-only / 自动注入”三组配对评测验证召回、任务效果与成本。只有核心价值 Gate 得出 GO，才继续建设完整存储、治理、管理界面与插件自进化。
+```bash
+dsh plugin add dsh-mnemosyne
+```
+
+插件默认启用自动采集。可在 DSH 插件配置中使用：
+
+```yaml
+enabled: true
+autoCapture: true
+# projectRoot: /absolute/project/path  # Session 缺少 cwd 时的可选回退
+```
+
+## Tools
+
+- `mnemosyne_status`：查看 Scope、当前 Generation 与记忆数量；
+- `mnemosyne_remember`：显式记录记忆；
+- `mnemosyne_search`：只返回摘要与引用，不返回正文；
+- `mnemosyne_open`：在同 Session 的 Search Grant 内打开一条记忆正文；
+- `mnemosyne_list`：列出短期或长期记忆；
+- `mnemosyne_promote`：将短期记忆晋升为长期记忆；
+- `mnemosyne_forget`：使目标记忆不可检索并使旧 Grant 失效。
+
+## 当前状态与限制
+
+`v0.1.0` 为记忆管理 MVP，已覆盖自动采集、稳定读写、OKF 编译、渐进式披露、
+晋升、遗忘、重启持久化与 Project/Session 隔离。它不包含插件自进化、自动改代码、
+自动发布、Web 管理器或向量数据库。
+
+真实 Provider 的行为与成本取决于模型；发布包的确定性验收使用真实 DSH 子进程、
+真实打包插件和受控离线 Provider 完成六轮业务 Canary。
 
 总体架构、阶段计划与后续实施设计见：
 
@@ -43,4 +73,4 @@ Canary 运行、观测、晋升、冻结和回滚。插件不得直接修改 Har
 
 ## 许可证
 
-许可证待定。
+当前仓库尚未授予开源许可证。公开 npm 发布前，维护者必须先确定许可证。

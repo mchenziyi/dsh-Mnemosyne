@@ -271,6 +271,7 @@ export function validateExecutionManifest(manifest) {
 
 export function createRealCanaryPlan(params) {
   const {
+    package_version = '0.0.0-dev',
     package_sha256,
     run_root_identity,
     created_at,
@@ -284,7 +285,7 @@ export function createRealCanaryPlan(params) {
     schema_version: 1,
     plan_id,
     dsh_version: '0.1.1-rc.2',
-    package_version: '0.0.0-dev',
+    package_version,
     package_sha256,
     profile: 'headless',
     run_root_identity,
@@ -292,7 +293,7 @@ export function createRealCanaryPlan(params) {
     credential_ref: 'temporary_dsh_home_credentials',
     budgets: {
       max_headless_runs: 6,
-      max_model_requests: 12,
+      max_model_requests: 18,
       retry_count: 0,
       per_run_timeout_ms: 120000,
       total_timeout_ms: 720000,
@@ -343,7 +344,7 @@ export function validateRealCanaryPlan(plan) {
   if (plan.schema_version !== 1) throw new Error('invalid_plan')
   if (typeof plan.plan_id !== 'string' || !PLAN_ID_REGEX.test(plan.plan_id)) throw new Error('invalid_plan')
   if (plan.dsh_version !== '0.1.1-rc.2') throw new Error('invalid_plan')
-  if (plan.package_version !== '0.0.0-dev') throw new Error('invalid_plan')
+  if (plan.package_version !== '0.0.0-dev' && plan.package_version !== '0.1.0') throw new Error('invalid_plan')
   if (typeof plan.package_sha256 !== 'string' || !HASH_REGEX.test(plan.package_sha256)) throw new Error('invalid_plan')
   if (plan.profile !== 'headless') throw new Error('invalid_plan')
   if (typeof plan.run_root_identity !== 'string' || !HASH_REGEX.test(plan.run_root_identity)) throw new Error('invalid_plan')
@@ -364,7 +365,7 @@ export function validateRealCanaryPlan(plan) {
   }
 
   if (plan.budgets.max_headless_runs !== 6) throw new Error('invalid_plan')
-  if (plan.budgets.max_model_requests !== 12) throw new Error('invalid_plan')
+  if (plan.budgets.max_model_requests !== 18) throw new Error('invalid_plan')
   if (plan.budgets.retry_count !== 0) throw new Error('invalid_plan')
   if (plan.budgets.per_run_timeout_ms !== 120000) throw new Error('invalid_plan')
   if (plan.budgets.total_timeout_ms !== 720000) throw new Error('invalid_plan')
@@ -464,13 +465,14 @@ export function createRedactedCanaryReport(params) {
     checks,
     reason_code = null,
     cleanup_clean,
+    package_version = '0.0.0-dev',
   } = params
 
   const base = {
     schema_version: 1,
     status,
     dsh_version: '0.1.1-rc.2',
-    package_version: '0.0.0-dev',
+    package_version,
     package_sha256,
     plan_sha256,
     approval_sha256,
@@ -518,7 +520,7 @@ export function validateRedactedCanaryReport(report) {
   if (report.schema_version !== 1) throw new Error('invalid_report')
   if (!['pass', 'fail', 'aborted'].includes(report.status)) throw new Error('invalid_report')
   if (report.dsh_version !== '0.1.1-rc.2') throw new Error('invalid_report')
-  if (report.package_version !== '0.0.0-dev') throw new Error('invalid_report')
+  if (report.package_version !== '0.0.0-dev' && report.package_version !== '0.1.0') throw new Error('invalid_report')
   if (typeof report.package_sha256 !== 'string' || !HASH_REGEX.test(report.package_sha256)) throw new Error('invalid_report')
   if (typeof report.plan_sha256 !== 'string' || !HASH_REGEX.test(report.plan_sha256)) throw new Error('invalid_report')
   if (typeof report.approval_sha256 !== 'string' || !HASH_REGEX.test(report.approval_sha256)) throw new Error('invalid_report')
@@ -598,6 +600,7 @@ export function createRedactedCanaryReportV2(params) {
     checks,
     reason_code = null,
     cleanup_clean,
+    package_version = '0.0.0-dev',
   } = params
 
   if (status === 'pass') {
@@ -622,7 +625,7 @@ export function createRedactedCanaryReportV2(params) {
     evaluation_level: 'business',
     status,
     dsh_version: '0.1.1-rc.2',
-    package_version: '0.0.0-dev',
+    package_version,
     package_sha256,
     plan_sha256,
     approval_sha256,
@@ -674,7 +677,7 @@ export function validateRedactedCanaryReportV2(report) {
   if (report.evaluation_level !== 'business') throw new Error('invalid_report')
   if (!['pass', 'fail', 'aborted'].includes(report.status)) throw new Error('invalid_report')
   if (report.dsh_version !== '0.1.1-rc.2') throw new Error('invalid_report')
-  if (report.package_version !== '0.0.0-dev') throw new Error('invalid_report')
+  if (report.package_version !== '0.0.0-dev' && report.package_version !== '0.1.0') throw new Error('invalid_report')
   if (typeof report.package_sha256 !== 'string' || !HASH_REGEX.test(report.package_sha256)) throw new Error('invalid_report')
   if (typeof report.plan_sha256 !== 'string' || !HASH_REGEX.test(report.plan_sha256)) throw new Error('invalid_report')
   if (typeof report.approval_sha256 !== 'string' || !HASH_REGEX.test(report.approval_sha256)) throw new Error('invalid_report')

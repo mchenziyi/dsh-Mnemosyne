@@ -103,7 +103,7 @@ describe('MVP-07A Final CTO Review: Isolated Profile Release Smoke', () => {
 
       // 5. npm semver version -> reject
       await expect(
-        verifyProfileDependencyBinding('0.0.0-dev', tempProfileDir, sharedTarballPath)
+        verifyProfileDependencyBinding('0.1.0', tempProfileDir, sharedTarballPath)
       ).rejects.toThrow('plugin_tarball_source_mismatch')
 
       // 6. http/https protocol -> reject

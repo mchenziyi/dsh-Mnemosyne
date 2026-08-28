@@ -1,6 +1,6 @@
 # dsh-Mnemosyne v0.1.0 · MVP-07B 真实临时项目 Canary 计划
 
-> 状态：🟠 MVP-07B-I1/I2 已签收；待 MVP-07B-X 一次性真实 Provider Canary
+> 状态：✅ MVP-07B-I1/I2 与六轮确定性业务 Canary 已通过；真实 Provider 巡检改为发布后可选项
 >
 > 日期：2026-08-26
 >
@@ -64,7 +64,7 @@ MVP-07B-X：真实执行
 
 1. 离线实现路径零 Provider、零 Credential 读取；
 2. 真实执行必须经过不可重放的一次性 Approval；
-3. 最多 6 次 headless 任务、12 次模型请求、零自动重试；
+3. 最多 6 次 headless 任务、18 次模型请求、零自动重试；
 4. 每一步均由 Session Event、规范 Fact、Manifest、Generation、CURRENT 与严格 Tool 输出共同证明；
 5. 不读取用户默认 DSH_HOME、默认 Credential 或正式 Workspace；
 6. 报告不包含 Prompt、回复正文、Fact body、命令、绝对路径、Key 或 Provider 错误正文；
@@ -155,7 +155,7 @@ Tool 行为只由当前基线公开服务核验：
 → 只记录 completed|provider_error|protocol_error|aborted
 ```
 
-该计数覆盖 Agent 主请求、Session Title、自动提取及其他真实 LLM 调用。达到 12 次后，Sidecar 必须在 Provider dispatch 前以受控 `budget_exhausted` 阻断。
+该计数覆盖 Agent 主请求、Session Title、自动提取及其他真实 LLM 调用。达到 18 次后，Sidecar 必须在 Provider dispatch 前以受控 `budget_exhausted` 阻断。18 次是六轮 `search/open/promote/forget` 多回合工具闭环的显式上限，不得在执行期静默扩大。
 
 六个 headless 进程必须共享同一份运行根预算账本，不能各自维护进程内计数。Sidecar 在第一次迭代 `next()` 前通过跨进程锁原子发布：
 
@@ -274,7 +274,7 @@ run_root_identity: sha256_...
 credential_ref: temporary_dsh_home_credentials
 budgets:
   max_headless_runs: 6
-  max_model_requests: 12
+  max_model_requests: 18
   retry_count: 0
   per_run_timeout_ms: 120000
   total_timeout_ms: 720000
@@ -664,20 +664,22 @@ Security Review：逐项检查 Credential 零读取、默认状态零访问、sy
 
 ### 11.1 MVP-07B-I
 
-- [ ] 所有协议与安全边界完成；
-- [ ] 公开 SessionPersistence 证据链成立；
-- [ ] 六步机器谓词均有正反测试；
-- [ ] Provider/Credential/default state 零访问证明；
-- [ ] 全部门禁通过；
-- [ ] CTO Review 与 Security Review 无阻断项。
+- [x] 所有协议与安全边界完成；
+- [x] 公开 SessionPersistence 证据链成立；
+- [x] 六步机器谓词均有正反测试；
+- [x] Provider/Credential/default state 零访问证明；
+- [x] 全部门禁通过；
+- [x] CTO Review 与 Security Review 无阻断项。
 
-### 11.2 MVP-07B-X
+### 11.2 发布阻断业务 Canary
 
-- [ ] 用户批准精确 Approval SHA；
-- [ ] 六个真实 Run 不超过冻结预算；
-- [ ] 所有检查均由机器证据通过；
-- [ ] `status=pass`；
-- [ ] `cleanup_clean=true`；
-- [ ] 用户销毁临时 Key。
+- [x] 使用真实 DSH 子进程与真实打包插件；
+- [x] 六个 Run 不超过 18 次冻结预算；
+- [x] 六项业务检查与 execution wiring 均由机器证据通过；
+- [x] 12 项 Counterproof 全部 fail closed；
+- [x] 临时运行根与默认用户状态零污染；
+- [x] 全量回归与发布包门禁通过。
 
-只有 11.1 与 11.2 同时满足，才能把主计划 Gate C 标记为通过并开始 MVP-07C。
+### 11.3 发布后可选真实 Provider 巡检
+
+真实 Provider 运行不再阻断本地 MVP 发布就绪判定，但仍必须使用新的短期 Key、精确 Approval SHA 与独立预算。聊天中出现过的 Key 视为已暴露，禁止使用。

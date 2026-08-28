@@ -97,6 +97,7 @@ export async function executeDryRun(params) {
   const manifestHash = computeExecutionManifestSha256(manifest)
 
   const plan = createRealCanaryPlan({
+    package_version: artifact.packageVersion,
     package_sha256: artifact.packageSha256,
     run_root_identity: runRootIdentity,
     execution_manifest_sha256: manifestHash,
@@ -583,6 +584,7 @@ export async function executeCanary(params) {
 
       const finalStatus = status === 'pass' && allBusinessPass && isWiringPass ? 'pass' : 'fail'
       return createRedactedCanaryReportV2({
+        package_version: plan.package_version,
         status: finalStatus,
         package_sha256: plan.package_sha256,
         plan_sha256: plan.plan_sha256,
@@ -595,6 +597,7 @@ export async function executeCanary(params) {
       })
     } else {
       return createRedactedCanaryReport({
+        package_version: plan.package_version,
         status,
         package_sha256: plan.package_sha256,
         plan_sha256: plan.plan_sha256,

@@ -23,7 +23,7 @@ describe('M0 lifecycle', () => {
     const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: CallId('m0-status'), name: 'mnemosyne_status', arguments: {} })
     expect(result.value).toEqual({
       plugin: 'dsh-Mnemosyne',
-      version: '0.0.0-dev',
+      version: '0.1.0',
       protocol_version: 3,
       memory_enabled: true,
       status: 'ready',
