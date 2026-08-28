@@ -245,7 +245,7 @@ export function createRecallPreStepHandlerV2(options: RecallPreStepHandlerV2Opti
   }
 }
 
-async function consumeStrictText(stream: AsyncIterable<StreamChunk>): Promise<string> {
+export async function consumeStrictModelTextV2(stream: AsyncIterable<StreamChunk>): Promise<string> {
   let text: string | null = null
   let active: { index: number; type: 'text' | 'reasoning' } | null = null
   let finish = false
@@ -289,7 +289,7 @@ export function createLlmRecallNavigatorV2(llm: LlmRuntime): RecallNavigatorV2 {
       maxTokens: 256,
       signal: route.signal,
     })
-    const text = (await consumeStrictText(stream)).trim()
+    const text = (await consumeStrictModelTextV2(stream)).trim()
     if (!text.startsWith('{') || !text.endsWith('}')) throw new Error('invalid_selection')
     return JSON.parse(text) as RecallNavigationDecisionV2
   }
