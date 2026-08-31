@@ -1,6 +1,6 @@
 # dsh-Mnemosyne v0.2 MVP 收口设计
 
-> 状态：设计冻结，尚未实施
+> 状态：✅ 实现与验收完成
 >
 > 日期：2026-08-31
 >
@@ -229,3 +229,31 @@ DSH Process B / Session B
 8. **运行全量测试、构建和打包门禁**，五项 MVP 全部通过后冻结 v0.2。
 
 每一步独立提交。对应测试未通过，不进入下一步；不在收口过程中加入任何后续治理能力。
+
+## 七、实施结果
+
+四项实现问题已闭合：
+
+- Consolidation 可以自动创建并挂载到 Root 下最多三层的 OKF 路径；
+- Node ID 已绑定 Project Scope、父节点与 Title；
+- 最深合法 Catalog 可以在 8 次单路径判断内完成 Title → Summary → Content；
+- 下一轮 Recall 会等待同 Project 已启动的 Consolidation，不同 Project 不互相阻塞。
+
+两项纵向验收已闭合：
+
+- Project A 自动创建的 Memory 不会进入 Project B 的 Store、Recall 消息、主模型请求或日志；
+- 两个独立 DSH 进程完成 Process A 自动沉淀、完全退出、Process B 从磁盘自动召回。
+
+最终门禁：
+
+```text
+typecheck        PASS
+test             70 files / 755 tests PASS
+build            PASS
+pack             PASS
+pack:check       PASS（6 个发布文件）
+peers check      PASS
+git diff --check PASS
+```
+
+至此，“自动记、自动组织、自动找、按需读、可靠隔离”五项 v0.2 MVP 能力完成收口。本次未加入任何后续治理或 RAG 能力。
