@@ -30,6 +30,26 @@ afterEach(async () => {
 })
 
 describe('v2 consolidation runtime', () => {
+  it('reports a stable judgment model failure stage', async () => {
+    const scope = await project()
+    const runtime = createConsolidationRuntimeV2({ model: async () => { throw new Error('provider details must not leak') } })
+    const result = await runtime.consolidate({
+      scope, evidence: { task: 'task', outcome: 'done' }, used_memory_refs: [], provider: 'p', model: 'm',
+      now: '2026-08-31T04:00:00.000Z', signal: new AbortController().signal,
+    })
+    expect(result).toEqual({ status: 'failed', reason_code: 'consolidation_judgment_model_failed' })
+  })
+
+  it('reports invalid judgment output separately from model failure', async () => {
+    const scope = await project()
+    const runtime = createConsolidationRuntimeV2({ model: async () => ({ decision: 'create' } as any) })
+    const result = await runtime.consolidate({
+      scope, evidence: { task: 'task', outcome: 'done' }, used_memory_refs: [], provider: 'p', model: 'm',
+      now: '2026-08-31T04:00:00.000Z', signal: new AbortController().signal,
+    })
+    expect(result).toEqual({ status: 'failed', reason_code: 'consolidation_judgment_invalid' })
+  })
+
   it('automatically creates and publishes a three-level OKF path', async () => {
     const scope = await project()
     const runtime = createConsolidationRuntimeV2({

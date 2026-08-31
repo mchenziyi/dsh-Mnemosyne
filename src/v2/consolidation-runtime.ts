@@ -219,12 +219,21 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
           const store = openOKFMemoryV2Store({ project_root: request.scope.project_root, project_scope_id: request.scope.project_scope_id })
           for (const ref of request.used_memory_refs) await store.getMemory(ref)
           const route = { provider: request.provider, model: request.model, signal: request.signal }
-          const judgment = validateJudgment(await options.model({
-            schema_version: 1,
-            stage: 'judgment',
-            evidence: request.evidence,
-            used_memory_refs: request.used_memory_refs,
-          }, route), request.used_memory_refs)
+          let rawJudgment: ConsolidationModelDecisionV2
+          try {
+            rawJudgment = await options.model({
+              schema_version: 1,
+              stage: 'judgment',
+              evidence: request.evidence,
+              used_memory_refs: request.used_memory_refs,
+            }, route)
+          } catch {
+            return { status: 'failed', reason_code: 'consolidation_judgment_model_failed' }
+          }
+          let judgment: Extract<ConsolidationModelDecisionV2, { decision: 'skip' | 'create' }>
+          try { judgment = validateJudgment(rawJudgment, request.used_memory_refs) } catch {
+            return { status: 'failed', reason_code: 'consolidation_judgment_invalid' }
+          }
           if (judgment.decision === 'skip') return { status: 'skipped', reason_code: judgment.reason_code }
 
           const fingerprint = memoryFingerprint(request.scope.project_scope_id, judgment)
@@ -243,23 +252,41 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
           let depth = 0
           while (true) {
             const categories = current.child_node_refs.map((ref) => ({ ref, title: catalog.nodes.find((node) => node.node_id === ref)!.title }))
-            const category = validateCategorySelection(await options.model({
-              schema_version: 1,
-              stage: 'category_titles',
-              memory: { title: judgment.title, summary: judgment.summary },
-              current_node_ref: current.node_id,
-              current_depth: depth,
-              categories,
-            }, route), categories)
+            let rawCategory: ConsolidationModelDecisionV2
+            try {
+              rawCategory = await options.model({
+                schema_version: 1,
+                stage: 'category_titles',
+                memory: { title: judgment.title, summary: judgment.summary },
+                current_node_ref: current.node_id,
+                current_depth: depth,
+                categories,
+              }, route)
+            } catch {
+              return { status: 'failed', reason_code: 'consolidation_category_model_failed' }
+            }
+            let category: Extract<ConsolidationModelDecisionV2, { decision: 'existing' | 'new' }>
+            try { category = validateCategorySelection(rawCategory, categories) } catch {
+              return { status: 'failed', reason_code: 'consolidation_category_invalid' }
+            }
             current = addCategory(catalog, current, category)
             depth++
-            const expansion = validateCategoryExpansion(await options.model({
-              schema_version: 1,
-              stage: 'category_summary',
-              memory: { title: judgment.title, summary: judgment.summary },
-              category: { ref: current.node_id, title: current.title, summary: current.summary },
-              current_depth: depth,
-            }, route), depth)
+            let rawExpansion: ConsolidationModelDecisionV2
+            try {
+              rawExpansion = await options.model({
+                schema_version: 1,
+                stage: 'category_summary',
+                memory: { title: judgment.title, summary: judgment.summary },
+                category: { ref: current.node_id, title: current.title, summary: current.summary },
+                current_depth: depth,
+              }, route)
+            } catch {
+              return { status: 'failed', reason_code: 'consolidation_category_model_failed' }
+            }
+            let expansion: Extract<ConsolidationModelDecisionV2, { decision: 'attach' | 'expand' }>
+            try { expansion = validateCategoryExpansion(rawExpansion, depth) } catch {
+              return { status: 'failed', reason_code: 'consolidation_category_invalid' }
+            }
             if (expansion.decision === 'attach') break
           }
 
@@ -276,14 +303,21 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
           }
           if (!duplicate) memory.content_sha256 = computeOKFMemoryV2Hash(memory)
           const nextCatalog = updatedCatalog(catalog, current, memory, request.now)
-          await store.putMemory(memory)
-          const catalogWrite = await store.putCatalog(nextCatalog)
-          const generation = await publishOKFGenerationV2({
-            project_root: request.scope.project_root,
-            project_scope_id: request.scope.project_scope_id,
-            catalog_id: catalogWrite.catalog_id,
-            created_at: request.now,
-          })
+          let catalogWrite: Awaited<ReturnType<typeof store.putCatalog>>
+          let generation: Awaited<ReturnType<typeof publishOKFGenerationV2>>
+          try {
+            await store.putMemory(memory)
+            catalogWrite = await store.putCatalog(nextCatalog)
+            generation = await publishOKFGenerationV2({
+              project_root: request.scope.project_root,
+              project_scope_id: request.scope.project_scope_id,
+              catalog_id: catalogWrite.catalog_id,
+              created_at: request.now,
+            })
+          } catch (error: unknown) {
+            const reason = error instanceof MemoryStoreError ? error.code : 'consolidation_publish_failed'
+            return { status: 'failed', reason_code: reason }
+          }
           return { status: 'created', reason_code: null, memory_id: memory.memory_id, catalog_id: catalogWrite.catalog_id, generation_id: generation.generation_id }
         } catch (error: unknown) {
           const reason = error instanceof MemoryStoreError ? error.code : 'consolidation_failed'
