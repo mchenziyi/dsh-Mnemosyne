@@ -348,17 +348,31 @@ export function createLlmConsolidationModelV2(llm: LlmRuntime): ConsolidationMod
       : request.stage === 'category_titles'
         ? 'Choose one offered direct child category by returning {"decision":"existing","node_ref":"..."}, or create one direct child with {"decision":"new","title":"...","summary":"..."}. Return strict JSON only.'
         : 'After reading the selected category summary, return exactly {"decision":"attach"} to place the memory here, or {"decision":"expand"} to inspect or create a more specific child category. Return strict JSON only.'
-    const stream = llm.stream({
-      provider: route.provider,
-      model: route.model,
-      system,
-      messages: [createUserMessage({ content: [{ type: 'text', text: JSON.stringify(request) }], source: { kind: 'plugin', plugin: 'dsh-mnemosyne', form: 'notice', summary: 'memory consolidation request' } })],
-      tools: [],
-      maxTokens: request.stage === 'judgment' ? 2048 : 256,
-      signal: route.signal,
-    })
-    const text = (await consumeStrictModelTextV2(stream)).trim()
-    if (!text.startsWith('{') || !text.endsWith('}')) throw new Error('invalid_model_output')
-    return JSON.parse(text) as ConsolidationModelDecisionV2
+    let stream: AsyncIterable<import('@deepseek-ai/dsh-llm').StreamChunk>
+    try {
+      stream = llm.stream({
+        provider: route.provider,
+        model: route.model,
+        system,
+        messages: [createUserMessage({ content: [{ type: 'text', text: JSON.stringify(request) }], source: { kind: 'plugin', plugin: 'dsh-mnemosyne', form: 'notice', summary: 'memory consolidation request' } })],
+        tools: [],
+        maxTokens: request.stage === 'judgment' ? 2048 : 256,
+        signal: route.signal,
+      })
+    } catch {
+      throw Object.assign(new Error('llm stream start failed'), { code: 'stream_start_failed' })
+    }
+    let text: string
+    try {
+      text = (await consumeStrictModelTextV2(stream)).trim()
+    } catch {
+      throw Object.assign(new Error('llm stream consume failed'), { code: 'stream_consume_failed' })
+    }
+    if (!text.startsWith('{') || !text.endsWith('}')) throw Object.assign(new Error('invalid model output'), { code: 'json_parse_failed' })
+    try {
+      return JSON.parse(text) as ConsolidationModelDecisionV2
+    } catch {
+      throw Object.assign(new Error('invalid model output'), { code: 'json_parse_failed' })
+    }
   }
 }
