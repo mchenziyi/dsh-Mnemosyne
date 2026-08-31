@@ -211,6 +211,7 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
   return {
     async consolidate(request: ConsolidationRequestV2): Promise<ConsolidationResultV2> {
       return await coordinator.run(request.scope.project_scope_id, async () => {
+        let stage = 'input'
         try {
           assertUtcTimestamp(request.now)
           boundedText(request.evidence.task, 32768)
@@ -236,6 +237,7 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
           }
           if (judgment.decision === 'skip') return { status: 'skipped', reason_code: judgment.reason_code }
 
+          stage = 'catalog_read'
           const fingerprint = memoryFingerprint(request.scope.project_scope_id, judgment)
           let catalog: OKFCatalogV1
           try { catalog = await currentCatalog(request.scope) } catch (error: unknown) {
@@ -251,6 +253,7 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
           let current = catalog.nodes.find((node) => node.node_id === catalog.root_node_id)!
           let depth = 0
           while (true) {
+            stage = 'category_selection'
             const categories = current.child_node_refs.map((ref) => ({ ref, title: catalog.nodes.find((node) => node.node_id === ref)!.title }))
             let rawCategory: ConsolidationModelDecisionV2
             try {
@@ -271,6 +274,7 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
             }
             current = addCategory(catalog, current, category)
             depth++
+            stage = 'category_expansion'
             let rawExpansion: ConsolidationModelDecisionV2
             try {
               rawExpansion = await options.model({
@@ -320,7 +324,7 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
           }
           return { status: 'created', reason_code: null, memory_id: memory.memory_id, catalog_id: catalogWrite.catalog_id, generation_id: generation.generation_id }
         } catch (error: unknown) {
-          const reason = error instanceof MemoryStoreError ? error.code : 'consolidation_failed'
+          const reason = error instanceof MemoryStoreError ? error.code : `consolidation_${stage}_failed`
           return { status: 'failed', reason_code: reason }
         }
       })
