@@ -30,6 +30,8 @@ export interface OKFCatalogV1 {
   content_sha256: string
 }
 
+export const OKF_CATALOG_MAX_DEPTH = 3
+
 const CATALOG_KEYS = ['schema_version', 'project_scope_id', 'root_node_id', 'nodes', 'updated_at', 'content_sha256'] as const
 const NODE_KEYS = ['node_id', 'title', 'summary', 'parent_node_id', 'child_node_refs', 'memory_refs'] as const
 
@@ -38,6 +40,18 @@ function text(value: unknown, maxBytes: number): string {
     throw new MemoryStoreError('memory_store_invalid_input')
   }
   return value
+}
+
+export function computeOKFCatalogNodeIdV1(projectScopeId: string, parentNodeId: string, title: string): string {
+  assertHash(projectScopeId)
+  assertId(parentNodeId, 'node_')
+  const normalizedTitle = text(title, 320)
+  return `node_${canonicalHash({
+    schema_version: 1,
+    project_scope_id: projectScopeId,
+    parent_node_id: parentNodeId,
+    title: normalizedTitle,
+  }).slice('sha256_'.length)}`
 }
 
 function normalizeNode(raw: unknown): OKFCatalogNodeV1 {
@@ -61,6 +75,7 @@ function normalizeNode(raw: unknown): OKFCatalogNodeV1 {
 function validateTree(catalog: OKFCatalogV1): void {
   const byId = new Map(catalog.nodes.map((node) => [node.node_id, node]))
   if (byId.size !== catalog.nodes.length) throw new MemoryStoreError('memory_store_invalid_input')
+  if (catalog.root_node_id !== 'node_root') throw new MemoryStoreError('memory_store_invalid_input')
   const root = byId.get(catalog.root_node_id)
   if (!root || root.parent_node_id !== null || root.memory_refs.length !== 0) throw new MemoryStoreError('memory_store_invalid_input')
 
@@ -70,6 +85,9 @@ function validateTree(catalog: OKFCatalogV1): void {
     if (node.parent_node_id !== null) {
       const parent = byId.get(node.parent_node_id)
       if (!parent || !parent.child_node_refs.includes(node.node_id)) throw new MemoryStoreError('memory_store_invalid_input')
+      if (node.node_id !== computeOKFCatalogNodeIdV1(catalog.project_scope_id, node.parent_node_id, node.title)) {
+        throw new MemoryStoreError('memory_store_invalid_input')
+      }
     }
     for (const childId of node.child_node_refs) {
       const child = byId.get(childId)
@@ -83,15 +101,16 @@ function validateTree(catalog: OKFCatalogV1): void {
 
   const visiting = new Set<string>()
   const visited = new Set<string>()
-  const visit = (nodeId: string): void => {
+  const visit = (nodeId: string, depth: number): void => {
     if (visiting.has(nodeId)) throw new MemoryStoreError('memory_store_invalid_input')
     if (visited.has(nodeId)) return
+    if (depth > OKF_CATALOG_MAX_DEPTH) throw new MemoryStoreError('memory_store_invalid_input')
     visiting.add(nodeId)
-    for (const childId of byId.get(nodeId)!.child_node_refs) visit(childId)
+    for (const childId of byId.get(nodeId)!.child_node_refs) visit(childId, depth + 1)
     visiting.delete(nodeId)
     visited.add(nodeId)
   }
-  visit(catalog.root_node_id)
+  visit(catalog.root_node_id, 0)
   if (visited.size !== catalog.nodes.length) throw new MemoryStoreError('memory_store_invalid_input')
 }
 

@@ -4,7 +4,7 @@ import type { ResolvedScope } from '../runtime-scope.js'
 import { assertUtcTimestamp } from '../memory-fact.js'
 import { MemoryStoreError } from '../memory-store-error.js'
 import { createMutationCoordinator } from '../mutation-coordinator.js'
-import { computeOKFCatalogV1Hash, type OKFCatalogNodeV1, type OKFCatalogV1 } from './okf-catalog.js'
+import { computeOKFCatalogNodeIdV1, computeOKFCatalogV1Hash, type OKFCatalogNodeV1, type OKFCatalogV1 } from './okf-catalog.js'
 import { computeOKFMemoryV2Hash, type OKFMemoryV2 } from './okf-memory.js'
 import { openOKFMemoryV2Store } from './okf-memory-store.js'
 import { publishOKFGenerationV2, readCurrentOKFGenerationV2 } from './okf-compiler.js'
@@ -130,10 +130,6 @@ function memoryId(fingerprint: string): string {
   return `mem_${fingerprint.slice('sha256_'.length)}`
 }
 
-function categoryNodeId(title: string): string {
-  return `node_${canonicalHash({ schema_version: 1, title }).slice('sha256_'.length, 'sha256_'.length + 32)}`
-}
-
 function initialCatalog(scope: string, now: string): OKFCatalogV1 {
   const catalog: OKFCatalogV1 = {
     schema_version: 1,
@@ -154,7 +150,7 @@ function updatedCatalog(catalog: OKFCatalogV1, category: Extract<ConsolidationMo
   if (category.decision === 'existing') {
     node = next.nodes.find((candidate) => candidate.node_id === category.node_ref)
   } else {
-    const id = categoryNodeId(category.title)
+    const id = computeOKFCatalogNodeIdV1(catalog.project_scope_id, root.node_id, category.title)
     node = next.nodes.find((candidate) => candidate.node_id === id)
     if (!node) {
       node = { node_id: id, title: category.title, summary: category.summary, parent_node_id: root.node_id, child_node_refs: [], memory_refs: [] }

@@ -11,6 +11,7 @@ import {
 } from '../src/v2/okf-memory.js'
 import {
   canonicalizeOKFCatalogV1,
+  computeOKFCatalogNodeIdV1,
   computeOKFCatalogV1Hash,
   validateOKFCatalogV1,
   type OKFCatalogV1,
@@ -44,6 +45,7 @@ function memory(scope: string, id = 'mem_v2_alpha', related: string[] = []): OKF
 }
 
 function catalog(scope: string, memoryId = 'mem_v2_alpha'): OKFCatalogV1 {
+  const dependenciesId = computeOKFCatalogNodeIdV1(scope, 'node_root', '依赖管理')
   const value: OKFCatalogV1 = {
     schema_version: 1,
     project_scope_id: scope,
@@ -54,11 +56,11 @@ function catalog(scope: string, memoryId = 'mem_v2_alpha'): OKFCatalogV1 {
         title: '项目记忆',
         summary: '项目记忆根目录。',
         parent_node_id: null,
-        child_node_refs: ['node_dependencies'],
+        child_node_refs: [dependenciesId],
         memory_refs: [],
       },
       {
-        node_id: 'node_dependencies',
+        node_id: dependenciesId,
         title: '依赖管理',
         summary: '依赖安装、锁文件与版本冲突相关经验。',
         parent_node_id: 'node_root',
@@ -131,7 +133,7 @@ describe('v2 OKF memory schema and store', () => {
     await expect(store.putCatalog(dangling)).rejects.toMatchObject({ code: 'memory_store_not_found' })
 
     const cyclic = structuredClone(value)
-    cyclic.nodes[0]!.parent_node_id = 'node_dependencies'
+    cyclic.nodes[0]!.parent_node_id = cyclic.nodes[1]!.node_id
     cyclic.nodes[1]!.child_node_refs = ['node_root']
     expect(() => canonicalizeOKFCatalogV1(cyclic)).toThrow(MemoryStoreError)
   })

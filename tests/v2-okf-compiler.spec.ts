@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it } from 'vitest'
 import { computeProjectScopeId } from '../src/runtime-scope.js'
 import { computeOKFMemoryV2Hash, type OKFMemoryV2 } from '../src/v2/okf-memory.js'
-import { computeOKFCatalogV1Hash, type OKFCatalogV1 } from '../src/v2/okf-catalog.js'
+import { computeOKFCatalogNodeIdV1, computeOKFCatalogV1Hash, type OKFCatalogV1 } from '../src/v2/okf-catalog.js'
 import { openOKFMemoryV2Store } from '../src/v2/okf-memory-store.js'
 import {
   compileOKFGenerationV2,
@@ -37,6 +37,7 @@ function makeMemory(scope: string, id: string, title: string, related: string[] 
 }
 
 function makeCatalog(scope: string): OKFCatalogV1 {
+  const buildId = computeOKFCatalogNodeIdV1(scope, 'node_root', '构建问题')
   const value: OKFCatalogV1 = {
     schema_version: 1,
     project_scope_id: scope,
@@ -44,10 +45,10 @@ function makeCatalog(scope: string): OKFCatalogV1 {
     nodes: [
       {
         node_id: 'node_root', title: '项目记忆', summary: '根摘要不得进入 Root Title Index。', parent_node_id: null,
-        child_node_refs: ['node_build'], memory_refs: [],
+        child_node_refs: [buildId], memory_refs: [],
       },
       {
-        node_id: 'node_build', title: '构建问题', summary: '构建和依赖问题的分类总结。', parent_node_id: 'node_root',
+        node_id: buildId, title: '构建问题', summary: '构建和依赖问题的分类总结。', parent_node_id: 'node_root',
         child_node_refs: [], memory_refs: ['mem_lockfile', 'mem_peer'],
       },
     ],
@@ -76,7 +77,8 @@ describe('v2 OKF compiler', () => {
     expect(root).not.toContain('构建和依赖问题的分类总结')
     expect(root).not.toContain('不要直接删除锁文件')
 
-    const node = output.files.get('indexes/nodes/node_build.json')!
+    const buildId = computeOKFCatalogNodeIdV1(scope, 'node_root', '构建问题')
+    const node = output.files.get(`indexes/nodes/${buildId}.json`)!
     expect(node).toContain('构建和依赖问题的分类总结')
     expect(node).toContain('不要直接删除锁文件')
     expect(node).not.toContain('不要直接删除锁文件 的简短总结')
