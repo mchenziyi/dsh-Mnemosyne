@@ -282,6 +282,18 @@ describe('MVP-05 acquisition evidence extraction', () => {
     expect(serialized).not.toContain('sensitive tool output')
   })
 
+  it('does not let a plugin message after the user overwrite consolidation evidence', () => {
+    const events = [
+      { seq: 0, time: '2026-08-25T07:59:50.000Z', type: 'request/header', turn: 1, data: { header: { config: { provider: 'p', model: 'm' } } } },
+      { seq: 1, time: '2026-08-25T07:59:51.000Z', type: 'user/message', turn: 1, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'real user task' }] } },
+      { seq: 2, time: '2026-08-25T07:59:52.000Z', type: 'user/message', turn: 1, data: { source: { kind: 'plugin', plugin: 'system', form: 'context' }, content: [{ type: 'text', text: 'plugin context must not become the task' }] } },
+      { seq: 3, time: '2026-08-25T07:59:53.000Z', type: 'assistant/message', turn: 1, data: { message: { source: { kind: 'model' }, content: [{ type: 'text', text: 'completed result' }] } } },
+      { seq: 4, time: '2026-08-25T08:00:00.000Z', type: 'turn/end', turn: 1, data: { turn: 1, reason: { kind: 'completed' } } },
+    ] as unknown as SessionEvent[]
+    const evidence = extractAcquisitionEvidence(createMockSession(events), events[4]!, dummyScope)
+    expect(evidence?.user_text).toBe('real user task')
+  })
+
   it('correctly isolates multi-turn sessions and ignores previous turns or seed history', () => {
     const turnEndEvent2: SessionEvent = {
       seq: 10,

@@ -30,6 +30,31 @@ afterEach(async () => {
 })
 
 describe('v2 consolidation runtime', () => {
+  it('does not lose catalog entries when two turns consolidate concurrently', async () => {
+    const scope = await project()
+    const runtime = createConsolidationRuntimeV2({
+      model: async (request) => {
+        if (request.stage === 'judgment') return {
+          decision: 'create',
+          title: `经验 ${request.evidence.task}`,
+          summary: `总结 ${request.evidence.task}`,
+          content: `## 内容\n\n${request.evidence.task}`,
+          related_memory_refs: [],
+        }
+        return { decision: 'new', title: `分类 ${request.memory.title}`, summary: '并发分类。' }
+      },
+    })
+    const base = { scope, used_memory_refs: [], provider: 'p', model: 'm', signal: new AbortController().signal }
+    const [first, second] = await Promise.all([
+      runtime.consolidate({ ...base, evidence: { task: 'A', outcome: 'done' }, now: '2026-08-28T03:00:00.000Z' }),
+      runtime.consolidate({ ...base, evidence: { task: 'B', outcome: 'done' }, now: '2026-08-28T03:00:01.000Z' }),
+    ])
+
+    expect([first.status, second.status]).toEqual(['created', 'created'])
+    const world = await readCurrentOKFGenerationV2({ project_root: scope.project_root, project_scope_id: scope.project_scope_id })
+    expect(world.manifest.memory_refs.map((ref) => ref.memory_id).sort()).toEqual([first.memory_id, second.memory_id].sort())
+  })
+
   it('automatically creates a project-level memory, catalog, and current generation', async () => {
     const scope = await project()
     const seen: ConsolidationModelRequestV2[] = []

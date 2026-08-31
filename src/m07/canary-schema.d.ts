@@ -52,7 +52,7 @@ export interface CanaryReport {
   schema_version: 1
   status: 'pass' | 'fail' | 'aborted' | 'dry_run_ready'
   dsh_version: '0.1.1-rc.2'
-  package_version: '0.0.0-dev' | '0.1.0'
+  package_version: '0.0.0-dev' | '0.1.0' | '0.2.0'
   package_sha256: string
   run_count: number
   model_request_count: number

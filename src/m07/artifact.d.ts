@@ -8,7 +8,7 @@ export const REQUIRED_CANARY_TARBALL_FILES: readonly [
 
 export interface VerifiedCanaryArtifact {
   packageName: '@cziyi/dsh-mnemosyne'
-  packageVersion: '0.0.0-dev' | '0.1.0'
+  packageVersion: '0.0.0-dev' | '0.1.0' | '0.2.0'
   packageSha256: string
   realTarballPath: string
 }

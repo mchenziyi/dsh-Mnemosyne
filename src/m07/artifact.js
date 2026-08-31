@@ -97,7 +97,7 @@ export async function verifyCanaryArtifact(tarballPath) {
   if (manifest.name !== '@cziyi/dsh-mnemosyne') {
     throw new Error('invalid_package_name_in_tarball')
   }
-  if (manifest.version !== '0.0.0-dev' && manifest.version !== '0.1.0') {
+  if (manifest.version !== '0.0.0-dev' && manifest.version !== '0.1.0' && manifest.version !== '0.2.0') {
     throw new Error('invalid_package_version_in_tarball')
   }
   if (manifest.dsh?.bundle?.patch !== './cordis.patch.yml') {

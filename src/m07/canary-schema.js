@@ -215,7 +215,7 @@ export function validateCanaryReport(val) {
 
   if (val.schema_version !== 1) throw new Error('invalid_schema_version')
   if (val.dsh_version !== '0.1.1-rc.2') throw new Error('invalid_dsh_version')
-  if (val.package_version !== '0.0.0-dev' && val.package_version !== '0.1.0') {
+  if (val.package_version !== '0.0.0-dev' && val.package_version !== '0.1.0' && val.package_version !== '0.2.0') {
     throw new Error('invalid_package_version')
   }
   if (typeof val.package_sha256 !== 'string' || !/^sha256_[0-9a-f]{64}$/.test(val.package_sha256)) {

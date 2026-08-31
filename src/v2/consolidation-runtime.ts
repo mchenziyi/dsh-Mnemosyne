@@ -3,6 +3,7 @@ import { canonicalHash, compareCodePoints } from '../protocol/canonical.js'
 import type { ResolvedScope } from '../runtime-scope.js'
 import { assertUtcTimestamp } from '../memory-fact.js'
 import { MemoryStoreError } from '../memory-store-error.js'
+import { createMutationCoordinator } from '../mutation-coordinator.js'
 import { computeOKFCatalogV1Hash, type OKFCatalogNodeV1, type OKFCatalogV1 } from './okf-catalog.js'
 import { computeOKFMemoryV2Hash, type OKFMemoryV2 } from './okf-memory.js'
 import { openOKFMemoryV2Store } from './okf-memory-store.js'
@@ -181,71 +182,74 @@ async function currentCatalog(scope: ResolvedScope): Promise<OKFCatalogV1> {
 }
 
 export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Options): ConsolidationRuntimeV2 {
+  const coordinator = createMutationCoordinator()
   return {
     async consolidate(request: ConsolidationRequestV2): Promise<ConsolidationResultV2> {
-      try {
-        assertUtcTimestamp(request.now)
-        boundedText(request.evidence.task, 32768)
-        boundedText(request.evidence.outcome, 32768)
-        if (new Set(request.used_memory_refs).size !== request.used_memory_refs.length) throw new Error('invalid_input')
-        const store = openOKFMemoryV2Store({ project_root: request.scope.project_root, project_scope_id: request.scope.project_scope_id })
-        for (const ref of request.used_memory_refs) await store.getMemory(ref)
-        const route = { provider: request.provider, model: request.model, signal: request.signal }
-        const judgment = validateJudgment(await options.model({
-          schema_version: 1,
-          stage: 'judgment',
-          evidence: request.evidence,
-          used_memory_refs: request.used_memory_refs,
-        }, route), request.used_memory_refs)
-        if (judgment.decision === 'skip') return { status: 'skipped', reason_code: judgment.reason_code }
+      return await coordinator.run(request.scope.project_scope_id, async () => {
+        try {
+          assertUtcTimestamp(request.now)
+          boundedText(request.evidence.task, 32768)
+          boundedText(request.evidence.outcome, 32768)
+          if (new Set(request.used_memory_refs).size !== request.used_memory_refs.length) throw new Error('invalid_input')
+          const store = openOKFMemoryV2Store({ project_root: request.scope.project_root, project_scope_id: request.scope.project_scope_id })
+          for (const ref of request.used_memory_refs) await store.getMemory(ref)
+          const route = { provider: request.provider, model: request.model, signal: request.signal }
+          const judgment = validateJudgment(await options.model({
+            schema_version: 1,
+            stage: 'judgment',
+            evidence: request.evidence,
+            used_memory_refs: request.used_memory_refs,
+          }, route), request.used_memory_refs)
+          if (judgment.decision === 'skip') return { status: 'skipped', reason_code: judgment.reason_code }
 
-        const fingerprint = memoryFingerprint(request.scope.project_scope_id, judgment)
-        let catalog: OKFCatalogV1
-        try { catalog = await currentCatalog(request.scope) } catch (error: unknown) {
-          if ((error as { code?: string }).code !== 'memory_compile_not_found') throw error
-          catalog = initialCatalog(request.scope.project_scope_id, request.now)
-        }
-        const existing = await store.listMemories()
-        const duplicate = existing.find((memory) => memoryFingerprint(memory.project_scope_id, memory) === fingerprint)
-        const visibleMemoryRefs = new Set(catalog.nodes.flatMap((node) => node.memory_refs))
-        if (duplicate && visibleMemoryRefs.has(duplicate.memory_id)) {
-          return { status: 'noop', reason_code: 'duplicate_memory', memory_id: duplicate.memory_id }
-        }
-        const root = catalog.nodes.find((node) => node.node_id === catalog.root_node_id)!
-        const categories = root.child_node_refs.map((ref) => ({ ref, title: catalog.nodes.find((node) => node.node_id === ref)!.title }))
-        const category = validateCategory(await options.model({
-          schema_version: 1,
-          stage: 'category_titles',
-          memory: { title: judgment.title, summary: judgment.summary },
-          categories,
-        }, route), categories)
+          const fingerprint = memoryFingerprint(request.scope.project_scope_id, judgment)
+          let catalog: OKFCatalogV1
+          try { catalog = await currentCatalog(request.scope) } catch (error: unknown) {
+            if ((error as { code?: string }).code !== 'memory_compile_not_found') throw error
+            catalog = initialCatalog(request.scope.project_scope_id, request.now)
+          }
+          const existing = await store.listMemories()
+          const duplicate = existing.find((memory) => memoryFingerprint(memory.project_scope_id, memory) === fingerprint)
+          const visibleMemoryRefs = new Set(catalog.nodes.flatMap((node) => node.memory_refs))
+          if (duplicate && visibleMemoryRefs.has(duplicate.memory_id)) {
+            return { status: 'noop', reason_code: 'duplicate_memory', memory_id: duplicate.memory_id }
+          }
+          const root = catalog.nodes.find((node) => node.node_id === catalog.root_node_id)!
+          const categories = root.child_node_refs.map((ref) => ({ ref, title: catalog.nodes.find((node) => node.node_id === ref)!.title }))
+          const category = validateCategory(await options.model({
+            schema_version: 1,
+            stage: 'category_titles',
+            memory: { title: judgment.title, summary: judgment.summary },
+            categories,
+          }, route), categories)
 
-        const memory: OKFMemoryV2 = duplicate ?? {
-          schema_version: 2,
-          memory_id: memoryId(fingerprint),
-          project_scope_id: request.scope.project_scope_id,
-          title: judgment.title,
-          summary: judgment.summary,
-          content: judgment.content,
-          related_memory_refs: [...judgment.related_memory_refs].sort(compareCodePoints),
-          created_at: request.now,
-          content_sha256: '',
+          const memory: OKFMemoryV2 = duplicate ?? {
+            schema_version: 2,
+            memory_id: memoryId(fingerprint),
+            project_scope_id: request.scope.project_scope_id,
+            title: judgment.title,
+            summary: judgment.summary,
+            content: judgment.content,
+            related_memory_refs: [...judgment.related_memory_refs].sort(compareCodePoints),
+            created_at: request.now,
+            content_sha256: '',
+          }
+          if (!duplicate) memory.content_sha256 = computeOKFMemoryV2Hash(memory)
+          const nextCatalog = updatedCatalog(catalog, category, memory, request.now)
+          await store.putMemory(memory)
+          const catalogWrite = await store.putCatalog(nextCatalog)
+          const generation = await publishOKFGenerationV2({
+            project_root: request.scope.project_root,
+            project_scope_id: request.scope.project_scope_id,
+            catalog_id: catalogWrite.catalog_id,
+            created_at: request.now,
+          })
+          return { status: 'created', reason_code: null, memory_id: memory.memory_id, catalog_id: catalogWrite.catalog_id, generation_id: generation.generation_id }
+        } catch (error: unknown) {
+          const reason = error instanceof MemoryStoreError ? error.code : 'consolidation_failed'
+          return { status: 'failed', reason_code: reason }
         }
-        if (!duplicate) memory.content_sha256 = computeOKFMemoryV2Hash(memory)
-        const nextCatalog = updatedCatalog(catalog, category, memory, request.now)
-        await store.putMemory(memory)
-        const catalogWrite = await store.putCatalog(nextCatalog)
-        const generation = await publishOKFGenerationV2({
-          project_root: request.scope.project_root,
-          project_scope_id: request.scope.project_scope_id,
-          catalog_id: catalogWrite.catalog_id,
-          created_at: request.now,
-        })
-        return { status: 'created', reason_code: null, memory_id: memory.memory_id, catalog_id: catalogWrite.catalog_id, generation_id: generation.generation_id }
-      } catch (error: unknown) {
-        const reason = error instanceof MemoryStoreError ? error.code : 'consolidation_failed'
-        return { status: 'failed', reason_code: reason }
-      }
+      })
     },
   }
 }

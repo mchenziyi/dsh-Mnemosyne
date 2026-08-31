@@ -148,7 +148,7 @@ describe('M0 lifecycle', () => {
       const fiber = await ctx.plugin({ name: 'dsh-mnemosyne', Config, inject: ['llm'], apply }, { enabled: true })
       const events: any[] = [
         { seq: 0, time: '2026-08-28T08:00:00.000Z', type: 'request/header', turn: 1, data: { header: { config: { provider: 'p', model: 'm' } } } },
-        { seq: 1, time: '2026-08-28T08:00:01.000Z', type: 'user/message', turn: 1, data: { content: [{ type: 'text', text: '修复构建输入问题' }] } },
+        { seq: 1, time: '2026-08-28T08:00:01.000Z', type: 'user/message', turn: 1, data: { source: { kind: 'user' }, content: [{ type: 'text', text: '修复构建输入问题' }] } },
         { seq: 2, time: '2026-08-28T08:00:02.000Z', type: 'assistant/message', turn: 1, data: { message: { content: [{ type: 'text', text: '已确认缺少输入并完成修复。' }], provider: 'p', model: 'm' } } },
         { seq: 3, time: '2026-08-28T08:00:03.000Z', type: 'turn/end', turn: 1, data: { turn: 1, reason: { kind: 'completed' } } },
       ]

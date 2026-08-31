@@ -140,7 +140,9 @@ export function extractAcquisitionEvidence(
 
     if (event.type === 'user/message') {
       const userData = event.data as any
-      const content = userData?.content || userData?.message?.content
+      const userMessage = userData?.message || userData
+      if (userMessage?.source?.kind !== 'user') continue
+      const content = userMessage?.content
 
       if (Array.isArray(content)) {
         const textParts = content

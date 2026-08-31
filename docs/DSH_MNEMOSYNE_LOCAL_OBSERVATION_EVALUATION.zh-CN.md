@@ -1,105 +1,78 @@
-# dsh-Mnemosyne 本地观察期监控与评估规范
+# dsh-Mnemosyne v0.2 本地观察期监控与评估规范
 
-> 状态：✅ 评估口径已冻结，待 v0.1.0 MVP 完成后执行
+> 状态：✅ 评估口径已冻结，待 v0.2.0 本地连续运行时执行
 >
-> 日期：2026-08-27
+> 日期：2026-08-31
 >
-> 适用版本：`v0.1.0` 首次本地连续运行观察
+> 适用版本：`v0.2.0`
 
 ---
 
-## 一、目标与原则
+## 一、目标
 
-本规范用于 dsh-Mnemosyne MVP 完成后的本地观察期。建议连续运行 3～7 天，再基于真实任务判断：
+本规范用于插件安装后连续运行 3～7 天的真实项目观察。评估重点不是“生成了多少记忆”，而是：
 
-1. 自动采集是否形成了有价值的记忆；
-2. OKF 与渐进式披露是否能正确召回并控制上下文成本；
-3. 记忆是否真正帮助任务，而不是只生成了看起来合理的文档；
-4. 是否存在错误采纳、跨 Scope 泄漏、敏感信息沉淀或不可变状态损坏；
-5. 收益是否值得额外的模型调用、延迟与磁盘成本。
+1. 用户只进行正常对话时，Recall 与 Consolidation 是否自动运行；
+2. 每条记忆是否符合 OKF Memory v2，且内容正确、有用、不过度泛化；
+3. Recall 是否严格遵循 `Title → Summary → Content`；
+4. 换一种说法提出同类问题时，模型能否找到并使用正确记忆；
+5. 是否出现错误召回、错误沉淀、跨项目泄漏或状态损坏；
+6. 额外模型调用、延迟与磁盘增长是否可接受。
 
-### 1.1 评估原则
-
-- 端到端评估，不只查看 OKF 页面；
-- 规范 Fact/Manifest/Generation/CURRENT 优先于派生页面；
-- Tool 记录优先于模型自然语言声明；
-- 安全问题实行零容忍；
-- 运行前冻结指标口径，观察期间不因结果好坏改变标准；
-- 默认只采集脱敏统计、协议状态、Hash 和用户明确允许的内容；
-- 不采集 Credential、完整 Prompt、完整模型回复或模型思考过程。
+观察期间不要求用户调用任何 `mnemosyne_*` 工具。工具出现在普通会话中本身就是产品边界缺陷。
 
 ---
 
-## 二、观察范围与事实源
+## 二、允许检查的事实源
 
-### 2.1 允许读取的事实源
-
-实际开始观察前，用户必须明确批准精确本地目录。建议只读以下内容：
+开始观察前，用户须明确授权精确项目目录。默认只读：
 
 ```text
 <project>/.dsh-mnemosyne/
-  facts/
-  manifests/
-  generations/
-  CURRENT
+  v2/
+    memories/
+    catalogs/
+    generations/
+    CURRENT
+  debug/
+    runtime.jsonl
 ```
 
-以及 DSH/Mnemosyne 已提供的脱敏状态、Tool 结果、错误码和运行统计。
+必要时可通过 DSH 公开 Session API 核对持久的 plugin recall 消息，但不得解析 DSH 私有数据库或物理存储。
 
-### 2.2 默认禁止读取
-
-- `.credentials.yaml` 或任何 API Key；
-- 用户默认 HOME 中未授权的目录；
-- 完整 Session 数据库、私有 JSONL 或 DSH 私有物理布局；
-- 完整 Prompt、模型回复、Tool 自由文本正文；
-- 与本次观察无关的项目文件。
-
-### 2.3 评估证据优先级
+证据优先级：
 
 ```text
-规范 Fact / Manifest / Generation / CURRENT
-  > 严格 Tool Result
-  > 脱敏运行统计与错误码
-  > OKF 页面人工抽样
-  > Agent 自述
+v2 Memory / Catalog / Manifest / Generation / CURRENT
+  > debug/runtime.jsonl
+  > DSH 公开 API 返回的持久 plugin recall 消息
+  > 经用户允许的 Memory 内容人工抽样
+  > 模型或 Agent 的自然语言自述
 ```
+
+默认禁止读取：Credential、API Key、未授权 HOME 目录、完整 Session 私有数据、隐藏思考、与本次评估无关的项目文件。
 
 ---
 
 ## 三、核心指标
 
-### 3.1 自动采集
+### 3.1 自动沉淀
+
+从 `runtime.jsonl` 统计：
 
 | 指标 | 定义 |
 |---|---|
-| `tasks_observed` | 观察期内纳入评估的真实任务数 |
-| `acquisition_attempted` | 触发自动提取的次数 |
-| `acquisition_created` | 成功创建新 short-term Fact 的次数 |
-| `acquisition_noop` | 因确定性幂等/重复而未新增 Fact 的次数 |
-| `acquisition_skipped` | 因无新颖性、证据不足或规则过滤而跳过的次数 |
-| `acquisition_error` | 提取、校验、写入或编译失败次数 |
-| `capture_success_rate` | `created / attempted` |
-| `acquisition_error_rate` | `error / attempted` |
-| `acquisition_model_requests` | 自动采集产生的额外模型请求数 |
-| `acquisition_latency_ms` | 自动采集附加延迟的分位数，至少记录 P50/P95 |
+| `turns_observed` | 纳入观察的正常完成回合数 |
+| `consolidation_started` | 自动沉淀启动次数 |
+| `consolidation_created` | 新 OKF Memory 成功发布次数 |
+| `consolidation_noop` | 规范内容完全相同而幂等返回的次数 |
+| `consolidation_skipped` | 模型判断无可复用新知识的次数 |
+| `consolidation_failed` | 模型调用、校验、写入或发布失败次数 |
+| `consolidation_error_rate` | `failed / started` |
 
-`capture_success_rate` 不是越高越好。大量普通任务都被创建记忆，可能意味着过度采集。
+`created` 比例不是越高越好。普通闲聊或无新增经验的任务应该 `skip`。
 
-### 3.2 记忆质量
-
-| 指标 | 定义 |
-|---|---|
-| `new_short_term_count` | 新增 short-term Fact 数 |
-| `new_long_term_count` | 新增 long-term Fact 数 |
-| `suspected_duplicate_count` | 人工或规则判断为同义/高度重复的记忆数 |
-| `duplicate_rate` | `suspected_duplicate_count / new_memory_count` |
-| `factually_wrong_count` | 与原任务事实冲突的记忆数 |
-| `overgeneralized_count` | 把一次性现象错误泛化为通用经验的记忆数 |
-| `too_trivial_count` | 内容正确但不值得长期保存的记忆数 |
-| `sensitive_content_count` | 包含凭据、秘密、未授权路径或敏感正文的记忆数 |
-| `actionable_memory_count` | 对后续同类任务具有明确可执行价值的记忆数 |
-
-建议人工抽样标签：
+人工抽样新记忆并标注：
 
 ```text
 useful
@@ -111,30 +84,35 @@ sensitive
 uncertain
 ```
 
-### 3.3 检索与渐进式披露
+重点检查 Title 是否能独立帮助模型初筛、Summary 是否足以判断相关性、Content 是否完整记录问题、踩坑、处理过程与验证方式。
+
+### 3.2 自动 Recall 与渐进式披露
 
 | 指标 | 定义 |
 |---|---|
-| `search_count` | `mnemosyne_search` 调用次数 |
-| `search_hit_count` | 至少返回一条候选的 Search 次数 |
-| `search_empty_count` | 返回空候选的 Search 次数 |
-| `search_hit_rate` | `search_hit_count / search_count` |
-| `relevant_top1_count` | Top-1 候选经人工判断相关的次数 |
-| `relevant_topk_count` | Top-K 至少一条相关的次数 |
-| `precision_at_k` | Top-K 中相关候选数 / 返回候选数 |
-| `open_count` | `mnemosyne_open` 调用次数 |
-| `open_conversion_rate` | `open_count / search_hit_count` |
-| `wrong_memory_open_count` | 打开了与当前任务不相关或错误的记忆次数 |
-| `body_leak_in_search_count` | Search L2 意外包含正文的次数，必须为 0 |
-| `stale_grant_accepted_count` | 旧/失效 Grant 仍能 Open 的次数，必须为 0 |
-| `search_latency_ms` | Search P50/P95 延迟 |
-| `open_latency_ms` | Open P50/P95 延迟 |
+| `recall_started` | 主回合第一步触发 Recall 的次数 |
+| `recall_completed` | 成功完成导航并形成持久注入的次数 |
+| `recall_no_match` | 模型确认没有相关记忆的次数 |
+| `recall_failed` | Catalog、Generation、模型导航或消息注入失败次数 |
+| `recall_error_rate` | `failed / started` |
+| `expansion_steps` | 单轮导航展开次数，最大必须 `<= 6` |
+| `summaries_disclosed` | 单层展示的 Memory Summary 数，最大必须 `<= 5` |
+| `contents_selected` | 最终进入主模型的完整 Memory 数，最大必须 `<= 3` |
+| `disclosure_order_violation` | 跳过 Title 或 Summary 直接披露 Content 的次数，必须为 `0` |
+| `paraphrase_recall_success` | 换措辞后仍召回正确记忆的案例数/率 |
+| `wrong_recall_count` | 披露与当前任务无关记忆的次数 |
 
-换措辞召回需要单独标记。任务使用与记忆不同的表述但仍成功召回，才算真实语义/结构化检索收益。
+每次成功 Recall 还应核对：
 
-### 3.4 实际任务效果
+- DSH Session 中存在 `source.kind=plugin, form=recall` 的持久消息；
+- 主模型请求实际包含最终确认的 Content；
+- 未选择的 Summary、未经 Summary 确认的 Content 没有进入主请求；
+- Related Memory 只先披露 Title，如需展开必须重新走同一流程；
+- 用户没有主动调用或看到记忆工具。
 
-每次记忆被打开或采用后，标注：
+### 3.3 实际效果
+
+对被召回的重点案例人工标注：
 
 ```text
 helped
@@ -143,251 +121,115 @@ harmed
 unknown
 ```
 
-核心指标：
+“被召回”不等于“有帮助”，模型声称有帮助也不等于结果已验证。重点记录：
 
-| 指标 | 定义 |
+- 是否避免了已知踩坑；
+- 是否减少重复排查；
+- 是否因过时或错误记忆走错方向；
+- 本轮发现的新陷阱是否被创建为一条新的关联 Memory，且旧 Memory 字节保持不变。
+
+### 3.4 完整性、隔离与成本
+
+| 指标 | 要求 |
 |---|---|
-| `memory_adopted_count` | Agent 实际使用了记忆建议的次数 |
-| `helped_count` | 经结果验证，记忆确实帮助任务的次数 |
-| `neutral_count` | 使用或披露后没有可见影响的次数 |
-| `harmed_count` | 记忆导致错误操作、错误方向或额外返工的次数 |
-| `unknown_outcome_count` | 无法可靠判断效果的次数 |
-| `help_rate` | `helped / evaluated_adoptions` |
-| `wrong_adoption_rate` | `harmed / evaluated_adoptions` |
-| `task_success_with_memory` | 使用记忆的任务成功数/率 |
-| `estimated_time_saved` | 用户估计减少的排查或重复工作时间 |
-
-不能把“被 Search 返回”算作帮助，也不能把 Agent 口头说“有帮助”当作结果验证。
-
-### 3.5 生命周期与管理
-
-| 指标 | 定义 |
-|---|---|
-| `promote_created` | 成功晋升为 long-term 的次数 |
-| `promote_noop` | 重复晋升返回 NOOP 的次数 |
-| `forget_created` | 新增 Forget Fact 的次数 |
-| `forget_noop` | 重复 Forget 返回 NOOP 的次数 |
-| `forgotten_recalled_count` | 已遗忘记忆仍出现在新 Search 的次数，必须为 0 |
-| `source_short_term_deleted_count` | Promote 后 source short-term 被物理删除的次数，必须为 0 |
-| `restart_persistence_failure` | 重启后应存在的记忆不可读次数 |
-| `cross_session_short_term_leak` | short-term 泄漏到其他 Session 的次数，必须为 0 |
-| `cross_project_leak` | 记忆泄漏到其他 Project 的次数，必须为 0 |
-
-### 3.6 稳定性、完整性与成本
-
-| 指标 | 定义 |
-|---|---|
-| `store_error_count_by_code` | Fact Store 各稳定错误码次数 |
-| `compile_error_count_by_code` | Compiler/Generation 各错误码次数 |
-| `current_invalid_count` | CURRENT 缺失、损坏或引用不完整 Generation 的次数 |
-| `hash_mismatch_count` | Fact/Manifest/Generation/页面 Hash 漂移次数 |
-| `orphan_temp_file_count` | 遗留临时文件数 |
-| `orphan_generation_count` | 未被 CURRENT 引用且无法解释的 Generation 数 |
-| `additional_model_requests` | Mnemosyne 增加的模型请求总数 |
-| `additional_tokens` | Mnemosyne 增加的输入/输出 Token；无法取得时标记 unavailable |
-| `task_latency_overhead_ms` | 相比不启用记忆的额外任务延迟 |
-| `fact_bytes_growth` | Fact 存储增长量 |
-| `generation_bytes_growth` | Manifest/Generation/OKF 增长量 |
-| `total_disk_growth_per_day` | 每日 `.dsh-mnemosyne` 总增长量 |
+| `current_invalid_count` | 必须为 `0` |
+| `hash_mismatch_count` | 必须为 `0` |
+| `broken_memory_ref_count` | 必须为 `0` |
+| `legacy_v1_in_generation_count` | 必须为 `0` |
+| `cross_project_leak_count` | 必须为 `0` |
+| `visible_mnemosyne_tool_count` | 必须为 `0` |
+| `sensitive_content_count` | 必须为 `0` |
+| `orphan_unpublished_memory_count` | 记录并调查 |
+| `additional_model_requests` | Recall + Consolidation 的额外请求数 |
+| `latency_overhead_ms` | P50/P95；无法取得则标 `unavailable` |
+| `token_overhead` | 可取得时记录；否则标 `unavailable` |
+| `v2_disk_growth_per_day` | v2 Store、Generation 与日志每日增长量 |
 
 ---
 
-## 四、端到端案例记录
+## 四、零记忆与漏召回诊断
 
-每个重点案例使用同一模板：
+当会话已运行多轮但状态仍为零时，按顺序查看该项目的 `debug/runtime.jsonl`：
+
+1. 没有 `consolidation_start`：当前 DSH 进程可能未加载 v0.2 插件，或 `turn/end` 没有被观察到；
+2. 有 `consolidation_failed` 且 `reason_code=evidence_unavailable`：用户消息/回合证据提取失败；
+3. `reason_code=model_route_unavailable`：当前 Agent 的 provider/model 路由不可用；
+4. 有 `consolidation_skip`：模型明确认为本轮无可复用新知识，应结合任务内容判断是否合理；
+5. 有 `consolidation_created` 但 CURRENT 不含该 Memory：检查 Catalog/Generation 发布与并发更新；
+6. 有 Memory 但没有 `recall_start`：检查 `agent/pre-step` 装配或是否为主回合第一步；
+7. 有 `recall_no_match`：查看逐层披露与模型选择是否合理；
+8. 有 `recall_completed` 但任务未使用记忆：核对持久 plugin recall 消息和实际主模型请求。
+
+日志只能保存 ref、计数、结果和稳定 reason code，不应包含用户全文、完整 Memory Content、隐藏思考、Credential 或绝对敏感路径。
+
+---
+
+## 五、案例记录模板
 
 ```yaml
 case_id: <脱敏 ID>
 task_family: <受控分类>
 task_outcome: success|failure|partial|unknown
-acquisition:
-  attempted: true|false
-  result: created|noop|skipped|error|not_run
-  memory_refs: [<允许记录时才记录>]
-okf:
-  generation_changed: true|false
-  page_quality: useful|trivial|duplicate|wrong|uncertain
-retrieval:
-  searched: true|false
-  hit: true|false
-  relevant_top1: true|false|unknown
-  opened: true|false
-  correct_binding: true|false|not_applicable
-adoption:
-  adopted: true|false|unknown
-  effect: helped|neutral|harmed|unknown
-management:
-  promoted: true|false
-  forgotten: true|false
+consolidation:
+  result: created|noop|skipped|failed|not_run
+  memory_refs: []
+  quality: useful|trivial|duplicate|overgeneralized|wrong|sensitive|uncertain
+recall:
+  result: completed|no_match|failed|not_run
+  expansion_steps: <integer>
+  title_refs_seen: []
+  summary_refs_seen: []
+  content_refs_selected: []
+  durable_plugin_message: true|false|unknown
+  disclosure_order_valid: true|false|unknown
+effect: helped|neutral|harmed|unknown
 cost:
   model_requests: <integer|unavailable>
   token_overhead: <integer|unavailable>
   latency_ms: <integer|unavailable>
-notes: <人工脱敏短评，不粘贴正文>
+notes: <脱敏短评，不粘贴用户全文或完整记忆>
 ```
 
-至少保留以下案例：
-
-- 成功帮助案例；
-- Search 空结果/漏召回案例；
-- 错误召回或错误采纳案例；
-- 重复采集案例；
-- Promote 与 Forget 案例；
-- 重启持久化案例；
-- 跨 Session/Project 隔离案例。
+至少保留：成功避免踩坑、换措辞召回、合理 skip、漏召回、错误召回、新关联陷阱、重启后读取和跨项目隔离案例。
 
 ---
 
-## 五、初始告警阈值
+## 六、初始告警阈值
 
-这些是首轮观察的审查阈值，不是长期 SLA。观察期结束后可依据真实基线调整。
+### P0：立即停用并调查
 
-### 5.1 P0：立即停止并检查
+- Credential、秘密或未授权敏感内容进入 Memory/日志；
+- 跨项目记忆泄漏；
+- 未经 `Title → Summary` 就把 Content 注入主模型；
+- 用户会话出现任何 `mnemosyne_*` 工具；
+- CURRENT、Hash 或引用完整性损坏；
+- plugin recall/system 消息被错误当成用户任务沉淀。
 
-任一发生即触发：
+### P1：当天调查
 
-- `sensitive_content_count > 0`；
-- `cross_project_leak > 0`；
-- `cross_session_short_term_leak > 0`；
-- `body_leak_in_search_count > 0`；
-- `forgotten_recalled_count > 0`；
-- `stale_grant_accepted_count > 0`；
-- `current_invalid_count > 0`；
-- 不可变 Fact 被覆盖或同身份内容漂移；
-- Credential、完整 Prompt 或完整模型回复进入持久记忆。
+- `consolidation_error_rate > 5%`；
+- `recall_error_rate > 5%`；
+- 人工抽样重复率 `> 10%`；
+- 任一错误记忆被采用并导致返工；
+- 多轮有价值任务持续没有 `consolidation_start/created/skip` 可解释记录；
+- Recall P95 延迟或额外调用量明显影响正常使用。
 
-### 5.2 P1：当天检查
-
-- `harmed_count > 0`；
-- `acquisition_error_rate > 5%`；
-- Store/Compiler/Search/Open 错误率任一超过 5%；
-- `duplicate_rate > 20%`；
-- 同类任务连续 3 次 Search 空结果；
-- P95 Search 或 Open 延迟明显影响正常交互；
-- 单日磁盘增长相对任务量异常。
-
-### 5.3 P2：观察期结束后优化
-
-- 大量记忆长期无人检索；
-- `correct_but_trivial` 比例过高；
-- Promote 比例异常高或异常低；
-- Open 转化率长期过低；
-- Token/延迟成本超过实际帮助收益；
-- OKF 页面结构可读但实际召回效果不足。
+阈值为 v0.2 首轮观察基线，观察结束后可根据真实数据修订，但不得在观察中途为美化结果而调整。
 
 ---
 
-## 六、每日评估流程
+## 七、观察结束报告
 
-每天固定执行一次：
+报告至少包含：
 
-1. 记录观察时间窗、版本、DSH 版本与项目 Scope；
-2. 读取脱敏运行统计和稳定错误码；
-3. 严格验证 Fact/Manifest/Generation/CURRENT；
-4. 统计新增 short-term/long-term/Forget 与磁盘增长；
-5. 统计 Search/Open/Promote/Forget；
-6. 随机抽样新增记忆和被 Open 的记忆；
-7. 填写端到端案例；
-8. 检查 P0/P1 告警；
-9. 输出当日报告；
-10. 不自动修改、删除、Promote 或 Forget 任何记忆。
+1. 观察日期、版本、项目范围与任务数；
+2. Consolidation created/noop/skip/failed 分布；
+3. Recall completed/no_match/failed 与分层上限合规；
+4. 记忆质量抽样与实际 helped/neutral/harmed；
+5. 换措辞召回、漏召回、错误召回案例；
+6. 完整性、隔离、敏感信息和可见工具检查；
+7. 模型请求、延迟、Token 与磁盘增长；
+8. P0/P1 问题、根因与建议；
+9. 结论：继续使用、修复后复测或停用。
 
-### 6.1 建议抽样量
-
-- 新增记忆不超过 20 条：全部检查；
-- 超过 20 条：至少检查 20 条，并优先覆盖全部被 Open/Promote/Forget 的记忆；
-- 所有 harmed、错误采纳、Scope 异常与 Hash 错误：全部检查；
-- 每天至少检查 3 个完整端到端案例；不足 3 个则全部检查。
-
----
-
-## 七、每日观察报告模板
-
-```markdown
-# dsh-Mnemosyne 本地观察日报
-
-日期：
-版本 / Commit：
-DSH 版本：
-观察任务数：
-
-## 1. 总结
-- 今日总体状态：healthy | warning | stop_and_review
-- P0：
-- P1：
-- 关键结论：
-
-## 2. 采集
-- attempted / created / noop / skipped / error：
-- 新增 short-term / long-term：
-- duplicate / wrong / trivial / sensitive：
-
-## 3. 检索与披露
-- search / hit / empty / open：
-- relevant Top-1 / Top-K：
-- wrong open：
-- Search body leak / stale grant：
-
-## 4. 实际效果
-- adopted / helped / neutral / harmed / unknown：
-- 今日最有价值案例：
-- 今日最需要修复案例：
-
-## 5. 管理与隔离
-- promote / promote noop：
-- forget / forget noop：
-- restart failure：
-- Session / Project leak：
-
-## 6. 稳定性与成本
-- Store / Compiler / CURRENT 错误：
-- model requests / tokens / latency：
-- disk growth：
-- orphan temp / generation：
-
-## 7. 建议
-- 立即处理：
-- 继续观察：
-- 暂不处理：
-```
-
----
-
-## 八、观察期总结与版本决策
-
-观察期结束后输出一次总报告，至少包括：
-
-1. 总任务数与覆盖的任务族；
-2. 采集、质量、检索、效果、管理、稳定性和成本汇总；
-3. 所有 P0/P1 事件；
-4. helped/harmed 典型案例；
-5. 未解决的漏召回、重复和成本问题；
-6. 是否满足继续日常使用的最低安全条件；
-7. `v0.1.1` 修复清单，按 P0/P1/P2 排序；
-8. 哪些指标因数据源不可用而无法计算。
-
-### 8.1 继续使用的最低条件
-
-- 所有 P0 指标为 0；
-- 没有未解释的 Fact/Hash/CURRENT 损坏；
-- 没有确认的有害记忆仍处于可检索状态；
-- 采集和检索错误率处于可接受范围；
-- 至少出现可复核的 helped 案例；
-- 额外成本没有明显超过真实收益。
-
-若样本量不足，不得下“记忆有效”或“记忆无效”的强结论，只能延长观察期。
-
----
-
-## 九、未来监控执行约束
-
-当用户要求 Codex 开始监控时，必须先确认：
-
-1. 精确允许读取的项目目录；
-2. 观察开始/结束时间；
-3. 是否允许查看 OKF 页面正文；
-4. 是否仅生成统计，还是允许人工质量抽样；
-5. 报告保存位置；
-6. 检查频率与通知策略。
-
-监控默认只读，不自动修复、不删除、不 Promote、不 Forget、不修改配置。任何写操作必须再次获得用户明确授权。
+Codex 后续协助评估时，必须以本规范为唯一口径，并只读取用户明确批准的项目目录。
