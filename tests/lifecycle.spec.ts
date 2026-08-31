@@ -2,11 +2,17 @@ import { describe, expect, it } from 'vitest'
 import { Context, Service } from '@deepseek-ai/cordis'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import LlmRuntime, { CallId } from '@deepseek-ai/dsh-llm'
+import LlmRuntime from '@deepseek-ai/dsh-llm'
 import { apply, Config } from '../src/index.js'
+import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { computeProjectScopeId } from '../src/runtime-scope.js'
+import { openOKFMemoryV2Store } from '../src/v2/okf-memory-store.js'
+import { readCurrentOKFGenerationV2 } from '../src/v2/okf-compiler.js'
 
 function expectTools(ctx: Context, enabled: boolean): void {
-  for (const name of ['mnemosyne_status', 'mnemosyne_search', 'mnemosyne_open', 'mnemosyne_remember']) {
+  for (const name of ['mnemosyne_status', 'mnemosyne_acquisition_status', 'mnemosyne_search', 'mnemosyne_open', 'mnemosyne_remember']) {
     expect(ctx.tools.get(name) !== undefined).toBe(enabled)
   }
 }
@@ -19,30 +25,7 @@ describe('M0 lifecycle', () => {
     await ctx.plugin(LlmRuntime)
     const plugin = { name: 'dsh-mnemosyne', Config, inject: ['tools', 'llm'], apply }
     const fiber = await ctx.plugin(plugin, { enabled: true })
-    expectTools(ctx, true)
-    const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: CallId('m0-status'), name: 'mnemosyne_status', arguments: {} })
-    expect(result.value).toEqual({
-      plugin: 'dsh-Mnemosyne',
-      version: '0.1.0',
-      protocol_version: 3,
-      memory_enabled: true,
-      status: 'ready',
-      scope: {
-        status: 'unavailable',
-        source: 'none',
-        project_scope_id: null,
-        session_scope_id: null,
-        reason: 'missing_agent',
-      },
-      memory: {
-        availability: 'unavailable',
-        generation_id: null,
-        short_term_count: 0,
-        long_term_count: 0,
-        total_count: 0,
-        reason: 'missing_agent',
-      },
-    })
+    expectTools(ctx, false)
     await fiber.dispose()
     expectTools(ctx, false)
   })
@@ -65,11 +48,11 @@ describe('M0 lifecycle', () => {
     await ctx.plugin(LlmRuntime)
     const plugin = { name: 'dsh-mnemosyne', Config, inject: ['tools', 'llm'], apply }
     const fiber = await ctx.plugin(plugin, { enabled: true })
-    expectTools(ctx, true)
+    expectTools(ctx, false)
     await fiber.update({ enabled: false })
     expectTools(ctx, false)
     await fiber.update({ enabled: true })
-    expectTools(ctx, true)
+    expectTools(ctx, false)
     await fiber.dispose()
   })
 
@@ -84,8 +67,8 @@ describe('M0 lifecycle', () => {
       const plugin = { name: 'dsh-mnemosyne', Config, inject: ['tools', 'llm'], apply }
       fibers.push(await ctx.plugin(plugin, { enabled: true }))
     }
-    expectTools(first, true)
-    expectTools(second, true)
+    expectTools(first, false)
+    expectTools(second, false)
     await Promise.all(fibers.map((fiber) => fiber.dispose()))
   })
 
@@ -137,5 +120,53 @@ describe('M0 lifecycle', () => {
     await fiber.dispose()
     expect(providerFinallyRan).toBe(true)
     expectTools(ctx, false)
+  })
+
+  it('automatically consolidates a completed turn without exposing a tool', async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'mnemosyne-v2-observer-')))
+    try {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRuntime)
+      let call = 0
+      class MockLlm extends Service {
+        constructor(c: Context) { super(c, 'llm') }
+        stream() {
+          const payload = call++ === 0
+            ? { decision: 'create', title: '构建前先验证输入', summary: '运行构建前先确认输入文件完整。', content: '## 已知踩坑\n\n缺少输入时构建结果不可信。', related_memory_refs: [] }
+            : { decision: 'new', title: '构建', summary: '构建与输入校验。' }
+          return (async function* () {
+            const text = JSON.stringify(payload)
+            yield { type: 'block-start', index: 0, blockType: 'text' }
+            yield { type: 'text-delta', index: 0, text }
+            yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+            yield { type: 'finish', reason: { kind: 'stop' } }
+          })()
+        }
+      }
+      await ctx.plugin(MockLlm)
+      const fiber = await ctx.plugin({ name: 'dsh-mnemosyne', Config, inject: ['llm'], apply }, { enabled: true })
+      const events: any[] = [
+        { seq: 0, time: '2026-08-28T08:00:00.000Z', type: 'request/header', turn: 1, data: { header: { config: { provider: 'p', model: 'm' } } } },
+        { seq: 1, time: '2026-08-28T08:00:01.000Z', type: 'user/message', turn: 1, data: { content: [{ type: 'text', text: '修复构建输入问题' }] } },
+        { seq: 2, time: '2026-08-28T08:00:02.000Z', type: 'assistant/message', turn: 1, data: { message: { content: [{ type: 'text', text: '已确认缺少输入并完成修复。' }], provider: 'p', model: 'm' } } },
+        { seq: 3, time: '2026-08-28T08:00:03.000Z', type: 'turn/end', turn: 1, data: { turn: 1, reason: { kind: 'completed' } } },
+      ]
+      const session: any = { id: 'session_auto_v2', header: { cwd: root }, events }
+      const agent: any = { id: 'session_auto_v2', session, options: { provider: 'p', model: 'm' } }
+      ctx.emit('agent/created', { agent })
+      ctx.emit('session/event', session, events[3])
+      await fiber.dispose()
+
+      const projectScope = computeProjectScopeId(root)
+      const store = openOKFMemoryV2Store({ project_root: root, project_scope_id: projectScope })
+      expect((await store.listMemories()).map((memory) => memory.title)).toEqual(['构建前先验证输入'])
+      expect((await readCurrentOKFGenerationV2({ project_root: root, project_scope_id: projectScope })).manifest.memory_refs).toHaveLength(1)
+      const log = await readFile(join(root, '.dsh-mnemosyne', 'debug', 'runtime.jsonl'), 'utf8')
+      expect(log).toContain('consolidation_created')
+      expectTools(ctx, false)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })

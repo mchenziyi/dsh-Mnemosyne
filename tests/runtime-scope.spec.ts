@@ -211,7 +211,7 @@ describe('MVP-01: Runtime & Project/Session Scope TDD Matrix', () => {
 
   // 9.3 Event 与生命周期
   describe('9.3 Event 与生命周期', () => {
-    it('13. session/event binds scope without retaining event payload', async () => {
+    it('13. session/event is observed without exposing a status tool', async () => {
       const ctx = new Context()
       await ctx.plugin(SystemPrompt)
       await ctx.plugin(ToolRuntime)
@@ -230,20 +230,7 @@ describe('MVP-01: Runtime & Project/Session Scope TDD Matrix', () => {
         data: { message: { role: 'user', content: 'SECRET_PAYLOAD_DO_NOT_STORE' } },
       } as never)
 
-      const agent = mockAgent('sess-evt-1', session)
-      const tool = ctx.tools.get('mnemosyne_status')!
-      const statusRes = await tool.execute({}, mockToolContext(agent))
-      expect(statusRes).toMatchObject({
-        protocol_version: 3,
-        scope: {
-          status: 'ready',
-          source: 'session_header',
-          project_scope_id: computeProjectScopeId('/workspace/app'),
-          session_scope_id: computeSessionScopeId(computeProjectScopeId('/workspace/app'), 'sess-evt-1'),
-          reason: null,
-        },
-      })
-      expect(JSON.stringify(statusRes)).not.toContain('SECRET_PAYLOAD_DO_NOT_STORE')
+      expect(ctx.tools.get('mnemosyne_status')).toBeUndefined()
       await fiber.dispose()
     })
 
@@ -283,7 +270,7 @@ describe('MVP-01: Runtime & Project/Session Scope TDD Matrix', () => {
       expect(runtime.snapshot().conflictedSessionsCount).toBe(0)
     })
 
-    it('17. Config enable -> disable -> enable leaves no duplicate listeners or leaked bindings', async () => {
+    it('17. Config enable -> disable -> enable never exposes memory tools', async () => {
       const ctx = new Context()
       await ctx.plugin(SystemPrompt)
       await ctx.plugin(ToolRuntime)
@@ -295,15 +282,15 @@ describe('MVP-01: Runtime & Project/Session Scope TDD Matrix', () => {
         apply,
       }, { enabled: true })
 
-      expect(ctx.tools.get('mnemosyne_status')).toBeDefined()
+      expect(ctx.tools.get('mnemosyne_status')).toBeUndefined()
       await fiber.update({ enabled: false })
       expect(ctx.tools.get('mnemosyne_status')).toBeUndefined()
       await fiber.update({ enabled: true })
-      expect(ctx.tools.get('mnemosyne_status')).toBeDefined()
+      expect(ctx.tools.get('mnemosyne_status')).toBeUndefined()
       await fiber.dispose()
     })
 
-    it('18. Two root Contexts are completely isolated in runtime state', async () => {
+    it('18. Two root Contexts remain tool-free and independently disposable', async () => {
       const ctx1 = new Context()
       const ctx2 = new Context()
       for (const ctx of [ctx1, ctx2]) {
@@ -314,23 +301,14 @@ describe('MVP-01: Runtime & Project/Session Scope TDD Matrix', () => {
       const fiber1 = await ctx1.plugin({ name: 'dsh-mnemosyne', Config, inject: ['tools'], apply }, { enabled: true, projectRoot: '/root/ctx1' })
       const fiber2 = await ctx2.plugin({ name: 'dsh-mnemosyne', Config, inject: ['tools'], apply }, { enabled: true, projectRoot: '/root/ctx2' })
 
-      const sess = mockSession('s-isolated', undefined)
-      const agent = mockAgent('s-isolated', sess)
-      const tool1 = ctx1.tools.get('mnemosyne_status')!
-      const tool2 = ctx2.tools.get('mnemosyne_status')!
-
-      const res1 = (await tool1.execute({}, mockToolContext(agent))) as { scope: { project_scope_id: string } }
-      const res2 = (await tool2.execute({}, mockToolContext(agent))) as { scope: { project_scope_id: string } }
-
-      expect(res1.scope.project_scope_id).toBe(computeProjectScopeId('/root/ctx1'))
-      expect(res2.scope.project_scope_id).toBe(computeProjectScopeId('/root/ctx2'))
-      expect(res1.scope.project_scope_id).not.toBe(res2.scope.project_scope_id)
+      expect(ctx1.tools.get('mnemosyne_status')).toBeUndefined()
+      expect(ctx2.tools.get('mnemosyne_status')).toBeUndefined()
 
       await fiber1.dispose()
       await fiber2.dispose()
     })
 
-    it('19. Event scope conflict marks session as conflicted; subsequent tool calls fail closed', async () => {
+    it('19. Event scope conflict does not surface a management tool', async () => {
       const ctx = new Context()
       await ctx.plugin(SystemPrompt)
       await ctx.plugin(ToolRuntime)
@@ -343,12 +321,7 @@ describe('MVP-01: Runtime & Project/Session Scope TDD Matrix', () => {
       ctx.emit('session/event', sess1, { type: 'user/message', seq: 1 } as never)
       ctx.emit('session/event', sess2, { type: 'user/message', seq: 2 } as never)
 
-      const agent = mockAgent('drift-sess', sess1)
-      const tool = ctx.tools.get('mnemosyne_status')!
-      const result = (await tool.execute({}, mockToolContext(agent))) as { scope: { status: string, reason: string } }
-
-      expect(result.scope.status).toBe('conflict')
-      expect(result.scope.reason).toBe('session_scope_conflict')
+      expect(ctx.tools.get('mnemosyne_status')).toBeUndefined()
 
       await fiber.dispose()
     })

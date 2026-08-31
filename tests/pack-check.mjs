@@ -153,6 +153,14 @@ export const forbiddenExportSymbols = [
 ]
 
 export const forbiddenSeamSymbols = [
+  'mnemosyne_status',
+  'mnemosyne_acquisition_status',
+  'mnemosyne_search',
+  'mnemosyne_open',
+  'mnemosyne_remember',
+  'mnemosyne_list',
+  'mnemosyne_promote',
+  'mnemosyne_forget',
   'createFixtureRuntime',
   'FIXTURE_CATALOG',
   'memory-catalog.json',

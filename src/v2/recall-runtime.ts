@@ -59,7 +59,15 @@ export interface RecallRuntimeV2 {
 export interface RecallRuntimeV2Options {
   loadWorld?: (scope: ResolvedScope) => Promise<CompiledOKFGenerationV2>
   navigator: RecallNavigatorV2
+  onEvent?: (request: RecallRequestV2, event: RecallRuntimeEventV2) => void | Promise<void>
 }
+
+export type RecallRuntimeEventV2 =
+  | { event: 'recall_start' }
+  | { event: 'recall_layer'; stage: RecallNavigationStageV2; step: number; disclosed_refs: string[]; selected_refs: string[] }
+  | { event: 'recall_completed'; selected_memory_refs: string[]; expansion_steps: number }
+  | { event: 'recall_no_match'; expansion_steps: number }
+  | { event: 'recall_failed'; reason_code: string; expansion_steps: number }
 
 interface IndexEntry { ref: string; title: string }
 interface RootIndex { schema_version: 1; root_node_id: string; children: IndexEntry[] }
@@ -111,13 +119,16 @@ export function createRecallRuntimeV2(options: RecallRuntimeV2Options): RecallRu
 
   return {
     async recall(request: RecallRequestV2): Promise<RecallResultV2> {
+      await options.onEvent?.(request, { event: 'recall_start' })
       let world: CompiledOKFGenerationV2
       try {
         world = await loadWorld(request.scope)
       } catch (error: unknown) {
         if ((error as { code?: string }).code === 'memory_compile_not_found') {
+          await options.onEvent?.(request, { event: 'recall_no_match', expansion_steps: 0 })
           return { status: 'empty', reason_code: 'memory_empty', selected_memory_refs: [], expansion_steps: 0 }
         }
+        await options.onEvent?.(request, { event: 'recall_failed', reason_code: 'recall_generation_invalid', expansion_steps: 0 })
         return { status: 'failed', reason_code: 'recall_generation_invalid', selected_memory_refs: [], expansion_steps: 0 }
       }
 
@@ -130,13 +141,18 @@ export function createRecallRuntimeV2(options: RecallRuntimeV2Options): RecallRu
         if (steps >= 6 || items.length === 0) return []
         steps++
         const decision = await options.navigator({ schema_version: 1, stage, task: request.task, step: steps, items }, route)
-        return validateDecision(decision, items.map((item) => item.ref), limit)
+        const selectedRefs = validateDecision(decision, items.map((item) => item.ref), limit)
+        await options.onEvent?.(request, { event: 'recall_layer', stage, step: steps, disclosed_refs: items.map((item) => item.ref), selected_refs: selectedRefs })
+        return selectedRefs
       }
 
       try {
         const root = parseJson<RootIndex>(world.files.get('indexes/root.json'))
         let nodeSelection = await choose('root_titles', root.children.map((item) => ({ ...item, kind: 'node' as const })), 1)
-        if (nodeSelection.length === 0) return { status: 'no_match', reason_code: 'recall_no_match', selected_memory_refs: [], expansion_steps: steps }
+        if (nodeSelection.length === 0) {
+          await options.onEvent?.(request, { event: 'recall_no_match', expansion_steps: steps })
+          return { status: 'no_match', reason_code: 'recall_no_match', selected_memory_refs: [], expansion_steps: steps }
+        }
 
         let memoryCandidates: string[] = []
         while (nodeSelection.length > 0 && steps < 6) {
@@ -194,13 +210,18 @@ export function createRecallRuntimeV2(options: RecallRuntimeV2Options): RecallRu
           }
         }
 
-        if (selected.length === 0) return { status: 'no_match', reason_code: 'recall_no_match', selected_memory_refs: [], expansion_steps: steps }
+        if (selected.length === 0) {
+          await options.onEvent?.(request, { event: 'recall_no_match', expansion_steps: steps })
+          return { status: 'no_match', reason_code: 'recall_no_match', selected_memory_refs: [], expansion_steps: steps }
+        }
+        await options.onEvent?.(request, { event: 'recall_completed', selected_memory_refs: selected.map((item) => item.ref), expansion_steps: steps })
         return {
           status: 'completed', reason_code: null, selected_memory_refs: selected.map((item) => item.ref),
           expansion_steps: steps, message: recallMessage(selected),
         }
       } catch (error: unknown) {
         const reason = error instanceof Error && error.message === 'invalid_selection' ? 'recall_selection_invalid' : 'recall_navigation_failed'
+        await options.onEvent?.(request, { event: 'recall_failed', reason_code: reason, expansion_steps: steps })
         return { status: 'failed', reason_code: reason, selected_memory_refs: [], expansion_steps: steps }
       }
     },
@@ -219,6 +240,7 @@ function taskText(messages: readonly UserMessage[]): string {
 export interface RecallPreStepHandlerV2Options {
   runtime: RecallRuntimeV2
   scopeRuntime: ScopeRuntime
+  onResult?: (payload: { agent: Agent; turn: number }, result: RecallResultV2) => void | Promise<void>
 }
 
 export function createRecallPreStepHandlerV2(options: RecallPreStepHandlerV2Options): (
@@ -240,6 +262,7 @@ export function createRecallPreStepHandlerV2(options: RecallPreStepHandlerV2Opti
       model,
       signal: payload.signal,
     })
+    await options.onResult?.({ agent: payload.agent, turn: payload.turn }, result)
     if (result.status !== 'completed') return decision
     return { kind: 'enter', messages: [result.message, ...decision.messages] }
   }

@@ -6,6 +6,8 @@ import { computeProjectScopeId, computeSessionScopeId, type ResolvedScope } from
 import { createConsolidationRuntimeV2, type ConsolidationModelRequestV2 } from '../src/v2/consolidation-runtime.js'
 import { openOKFMemoryV2Store } from '../src/v2/okf-memory-store.js'
 import { readCurrentOKFGenerationV2 } from '../src/v2/okf-compiler.js'
+import { canonicalHash } from '../src/protocol/canonical.js'
+import { computeOKFMemoryV2Hash, type OKFMemoryV2 } from '../src/v2/okf-memory.js'
 
 const roots: string[] = []
 
@@ -85,6 +87,34 @@ describe('v2 consolidation runtime', () => {
     expect((await runtime.consolidate({ ...base, now: '2026-08-28T04:00:00.000Z' })).status).toBe('noop')
     const store = openOKFMemoryV2Store({ project_root: scope.project_root, project_scope_id: scope.project_scope_id })
     expect(await store.listMemories()).toHaveLength(1)
+  })
+
+  it('recovers an unpublished immutable memory instead of returning a false noop', async () => {
+    const scope = await project()
+    const knowledge = {
+      title: '恢复未完成发布', summary: '已写入但未进入 CURRENT 的记忆必须在重试时完成发布。',
+      content: '## 问题\n\n发布在 CURRENT 更新前失败。', related_memory_refs: [] as string[],
+    }
+    const fingerprint = canonicalHash({ schema_version: 1, project_scope_id: scope.project_scope_id, ...knowledge })
+    const orphan: OKFMemoryV2 = {
+      schema_version: 2, memory_id: `mem_${fingerprint.slice('sha256_'.length)}`,
+      project_scope_id: scope.project_scope_id, ...knowledge,
+      created_at: '2026-08-28T03:00:00.000Z', content_sha256: '',
+    }
+    orphan.content_sha256 = computeOKFMemoryV2Hash(orphan)
+    const store = openOKFMemoryV2Store({ project_root: scope.project_root, project_scope_id: scope.project_scope_id })
+    await store.putMemory(orphan)
+
+    const runtime = createConsolidationRuntimeV2({ model: async (request) => request.stage === 'judgment'
+      ? { decision: 'create', ...knowledge }
+      : { decision: 'new', title: '可靠发布', summary: '发布恢复。' } })
+    const result = await runtime.consolidate({
+      scope, evidence: { task: 'retry', outcome: 'done' }, used_memory_refs: [], provider: 'p', model: 'm',
+      now: '2026-08-28T04:00:00.000Z', signal: new AbortController().signal,
+    })
+    expect(result.status).toBe('created')
+    const world = await readCurrentOKFGenerationV2({ project_root: scope.project_root, project_scope_id: scope.project_scope_id })
+    expect(world.manifest.memory_refs.map((ref) => ref.memory_id)).toEqual([orphan.memory_id])
   })
 
   it('creates a related pitfall memory and leaves the old memory bytes unchanged', async () => {

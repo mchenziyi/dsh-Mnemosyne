@@ -1169,7 +1169,7 @@ export function apply(ctx) {
 describe('MVP-07B-I TDD Item 1 & 10: Real Six-Run State Machine Execution with Fake DSH Subprocess & Redacted Report', () => {
   const canaryScriptPath = join(new URL('../scripts/mvp07b-real-canary.mjs', import.meta.url).pathname)
 
-  it('runs full executeCanary through real child processes and generates valid report', async () => {
+  it('legacy v0.1 canary fails closed against the tool-free v0.2 plugin', async () => {
     const { mkdtemp, realpath, rm, mkdir, writeFile, chmod } = await import('node:fs/promises')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
@@ -1234,10 +1234,9 @@ describe('MVP-07B-I TDD Item 1 & 10: Real Six-Run State Machine Execution with F
 
       expect(report.schema_version).toBe(1)
       expect(report.package_version).toBe('0.1.0')
-      expect(report.status).toBe('pass')
-      expect(report.run_count).toBe(6)
-      expect(report.model_request_count).toBeGreaterThan(0)
-      expect(report.checks.execution_wiring).toBe('pass')
+      expect(report.status).toBe('fail')
+      expect(report.model_request_count).toBe(0)
+      expect(report.checks.execution_wiring).toBe('fail')
       expect(report.checks.automatic_capture).toBe('not_run')
       expect(report.checks.restart_persistence).toBe('not_run')
       expect(report.checks.progressive_disclosure).toBe('not_run')
@@ -1245,7 +1244,7 @@ describe('MVP-07B-I TDD Item 1 & 10: Real Six-Run State Machine Execution with F
       expect(report.checks.forget_and_grant).toBe('not_run')
       expect(report.checks.scope_isolation).toBe('not_run')
       expect(report.cleanup_clean).toBe(true)
-      expect(report.reason_code).toBeNull()
+      expect(report.reason_code).not.toBeNull()
       expect(report.report_sha256).toMatch(/^sha256_[0-9a-f]{64}$/)
 
       // 5. Verify round-trip report reading and strict outside path
@@ -2237,10 +2236,9 @@ process.exit(1)
         approvalSha256: approval.approval_sha256,
       })
 
-      expect(report.status).toBe('pass')
-      expect(report.run_count).toBe(6)
-      expect(report.model_request_count).toBeGreaterThan(0)
-      expect(report.checks.execution_wiring).toBe('pass')
+      expect(report.status).toBe('fail')
+      expect(report.model_request_count).toBe(0)
+      expect(report.checks.execution_wiring).toBe('fail')
       expect(report.checks.automatic_capture).toBe('not_run')
       expect(report.cleanup_clean).toBe(true)
     } finally {
@@ -3539,7 +3537,7 @@ try {
     await expect(readyCallback()).rejects.toThrow('canary_resume_failed')
   })
 
-  it('WP.13: Full Real DSH execution proves 6 Sidecar Receipts, 2 Resume Receipts, and LLM Claims without leaking secrets or paths', { timeout: 45000 }, async () => {
+  it('WP.13 legacy wiring canary fails closed after v0.2 removes memory tools', { timeout: 45000 }, async () => {
     const { mkdtemp, realpath, rm, writeFile, chmod } = await import('node:fs/promises')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
@@ -3589,11 +3587,10 @@ try {
         approvalSha256: approval.approval_sha256,
       })
 
-      expect(report.status).toBe('pass')
-      expect(report.run_count).toBe(6)
-      expect(report.model_request_count).toBeGreaterThan(0)
+      expect(report.status).toBe('fail')
+      expect(report.model_request_count).toBe(0)
       expect(report.model_request_count).toBeLessThanOrEqual(18)
-      expect(report.checks.execution_wiring).toBe('pass')
+      expect(report.checks.execution_wiring).toBe('fail')
       expect(report.checks.automatic_capture).toBe('not_run')
       expect(report.checks.restart_persistence).toBe('not_run')
       expect(report.checks.progressive_disclosure).toBe('not_run')
@@ -3614,7 +3611,7 @@ try {
     }
   })
 
-  it('WP.14: Full Real DSH execution proves 6-Run Longitudinal Business Evidence with RedactedCanaryReport v2 pass and zero provider calls / leaks', { timeout: 45000 }, async () => {
+  it('WP.14 legacy tool-driven business canary rejects the v0.2 product boundary', { timeout: 45000 }, async () => {
     const { mkdtemp, realpath, rm, writeFile, readFile, chmod } = await import('node:fs/promises')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
@@ -4115,23 +4112,14 @@ export function apply(ctx) {
         approvalSha256: approval.approval_sha256,
         evaluationLevel: 'business',
       })
-      if (report.status !== 'pass') {
-        throw new Error('WP14_REPORT_DUMP: ' + JSON.stringify(report, null, 2))
-      }
       expect(report.schema_version).toBe(2)
-      expect(report.status).toBe('pass')
-      expect(report.run_count).toBe(6)
+      expect(report.status).toBe('fail')
       expect(report.model_request_count).toBeGreaterThan(0)
       expect(report.model_request_count).toBeLessThanOrEqual(18)
-      expect(report.checks.execution_wiring).toBe('pass')
-      expect(report.checks.automatic_capture).toBe('pass')
-      expect(report.checks.restart_persistence).toBe('pass')
-      expect(report.checks.progressive_disclosure).toBe('pass')
-      expect(report.checks.promotion).toBe('pass')
-      expect(report.checks.forget_and_grant).toBe('pass')
-      expect(report.checks.scope_isolation).toBe('pass')
+      expect(report.checks.execution_wiring).toBe('fail')
+      expect(report.checks.automatic_capture).toBe('fail')
       expect(report.cleanup_clean).toBe(true)
-      expect(report.reason_code).toBeNull()
+      expect(report.reason_code).toBe('product_invariant_failed')
 
       // Verify report redaction
       const serializedReport = JSON.stringify(report)

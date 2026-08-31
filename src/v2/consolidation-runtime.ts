@@ -64,6 +64,7 @@ export interface ConsolidationResultV2 {
   reason_code: string | null
   memory_id?: string
   generation_id?: string
+  catalog_id?: string
 }
 
 export interface ConsolidationRuntimeV2 {
@@ -199,14 +200,16 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
         if (judgment.decision === 'skip') return { status: 'skipped', reason_code: judgment.reason_code }
 
         const fingerprint = memoryFingerprint(request.scope.project_scope_id, judgment)
-        const existing = await store.listMemories()
-        const duplicate = existing.find((memory) => memoryFingerprint(memory.project_scope_id, memory) === fingerprint)
-        if (duplicate) return { status: 'noop', reason_code: 'duplicate_memory', memory_id: duplicate.memory_id }
-
         let catalog: OKFCatalogV1
         try { catalog = await currentCatalog(request.scope) } catch (error: unknown) {
           if ((error as { code?: string }).code !== 'memory_compile_not_found') throw error
           catalog = initialCatalog(request.scope.project_scope_id, request.now)
+        }
+        const existing = await store.listMemories()
+        const duplicate = existing.find((memory) => memoryFingerprint(memory.project_scope_id, memory) === fingerprint)
+        const visibleMemoryRefs = new Set(catalog.nodes.flatMap((node) => node.memory_refs))
+        if (duplicate && visibleMemoryRefs.has(duplicate.memory_id)) {
+          return { status: 'noop', reason_code: 'duplicate_memory', memory_id: duplicate.memory_id }
         }
         const root = catalog.nodes.find((node) => node.node_id === catalog.root_node_id)!
         const categories = root.child_node_refs.map((ref) => ({ ref, title: catalog.nodes.find((node) => node.node_id === ref)!.title }))
@@ -217,7 +220,7 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
           categories,
         }, route), categories)
 
-        const memory: OKFMemoryV2 = {
+        const memory: OKFMemoryV2 = duplicate ?? {
           schema_version: 2,
           memory_id: memoryId(fingerprint),
           project_scope_id: request.scope.project_scope_id,
@@ -228,10 +231,9 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
           created_at: request.now,
           content_sha256: '',
         }
-        memory.content_sha256 = computeOKFMemoryV2Hash(memory)
+        if (!duplicate) memory.content_sha256 = computeOKFMemoryV2Hash(memory)
         const nextCatalog = updatedCatalog(catalog, category, memory, request.now)
-        const write = await store.putMemory(memory)
-        if (write.status === 'noop') return { status: 'noop', reason_code: 'duplicate_memory', memory_id: memory.memory_id }
+        await store.putMemory(memory)
         const catalogWrite = await store.putCatalog(nextCatalog)
         const generation = await publishOKFGenerationV2({
           project_root: request.scope.project_root,
@@ -239,7 +241,7 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
           catalog_id: catalogWrite.catalog_id,
           created_at: request.now,
         })
-        return { status: 'created', reason_code: null, memory_id: memory.memory_id, generation_id: generation.generation_id }
+        return { status: 'created', reason_code: null, memory_id: memory.memory_id, catalog_id: catalogWrite.catalog_id, generation_id: generation.generation_id }
       } catch (error: unknown) {
         const reason = error instanceof MemoryStoreError ? error.code : 'consolidation_failed'
         return { status: 'failed', reason_code: reason }

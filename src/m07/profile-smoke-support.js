@@ -190,10 +190,11 @@ const fiber = await ctx.plugin({
   Config: plugin.Config,
   inject: plugin.inject,
   apply: plugin.apply,
-}, { enabled: true, autoCapture: true })
+}, { enabled: true })
 
-const requiredTools = [
+const forbiddenTools = [
   'mnemosyne_status',
+  'mnemosyne_acquisition_status',
   'mnemosyne_search',
   'mnemosyne_open',
   'mnemosyne_remember',
@@ -202,13 +203,13 @@ const requiredTools = [
   'mnemosyne_forget',
 ]
 
-for (const name of requiredTools) {
-  if (ctx.tools.get(name) === undefined) throw new Error('missing_tool_' + name)
+for (const name of forbiddenTools) {
+  if (ctx.tools.get(name) !== undefined) throw new Error('unexpected_tool_' + name)
 }
 
 await fiber.dispose()
 
-for (const name of requiredTools) {
+for (const name of forbiddenTools) {
   if (ctx.tools.get(name) !== undefined) throw new Error('tool_not_disposed_' + name)
 }
 `

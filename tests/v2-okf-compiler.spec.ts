@@ -134,4 +134,22 @@ describe('v2 OKF compiler', () => {
     expect(world.files.get('indexes/root.json')).toContain('构建问题')
     expect(world.files.get('contents/mem_lockfile.md')).toContain('先检查 Peer 冲突')
   })
+
+  it('publishes only memories referenced by the selected catalog', async () => {
+    const { root, scope } = await project()
+    const store = openOKFMemoryV2Store({ project_root: root, project_scope_id: scope })
+    await store.putMemory(makeMemory(scope, 'mem_peer', '先检查 Peer 冲突'))
+    await store.putMemory(makeMemory(scope, 'mem_lockfile', '不要直接删除锁文件'))
+    await store.putMemory(makeMemory(scope, 'mem_unpublished', '未发布的孤立写入'))
+    const catalogResult = await store.putCatalog(makeCatalog(scope))
+
+    const world = await publishOKFGenerationV2({
+      project_root: root,
+      project_scope_id: scope,
+      catalog_id: catalogResult.catalog_id,
+      created_at: '2026-08-28T01:00:02.000Z',
+    })
+    expect(world.manifest.memory_refs.map((ref) => ref.memory_id)).toEqual(['mem_lockfile', 'mem_peer'])
+    expect(world.files.has('contents/mem_unpublished.md')).toBe(false)
+  })
 })
