@@ -344,10 +344,10 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
 export function createLlmConsolidationModelV2(llm: LlmRuntime): ConsolidationModelV2 {
   return async (request, route): Promise<ConsolidationModelDecisionV2> => {
     const system = request.stage === 'judgment'
-      ? 'Judge whether the completed turn produced reusable project knowledge. Return strict JSON only. Use decision skip or create. For create include title, summary, structured Markdown content, and related_memory_refs selected only from used_memory_refs.'
+      ? 'Judge whether the completed turn produced reusable project knowledge. Your final response MUST be exactly one JSON object: no Markdown fences, no prose, no explanations, and no extra fields. Return exactly one of these shapes: {"decision":"skip","reason_code":"no_reusable_knowledge"} or {"decision":"create","title":"...","summary":"...","content":"...","related_memory_refs":[]}. For skip, reason_code must be one of no_reusable_knowledge, insufficient_evidence, task_incomplete. For create, title, summary, and content must be non-empty strings, and related_memory_refs must contain only IDs from used_memory_refs.'
       : request.stage === 'category_titles'
-        ? 'Choose one offered direct child category by returning {"decision":"existing","node_ref":"..."}, or create one direct child with {"decision":"new","title":"...","summary":"..."}. Return strict JSON only.'
-        : 'After reading the selected category summary, return exactly {"decision":"attach"} to place the memory here, or {"decision":"expand"} to inspect or create a more specific child category. Return strict JSON only.'
+        ? 'Choose one offered direct child category. Your final response MUST be exactly one JSON object with no Markdown, prose, explanations, or extra fields. Return either {"decision":"existing","node_ref":"<one offered ref>"} or {"decision":"new","title":"<non-empty title>","summary":"<non-empty summary>"}. Never invent an existing ref.'
+        : 'After reading the selected category summary, your final response MUST be exactly one JSON object with no Markdown, prose, explanations, or extra fields. Return exactly {"decision":"attach"} to place the memory here, or exactly {"decision":"expand"} to inspect or create one more specific child category.'
     let stream: AsyncIterable<import('@deepseek-ai/dsh-llm').StreamChunk>
     try {
       stream = llm.stream({
