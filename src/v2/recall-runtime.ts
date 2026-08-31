@@ -240,38 +240,40 @@ export function createRecallPreStepHandlerV2(options: RecallPreStepHandlerV2Opti
 export async function consumeStrictModelTextV2(stream: AsyncIterable<StreamChunk>): Promise<string> {
   const fail = (code: string): never => { throw Object.assign(new Error('invalid model stream'), { code }) }
   let text: string | null = null
-  let active: { index: number; type: 'text' | 'reasoning' } | null = null
+  const active = new Map<number, 'text' | 'reasoning'>()
+  const closed = new Set<number>()
   let finish = false
   for await (const chunk of stream) {
     if (finish) fail('stream_trailing_data')
     if (chunk.type === 'block-start') {
-      if (active) fail('stream_nested_block')
       if (chunk.blockType !== 'text' && chunk.blockType !== 'reasoning') fail('stream_block_type_invalid')
-      active = { index: chunk.index, type: chunk.blockType as 'text' | 'reasoning' }
+      if (active.has(chunk.index) || closed.has(chunk.index)) fail('stream_block_reused')
+      active.set(chunk.index, chunk.blockType as 'text' | 'reasoning')
     } else if (chunk.type === 'text-delta') {
-      if (!active || active.type !== 'text' || active.index !== chunk.index) fail('stream_text_delta_invalid')
+      if (active.get(chunk.index) !== 'text') fail('stream_text_delta_invalid')
     } else if (chunk.type === 'reasoning-delta') {
-      if (!active || active.type !== 'reasoning' || active.index !== chunk.index) fail('stream_reasoning_delta_invalid')
+      if (active.get(chunk.index) !== 'reasoning') fail('stream_reasoning_delta_invalid')
     } else if (chunk.type === 'block-end') {
-      if (!active || active.index !== chunk.index || active.type !== chunk.block.type) fail('stream_block_end_invalid')
+      if (active.get(chunk.index) !== chunk.block.type) fail('stream_block_end_invalid')
       if (chunk.block.type === 'text') {
         if (text !== null) fail('stream_multiple_text_blocks')
         if (Buffer.byteLength(chunk.block.text, 'utf8') > 8192) fail('stream_text_size_exceeded')
         text = chunk.block.text
       }
-      active = null
+      active.delete(chunk.index)
+      closed.add(chunk.index)
     } else if (chunk.type === 'finish') {
-      if (active) fail('stream_finish_with_open_block')
+      if (active.size > 0) fail('stream_finish_with_open_block')
       if (finish || chunk.reason?.kind !== 'stop') fail('stream_finish_invalid')
       finish = true
     } else if (chunk.type === 'usage') {
-      if (active) fail('stream_usage_inside_block')
+      if (active.size > 0) fail('stream_usage_inside_block')
     } else {
       fail('stream_chunk_invalid')
     }
   }
   if (!finish) fail('stream_finish_missing')
-  if (active) fail('stream_open_block')
+  if (active.size > 0) fail('stream_open_block')
   if (text === null) fail('stream_text_missing')
   return text as string
 }

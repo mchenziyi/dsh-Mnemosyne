@@ -4,6 +4,7 @@ import type { UserMessage } from '@deepseek-ai/dsh-session'
 import {
   createRecallRuntimeV2,
   createRecallPreStepHandlerV2,
+  consumeStrictModelTextV2,
   type RecallNavigationRequestV2,
   type RecallNavigatorV2,
 } from '../src/v2/recall-runtime.js'
@@ -51,6 +52,19 @@ const scope: ResolvedScope = {
 }
 
 describe('v2 recall runtime', () => {
+  it('accepts interleaved reasoning and text blocks from DSH', async () => {
+    const stream = (async function* () {
+      yield { type: 'block-start', index: 0, blockType: 'reasoning' }
+      yield { type: 'reasoning-delta', index: 0, text: 'thinking' }
+      yield { type: 'block-start', index: 1, blockType: 'text' }
+      yield { type: 'text-delta', index: 1, text: '{}' }
+      yield { type: 'block-end', index: 1, block: { type: 'text', text: '{}' } }
+      yield { type: 'block-end', index: 0, block: { type: 'reasoning' } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    })()
+    await expect(consumeStrictModelTextV2(stream as any)).resolves.toBe('{}')
+  })
+
   it('reaches Content through the deepest legal three-node catalog path', async () => {
     const deepWorld = world()
     deepWorld.files.set('indexes/root.json', JSON.stringify({ schema_version: 1, root_node_id: 'node_root', children: [{ ref: 'node_auth', title: 'Authentication' }] }))
