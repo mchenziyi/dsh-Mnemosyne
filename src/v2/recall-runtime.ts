@@ -238,36 +238,42 @@ export function createRecallPreStepHandlerV2(options: RecallPreStepHandlerV2Opti
 }
 
 export async function consumeStrictModelTextV2(stream: AsyncIterable<StreamChunk>): Promise<string> {
+  const fail = (code: string): never => { throw Object.assign(new Error('invalid model stream'), { code }) }
   let text: string | null = null
   let active: { index: number; type: 'text' | 'reasoning' } | null = null
   let finish = false
   for await (const chunk of stream) {
-    if (finish) throw new Error('invalid_stream')
+    if (finish) fail('stream_trailing_data')
     if (chunk.type === 'block-start') {
-      if (active || (chunk.blockType !== 'text' && chunk.blockType !== 'reasoning')) throw new Error('invalid_stream')
-      active = { index: chunk.index, type: chunk.blockType }
+      if (active) fail('stream_nested_block')
+      if (chunk.blockType !== 'text' && chunk.blockType !== 'reasoning') fail('stream_block_type_invalid')
+      active = { index: chunk.index, type: chunk.blockType as 'text' | 'reasoning' }
     } else if (chunk.type === 'text-delta') {
-      if (!active || active.type !== 'text' || active.index !== chunk.index) throw new Error('invalid_stream')
+      if (!active || active.type !== 'text' || active.index !== chunk.index) fail('stream_text_delta_invalid')
     } else if (chunk.type === 'reasoning-delta') {
-      if (!active || active.type !== 'reasoning' || active.index !== chunk.index) throw new Error('invalid_stream')
+      if (!active || active.type !== 'reasoning' || active.index !== chunk.index) fail('stream_reasoning_delta_invalid')
     } else if (chunk.type === 'block-end') {
-      if (!active || active.index !== chunk.index || active.type !== chunk.block.type) throw new Error('invalid_stream')
+      if (!active || active.index !== chunk.index || active.type !== chunk.block.type) fail('stream_block_end_invalid')
       if (chunk.block.type === 'text') {
-        if (text !== null || Buffer.byteLength(chunk.block.text, 'utf8') > 8192) throw new Error('invalid_stream')
+        if (text !== null) fail('stream_multiple_text_blocks')
+        if (Buffer.byteLength(chunk.block.text, 'utf8') > 8192) fail('stream_text_size_exceeded')
         text = chunk.block.text
       }
       active = null
     } else if (chunk.type === 'finish') {
-      if (active || finish || chunk.reason?.kind !== 'stop') throw new Error('invalid_stream')
+      if (active) fail('stream_finish_with_open_block')
+      if (finish || chunk.reason?.kind !== 'stop') fail('stream_finish_invalid')
       finish = true
     } else if (chunk.type === 'usage') {
-      if (active) throw new Error('invalid_stream')
+      if (active) fail('stream_usage_inside_block')
     } else {
-      throw new Error('invalid_stream')
+      fail('stream_chunk_invalid')
     }
   }
-  if (!finish || active || text === null) throw new Error('invalid_stream')
-  return text
+  if (!finish) fail('stream_finish_missing')
+  if (active) fail('stream_open_block')
+  if (text === null) fail('stream_text_missing')
+  return text as string
 }
 
 export function createLlmRecallNavigatorV2(llm: LlmRuntime): RecallNavigatorV2 {
