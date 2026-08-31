@@ -132,9 +132,11 @@ describe('M0 lifecycle', () => {
       class MockLlm extends Service {
         constructor(c: Context) { super(c, 'llm') }
         stream() {
-          const payload = call++ === 0
+          const current = call++
+          const payload = current === 0
             ? { decision: 'create', title: '构建前先验证输入', summary: '运行构建前先确认输入文件完整。', content: '## 已知踩坑\n\n缺少输入时构建结果不可信。', related_memory_refs: [] }
-            : { decision: 'new', title: '构建', summary: '构建与输入校验。' }
+            : current === 1 ? { decision: 'new', title: '构建', summary: '构建与输入校验。' }
+              : { decision: 'attach' }
           return (async function* () {
             const text = JSON.stringify(payload)
             yield { type: 'block-start', index: 0, blockType: 'text' }

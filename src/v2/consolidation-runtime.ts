@@ -4,7 +4,13 @@ import type { ResolvedScope } from '../runtime-scope.js'
 import { assertUtcTimestamp } from '../memory-fact.js'
 import { MemoryStoreError } from '../memory-store-error.js'
 import { createMutationCoordinator } from '../mutation-coordinator.js'
-import { computeOKFCatalogNodeIdV1, computeOKFCatalogV1Hash, type OKFCatalogNodeV1, type OKFCatalogV1 } from './okf-catalog.js'
+import {
+  computeOKFCatalogNodeIdV1,
+  computeOKFCatalogV1Hash,
+  OKF_CATALOG_MAX_DEPTH,
+  type OKFCatalogNodeV1,
+  type OKFCatalogV1,
+} from './okf-catalog.js'
 import { computeOKFMemoryV2Hash, type OKFMemoryV2 } from './okf-memory.js'
 import { openOKFMemoryV2Store } from './okf-memory-store.js'
 import { publishOKFGenerationV2, readCurrentOKFGenerationV2 } from './okf-compiler.js'
@@ -24,7 +30,15 @@ export type ConsolidationModelRequestV2 = {
   schema_version: 1
   stage: 'category_titles'
   memory: { title: string; summary: string }
+  current_node_ref: string
+  current_depth: number
   categories: Array<{ ref: string; title: string }>
+} | {
+  schema_version: 1
+  stage: 'category_summary'
+  memory: { title: string; summary: string }
+  category: { ref: string; title: string; summary: string }
+  current_depth: number
 }
 
 export type ConsolidationModelDecisionV2 = {
@@ -43,6 +57,8 @@ export type ConsolidationModelDecisionV2 = {
   decision: 'new'
   title: string
   summary: string
+} | {
+  decision: 'attach' | 'expand'
 }
 
 export type ConsolidationModelV2 = (
@@ -103,7 +119,7 @@ function validateJudgment(raw: ConsolidationModelDecisionV2, offeredRefs: string
   return raw
 }
 
-function validateCategory(raw: ConsolidationModelDecisionV2, categories: Array<{ ref: string; title: string }>): Extract<ConsolidationModelDecisionV2, { decision: 'existing' | 'new' }> {
+function validateCategorySelection(raw: ConsolidationModelDecisionV2, categories: Array<{ ref: string; title: string }>): Extract<ConsolidationModelDecisionV2, { decision: 'existing' | 'new' }> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('invalid_model_output')
   if (raw.decision === 'existing') {
     if (Object.keys(raw).sort().join('|') !== 'decision|node_ref' || !categories.some((category) => category.ref === raw.node_ref)) throw new Error('invalid_model_output')
@@ -112,6 +128,13 @@ function validateCategory(raw: ConsolidationModelDecisionV2, categories: Array<{
   if (raw.decision !== 'new' || Object.keys(raw).sort().join('|') !== 'decision|summary|title') throw new Error('invalid_model_output')
   boundedText(raw.title, 320)
   boundedText(raw.summary, 2000)
+  return raw
+}
+
+function validateCategoryExpansion(raw: ConsolidationModelDecisionV2, depth: number): Extract<ConsolidationModelDecisionV2, { decision: 'attach' | 'expand' }> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).sort().join('|') !== 'decision') throw new Error('invalid_model_output')
+  if (raw.decision !== 'attach' && raw.decision !== 'expand') throw new Error('invalid_model_output')
+  if (depth === OKF_CATALOG_MAX_DEPTH && raw.decision !== 'attach') throw new Error('invalid_model_output')
   return raw
 }
 
@@ -143,23 +166,29 @@ function initialCatalog(scope: string, now: string): OKFCatalogV1 {
   return catalog
 }
 
-function updatedCatalog(catalog: OKFCatalogV1, category: Extract<ConsolidationModelDecisionV2, { decision: 'existing' | 'new' }>, memory: OKFMemoryV2, now: string): OKFCatalogV1 {
-  const next = structuredClone(catalog)
-  const root = next.nodes.find((node) => node.node_id === next.root_node_id)!
-  let node: OKFCatalogNodeV1 | undefined
+function addCategory(catalog: OKFCatalogV1, parent: OKFCatalogNodeV1, category: Extract<ConsolidationModelDecisionV2, { decision: 'existing' | 'new' }>): OKFCatalogNodeV1 {
   if (category.decision === 'existing') {
-    node = next.nodes.find((candidate) => candidate.node_id === category.node_ref)
-  } else {
-    const id = computeOKFCatalogNodeIdV1(catalog.project_scope_id, root.node_id, category.title)
-    node = next.nodes.find((candidate) => candidate.node_id === id)
-    if (!node) {
-      node = { node_id: id, title: category.title, summary: category.summary, parent_node_id: root.node_id, child_node_refs: [], memory_refs: [] }
-      next.nodes.push(node)
-      root.child_node_refs.push(id)
-    }
+    const node = catalog.nodes.find((candidate) => candidate.node_id === category.node_ref)
+    if (!node || node.parent_node_id !== parent.node_id || !parent.child_node_refs.includes(node.node_id)) throw new Error('invalid_category')
+    return node
   }
-  if (!node) throw new Error('invalid_category')
-  node.memory_refs.push(memory.memory_id)
+  const id = computeOKFCatalogNodeIdV1(catalog.project_scope_id, parent.node_id, category.title)
+  const existing = catalog.nodes.find((candidate) => candidate.node_id === id)
+  if (existing) {
+    if (existing.parent_node_id !== parent.node_id || !parent.child_node_refs.includes(existing.node_id)) throw new Error('invalid_category')
+    return existing
+  }
+  const node: OKFCatalogNodeV1 = { node_id: id, title: category.title, summary: category.summary, parent_node_id: parent.node_id, child_node_refs: [], memory_refs: [] }
+  catalog.nodes.push(node)
+  parent.child_node_refs.push(id)
+  return node
+}
+
+function updatedCatalog(catalog: OKFCatalogV1, node: OKFCatalogNodeV1, memory: OKFMemoryV2, now: string): OKFCatalogV1 {
+  const next = structuredClone(catalog)
+  const target = next.nodes.find((candidate) => candidate.node_id === node.node_id)
+  if (!target || target.node_id === next.root_node_id) throw new Error('invalid_category')
+  target.memory_refs.push(memory.memory_id)
   next.updated_at = now
   next.content_sha256 = ''
   next.content_sha256 = computeOKFCatalogV1Hash(next)
@@ -210,14 +239,29 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
           if (duplicate && visibleMemoryRefs.has(duplicate.memory_id)) {
             return { status: 'noop', reason_code: 'duplicate_memory', memory_id: duplicate.memory_id }
           }
-          const root = catalog.nodes.find((node) => node.node_id === catalog.root_node_id)!
-          const categories = root.child_node_refs.map((ref) => ({ ref, title: catalog.nodes.find((node) => node.node_id === ref)!.title }))
-          const category = validateCategory(await options.model({
-            schema_version: 1,
-            stage: 'category_titles',
-            memory: { title: judgment.title, summary: judgment.summary },
-            categories,
-          }, route), categories)
+          let current = catalog.nodes.find((node) => node.node_id === catalog.root_node_id)!
+          let depth = 0
+          while (true) {
+            const categories = current.child_node_refs.map((ref) => ({ ref, title: catalog.nodes.find((node) => node.node_id === ref)!.title }))
+            const category = validateCategorySelection(await options.model({
+              schema_version: 1,
+              stage: 'category_titles',
+              memory: { title: judgment.title, summary: judgment.summary },
+              current_node_ref: current.node_id,
+              current_depth: depth,
+              categories,
+            }, route), categories)
+            current = addCategory(catalog, current, category)
+            depth++
+            const expansion = validateCategoryExpansion(await options.model({
+              schema_version: 1,
+              stage: 'category_summary',
+              memory: { title: judgment.title, summary: judgment.summary },
+              category: { ref: current.node_id, title: current.title, summary: current.summary },
+              current_depth: depth,
+            }, route), depth)
+            if (expansion.decision === 'attach') break
+          }
 
           const memory: OKFMemoryV2 = duplicate ?? {
             schema_version: 2,
@@ -231,7 +275,7 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
             content_sha256: '',
           }
           if (!duplicate) memory.content_sha256 = computeOKFMemoryV2Hash(memory)
-          const nextCatalog = updatedCatalog(catalog, category, memory, request.now)
+          const nextCatalog = updatedCatalog(catalog, current, memory, request.now)
           await store.putMemory(memory)
           const catalogWrite = await store.putCatalog(nextCatalog)
           const generation = await publishOKFGenerationV2({
@@ -254,7 +298,9 @@ export function createLlmConsolidationModelV2(llm: LlmRuntime): ConsolidationMod
   return async (request, route): Promise<ConsolidationModelDecisionV2> => {
     const system = request.stage === 'judgment'
       ? 'Judge whether the completed turn produced reusable project knowledge. Return strict JSON only. Use decision skip or create. For create include title, summary, structured Markdown content, and related_memory_refs selected only from used_memory_refs.'
-      : 'Choose one offered category by returning {"decision":"existing","node_ref":"..."}, or create one with {"decision":"new","title":"...","summary":"..."}. Return strict JSON only.'
+      : request.stage === 'category_titles'
+        ? 'Choose one offered direct child category by returning {"decision":"existing","node_ref":"..."}, or create one direct child with {"decision":"new","title":"...","summary":"..."}. Return strict JSON only.'
+        : 'After reading the selected category summary, return exactly {"decision":"attach"} to place the memory here, or {"decision":"expand"} to inspect or create a more specific child category. Return strict JSON only.'
     const stream = llm.stream({
       provider: route.provider,
       model: route.model,

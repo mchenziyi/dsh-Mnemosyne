@@ -60,9 +60,10 @@ describe('v0.2 real AgentLoop acceptance', () => {
               }
             : { decision: 'skip', reason_code: 'no_reusable_knowledge' }))
         }
-        if (system.startsWith('Choose one offered category')) {
+        if (system.startsWith('Choose one offered direct child category')) {
           return textStream(JSON.stringify({ decision: 'new', title: '依赖管理', summary: '依赖安装与版本约束问题。' }))
         }
+        if (system.startsWith('After reading the selected category summary')) return textStream(JSON.stringify({ decision: 'attach' }))
         mainRequests.push(options)
         return textStream('已按历史踩坑先定位依赖约束，没有删除锁文件。')
       }
