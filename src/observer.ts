@@ -129,6 +129,7 @@ export function install(
     const used = recalledByTurn.get(`${session.id}:${turn}`) ?? []
     recalledByTurn.delete(`${session.id}:${turn}`)
     log(resolution.scope, { event: 'consolidation_start', timestamp: timestamp(), turn, result: 'started', memory_refs: used })
+    const startedAt = Date.now()
     const operation = consolidationRuntime.consolidate({
       scope: resolution.scope,
       evidence: { task: evidence.user_text, outcome: evidence.assistant_text },
@@ -139,18 +140,18 @@ export function install(
       signal: runtimeAbort.signal,
     }).then((result) => {
       if (result.status === 'created') {
-        log(resolution.scope, { event: 'consolidation_created', timestamp: timestamp(), turn, result: 'created', memory_refs: result.memory_id ? [result.memory_id] : [] })
+        log(resolution.scope, { event: 'consolidation_created', timestamp: timestamp(), turn, result: 'created', memory_refs: result.memory_id ? [result.memory_id] : [], elapsed_ms: Date.now() - startedAt })
         log(resolution.scope, { event: 'catalog_updated', timestamp: timestamp(), turn, result: 'created', catalog_id: result.catalog_id })
         log(resolution.scope, { event: 'generation_published', timestamp: timestamp(), turn, result: 'published', generation_id: result.generation_id })
       } else if (result.status === 'noop') {
-        log(resolution.scope, { event: 'consolidation_noop', timestamp: timestamp(), turn, result: 'noop', reason_code: result.reason_code, memory_refs: result.memory_id ? [result.memory_id] : [] })
+        log(resolution.scope, { event: 'consolidation_noop', timestamp: timestamp(), turn, result: 'noop', reason_code: result.reason_code, memory_refs: result.memory_id ? [result.memory_id] : [], elapsed_ms: Date.now() - startedAt })
       } else if (result.status === 'skipped') {
-        log(resolution.scope, { event: 'consolidation_skip', timestamp: timestamp(), turn, result: 'skipped', reason_code: result.reason_code })
+        log(resolution.scope, { event: 'consolidation_skip', timestamp: timestamp(), turn, result: 'skipped', reason_code: result.reason_code, elapsed_ms: Date.now() - startedAt })
       } else {
-        log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn, result: 'failed', reason_code: result.reason_code })
+        log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn, result: 'failed', reason_code: result.reason_code, elapsed_ms: Date.now() - startedAt })
       }
     }).catch(() => {
-      log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn, result: 'failed', reason_code: 'consolidation_failed' })
+      log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn, result: 'failed', reason_code: 'consolidation_failed', elapsed_ms: Date.now() - startedAt })
     })
     consolidationBarrier.track(resolution.scope.project_scope_id, operation)
   })
