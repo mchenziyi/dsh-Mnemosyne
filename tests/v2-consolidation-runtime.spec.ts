@@ -50,6 +50,18 @@ describe('v2 consolidation runtime', () => {
     expect(result).toEqual({ status: 'failed', reason_code: 'consolidation_judgment_invalid' })
   })
 
+  it('keeps only a safe LLM failure code for developer diagnosis', async () => {
+    const scope = await project()
+    const runtime = createConsolidationRuntimeV2({ model: async () => {
+      throw Object.assign(new Error('secret path must not leak'), { failure: { code: 'NO_ADAPTER' } })
+    } })
+    const result = await runtime.consolidate({
+      scope, evidence: { task: 'task', outcome: 'done' }, used_memory_refs: [], provider: 'p', model: 'm',
+      now: '2026-08-31T04:00:00.000Z', signal: new AbortController().signal,
+    })
+    expect(result).toEqual({ status: 'failed', reason_code: 'consolidation_judgment_model_no_adapter' })
+  })
+
   it('automatically creates and publishes a three-level OKF path', async () => {
     const scope = await project()
     const runtime = createConsolidationRuntimeV2({

@@ -99,6 +99,14 @@ function boundedText(value: unknown, maxBytes: number): string {
   return value
 }
 
+function safeLlmFailureCode(error: unknown): string | null {
+  const value = (error as { failure?: { code?: unknown }; code?: unknown } | null)?.failure?.code
+    ?? (error as { code?: unknown } | null)?.code
+  if (typeof value !== 'string') return null
+  const normalized = value.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '')
+  return normalized.length > 0 && normalized.length <= 48 ? normalized : null
+}
+
 function validateJudgment(raw: ConsolidationModelDecisionV2, offeredRefs: string[]): Extract<ConsolidationModelDecisionV2, { decision: 'skip' | 'create' }> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('invalid_model_output')
   if (raw.decision === 'skip') {
@@ -228,8 +236,9 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
               evidence: request.evidence,
               used_memory_refs: request.used_memory_refs,
             }, route)
-          } catch {
-            return { status: 'failed', reason_code: 'consolidation_judgment_model_failed' }
+          } catch (error: unknown) {
+            const code = safeLlmFailureCode(error)
+            return { status: 'failed', reason_code: code ? `consolidation_judgment_model_${code}` : 'consolidation_judgment_model_failed' }
           }
           let judgment: Extract<ConsolidationModelDecisionV2, { decision: 'skip' | 'create' }>
           try { judgment = validateJudgment(rawJudgment, request.used_memory_refs) } catch {
