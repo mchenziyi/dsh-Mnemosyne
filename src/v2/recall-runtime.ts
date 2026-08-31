@@ -4,7 +4,9 @@ import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type { ResolvedScope, ScopeRuntime } from '../runtime-scope.js'
 import { readCurrentOKFGenerationV2, type CompiledOKFGenerationV2 } from './okf-compiler.js'
 
-export type RecallNavigationStageV2 = 'root_titles' | 'node_summary' | 'node_titles' | 'memory_summaries' | 'related_titles'
+export type RecallNavigationStageV2 = 'root_titles' | 'node_summary' | 'node_titles' | 'memory_summaries'
+
+const MAX_RECALL_EXPANSION_STEPS = 8
 
 export interface RecallNavigationItemV2 {
   ref: string
@@ -92,17 +94,6 @@ function validateDecision(raw: unknown, offered: readonly string[], limit: numbe
   return (refs as string[]).slice(0, limit)
 }
 
-function relatedRefs(content: string): string[] {
-  const marker = '\n## 相关记忆\n'
-  const section = content.includes(marker) ? content.slice(content.lastIndexOf(marker) + marker.length) : ''
-  const refs: string[] = []
-  for (const line of section.split('\n')) {
-    const match = line.match(/\((mem_[a-z0-9][a-z0-9._-]{0,63})\)$/)
-    if (match && !refs.includes(match[1]!)) refs.push(match[1]!)
-  }
-  return refs
-}
-
 function recallMessage(selected: Array<{ ref: string; content: string }>): UserMessage {
   const sections = selected.map(({ ref, content }) => `<!-- memory_ref:${ref} -->\n${content}`)
   return createUserMessage({
@@ -134,11 +125,10 @@ export function createRecallRuntimeV2(options: RecallRuntimeV2Options): RecallRu
 
       let steps = 0
       const selected: Array<{ ref: string; content: string }> = []
-      const selectedIds = new Set<string>()
       const route = { provider: request.provider, model: request.model, signal: request.signal }
 
       const choose = async (stage: RecallNavigationStageV2, items: RecallNavigationItemV2[], limit: number): Promise<string[]> => {
-        if (steps >= 6 || items.length === 0) return []
+        if (steps >= MAX_RECALL_EXPANSION_STEPS || items.length === 0) return []
         steps++
         const decision = await options.navigator({ schema_version: 1, stage, task: request.task, step: steps, items }, route)
         const selectedRefs = validateDecision(decision, items.map((item) => item.ref), limit)
@@ -155,10 +145,10 @@ export function createRecallRuntimeV2(options: RecallRuntimeV2Options): RecallRu
         }
 
         let memoryCandidates: string[] = []
-        while (nodeSelection.length > 0 && steps < 6) {
+        while (nodeSelection.length > 0 && steps < MAX_RECALL_EXPANSION_STEPS) {
           const node = parseJson<NodeIndex>(world.files.get(`indexes/nodes/${nodeSelection[0]}.json`))
           const expand = await choose('node_summary', [{ ref: node.node_id, title: node.title, summary: node.summary, kind: 'node' }], 1)
-          if (expand.length === 0 || steps >= 6) break
+          if (expand.length === 0 || steps >= MAX_RECALL_EXPANSION_STEPS) break
           const choices = await choose('node_titles', [
             ...node.children.map((item) => ({ ...item, kind: 'node' as const })),
             ...node.memories.map((item) => ({ ...item, kind: 'memory' as const })),
@@ -172,7 +162,7 @@ export function createRecallRuntimeV2(options: RecallRuntimeV2Options): RecallRu
           break
         }
 
-        if (memoryCandidates.length > 0 && steps < 6) {
+        if (memoryCandidates.length > 0 && steps < MAX_RECALL_EXPANSION_STEPS) {
           const summaryItems = memoryCandidates.map((id) => {
             const view = parseJson<SummaryView>(world.files.get(`summaries/${id}.json`))
             return { ref: view.memory_id, title: view.title, summary: view.summary, kind: 'memory' as const }
@@ -182,31 +172,6 @@ export function createRecallRuntimeV2(options: RecallRuntimeV2Options): RecallRu
             const content = world.files.get(`contents/${id}.md`)
             if (content === undefined) throw new Error('missing_content')
             selected.push({ ref: id, content })
-            selectedIds.add(id)
-          }
-        }
-
-        if (selected.length > 0 && selected.length < 3 && steps < 6) {
-          const related = [...new Set(selected.flatMap((item) => relatedRefs(item.content)))]
-            .filter((id) => !selectedIds.has(id))
-            .slice(0, 5)
-          const relatedTitles = related.map((id) => {
-            const view = parseJson<SummaryView>(world.files.get(`summaries/${id}.json`))
-            return { ref: id, title: view.title, kind: 'memory' as const }
-          })
-          const chosenRelated = await choose('related_titles', relatedTitles, 5)
-          if (chosenRelated.length > 0 && steps < 6) {
-            const summaries = chosenRelated.map((id) => {
-              const view = parseJson<SummaryView>(world.files.get(`summaries/${id}.json`))
-              return { ref: id, title: view.title, summary: view.summary, kind: 'memory' as const }
-            })
-            const confirmed = await choose('memory_summaries', summaries, 3 - selected.length)
-            for (const id of confirmed) {
-              const content = world.files.get(`contents/${id}.md`)
-              if (content === undefined) throw new Error('missing_content')
-              selected.push({ ref: id, content })
-              selectedIds.add(id)
-            }
           }
         }
 

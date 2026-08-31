@@ -51,6 +51,33 @@ const scope: ResolvedScope = {
 }
 
 describe('v2 recall runtime', () => {
+  it('reaches Content through the deepest legal three-node catalog path', async () => {
+    const deepWorld = world()
+    deepWorld.files.set('indexes/root.json', JSON.stringify({ schema_version: 1, root_node_id: 'node_root', children: [{ ref: 'node_auth', title: 'Authentication' }] }))
+    deepWorld.files.set('indexes/nodes/node_auth.json', JSON.stringify({ schema_version: 1, node_id: 'node_auth', title: 'Authentication', summary: '认证。', children: [{ ref: 'node_jwt', title: 'JWT' }], memories: [] }))
+    deepWorld.files.set('indexes/nodes/node_jwt.json', JSON.stringify({ schema_version: 1, node_id: 'node_jwt', title: 'JWT', summary: '令牌。', children: [{ ref: 'node_refresh', title: 'Refresh Token' }], memories: [] }))
+    deepWorld.files.set('indexes/nodes/node_refresh.json', JSON.stringify({ schema_version: 1, node_id: 'node_refresh', title: 'Refresh Token', summary: '刷新令牌。', children: [], memories: [{ ref: 'mem_refresh', title: '轮换时保留兼容窗口' }] }))
+    deepWorld.files.set('summaries/mem_refresh.json', JSON.stringify({ schema_version: 1, memory_id: 'mem_refresh', title: '轮换时保留兼容窗口', summary: '立即撤销旧令牌会中断并发刷新。' }))
+    deepWorld.files.set('contents/mem_refresh.md', '# 轮换时保留兼容窗口\n\n完整刷新令牌经验。\n\n## 相关记忆\n\n- 无\n')
+    const requests: RecallNavigationRequestV2[] = []
+    const runtime = createRecallRuntimeV2({
+      loadWorld: async () => deepWorld,
+      navigator: async (request) => {
+        requests.push(request)
+        return { selected_refs: request.items.length === 0 ? [] : [request.items[0]!.ref] }
+      },
+    })
+
+    const result = await runtime.recall({ scope, task: '刷新令牌轮换后并发请求失败', provider: 'p', model: 'm', signal: new AbortController().signal })
+    expect(result.status).toBe('completed')
+    expect(result.selected_memory_refs).toEqual(['mem_refresh'])
+    expect(JSON.stringify(result.message)).toContain('完整刷新令牌经验')
+    expect(requests.map((request) => request.stage)).toEqual([
+      'root_titles', 'node_summary', 'node_titles', 'node_summary',
+      'node_titles', 'node_summary', 'node_titles', 'memory_summaries',
+    ])
+  })
+
   it('enforces Title → Summary → Content and never exposes unselected branches', async () => {
     const seen: RecallNavigationRequestV2[] = []
     const navigator: RecallNavigatorV2 = async (request) => {
@@ -58,19 +85,18 @@ describe('v2 recall runtime', () => {
       if (request.stage === 'root_titles') return { selected_refs: ['node_build'] }
       if (request.stage === 'node_summary') return { selected_refs: ['node_build'] }
       if (request.stage === 'node_titles') return { selected_refs: ['mem_lock'] }
-      if (request.stage === 'memory_summaries') return { selected_refs: request.items[0]?.ref === 'mem_related' ? ['mem_related'] : ['mem_lock'] }
-      if (request.stage === 'related_titles') return { selected_refs: ['mem_related'] }
+      if (request.stage === 'memory_summaries') return { selected_refs: ['mem_lock'] }
       return { selected_refs: [] }
     }
     const runtime = createRecallRuntimeV2({ loadWorld: async () => world(), navigator })
     const result = await runtime.recall({ scope, task: '安装依赖失败了，应该怎么排查？', provider: 'p', model: 'm', signal: new AbortController().signal })
 
     expect(result.status).toBe('completed')
-    expect(result.selected_memory_refs).toEqual(['mem_lock', 'mem_related'])
+    expect(result.selected_memory_refs).toEqual(['mem_lock'])
     expect(result.message?.source).toMatchObject({ kind: 'plugin', plugin: 'dsh-mnemosyne', form: 'recall' })
     const finalText = (result.message!.content[0] as { text: string }).text
     expect(finalText).toContain('完整锁文件经验')
-    expect(finalText).toContain('完整 Workspace 经验')
+    expect(finalText).not.toContain('完整 Workspace 经验')
     expect(finalText).not.toContain('完整 Peer 经验')
     expect(finalText).not.toContain('完整数据库经验')
 
@@ -80,10 +106,10 @@ describe('v2 recall runtime', () => {
     expect(JSON.stringify(seen)).not.toContain('数据库迁移前创建备份')
     const memorySummaryRequest = seen.find((request) => request.stage === 'memory_summaries' && request.items.some((item) => item.ref === 'mem_lock'))!
     expect(JSON.stringify(memorySummaryRequest)).not.toContain('完整锁文件经验')
-    expect(seen.length).toBeLessThanOrEqual(6)
+    expect(seen.length).toBeLessThanOrEqual(8)
   })
 
-  it('caps each navigation at 5 summaries, 3 contents, and 6 expansion calls', async () => {
+  it('caps each navigation at 5 summaries, 3 contents, and 8 expansion calls', async () => {
     const oversizedWorld = world()
     const node = JSON.parse(oversizedWorld.files.get('indexes/nodes/node_build.json')!)
     node.memories = Array.from({ length: 8 }, (_, index) => ({ ref: `mem_${index}`, title: `Memory ${index}` }))
@@ -106,7 +132,7 @@ describe('v2 recall runtime', () => {
     const result = await runtime.recall({ scope, task: 'task', provider: 'p', model: 'm', signal: new AbortController().signal })
     expect(requests.find((request) => request.stage === 'memory_summaries')!.items).toHaveLength(5)
     expect(result.selected_memory_refs).toHaveLength(3)
-    expect(requests.length).toBeLessThanOrEqual(6)
+    expect(requests.length).toBeLessThanOrEqual(8)
   })
 
   it('fails open without injecting content when the model selects an undisclosed ref', async () => {
