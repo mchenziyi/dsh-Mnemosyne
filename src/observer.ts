@@ -13,6 +13,7 @@ import {
 } from './v2/recall-runtime.js'
 import { createConsolidationRuntimeV2, createLlmConsolidationModelV2 } from './v2/consolidation-runtime.js'
 import { createRuntimeLoggerV2, type RuntimeLogRecordV2 } from './v2/runtime-log.js'
+import { createProjectConsolidationBarrierV2 } from './v2/project-consolidation-barrier.js'
 
 function timestamp(): string {
   return new Date().toISOString()
@@ -37,7 +38,7 @@ export function install(
   const logger = createRuntimeLoggerV2()
   const sessionToAgent = new Map<string, Agent>()
   const recalledByTurn = new Map<string, string[]>()
-  const pending = new Set<Promise<void>>()
+  const consolidationBarrier = createProjectConsolidationBarrierV2()
   const runtimeAbort = new AbortController()
   let disposed = false
 
@@ -71,6 +72,7 @@ export function install(
   const recallHandler = createRecallPreStepHandlerV2({
     runtime: recallRuntime,
     scopeRuntime,
+    beforeRecall: (scope) => consolidationBarrier.wait(scope.project_scope_id),
     onResult(payload, result: RecallResultV2) {
       recalledByTurn.set(`${payload.agent.session.id}:${payload.turn}`, result.selected_memory_refs)
     },
@@ -84,7 +86,7 @@ export function install(
   ctx.effect(() => async () => {
     disposed = true
     runtimeAbort.abort()
-    await Promise.allSettled([...pending])
+    await consolidationBarrier.waitAll()
     await logger.dispose()
     scopeRuntime.clear()
     sessionToAgent.clear()
@@ -149,8 +151,8 @@ export function install(
       }
     }).catch(() => {
       log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn, result: 'failed', reason_code: 'consolidation_failed' })
-    }).finally(() => pending.delete(operation))
-    pending.add(operation)
+    })
+    consolidationBarrier.track(resolution.scope.project_scope_id, operation)
   })
 
   ctx.on('session/disposed', (session: Session) => {

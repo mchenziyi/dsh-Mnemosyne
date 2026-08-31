@@ -205,6 +205,7 @@ function taskText(messages: readonly UserMessage[]): string {
 export interface RecallPreStepHandlerV2Options {
   runtime: RecallRuntimeV2
   scopeRuntime: ScopeRuntime
+  beforeRecall?: (scope: ResolvedScope, signal: AbortSignal) => Promise<void>
   onResult?: (payload: { agent: Agent; turn: number }, result: RecallResultV2) => void | Promise<void>
 }
 
@@ -220,6 +221,9 @@ export function createRecallPreStepHandlerV2(options: RecallPreStepHandlerV2Opti
     if (!provider || !model) return decision
     const resolved = options.scopeRuntime.observeSession(payload.agent.session)
     if (resolved.status !== 'ready') return decision
+    if (payload.signal.aborted) return decision
+    await options.beforeRecall?.(resolved.scope, payload.signal)
+    if (payload.signal.aborted) return decision
     const result = await options.runtime.recall({
       scope: resolved.scope,
       task: taskText(decision.messages),
