@@ -102,8 +102,10 @@ v0.2.0 聚焦项目级长期记忆闭环，不包含：
 
 设计与实现细节见：
 
+- [文档索引](docs/README.zh-CN.md)
 - [v0.2.0 零操作 OKF 记忆闭环实施计划](docs/DSH_MNEMOSYNE_V020_ZERO_OPERATION_OKF_MEMORY_PLAN.zh-CN.md)
 - [dsh-Mnemosyne 总体设计](docs/DSH_MNEMOSYNE_ARCHITECTURE.zh-CN.md)
+- [本地观察期监控与评估规范](docs/DSH_MNEMOSYNE_LOCAL_OBSERVATION_EVALUATION.zh-CN.md)
 - [版本路线图](docs/DSH_MNEMOSYNE_VERSION_ROADMAP.zh-CN.md)
 
 ## 许可证
