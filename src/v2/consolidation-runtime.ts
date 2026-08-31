@@ -365,8 +365,9 @@ export function createLlmConsolidationModelV2(llm: LlmRuntime): ConsolidationMod
     let text: string
     try {
       text = (await consumeStrictModelTextV2(stream)).trim()
-    } catch {
-      throw Object.assign(new Error('llm stream consume failed'), { code: 'stream_consume_failed' })
+    } catch (error: unknown) {
+      const code = safeLlmFailureCode(error)
+      throw Object.assign(new Error('llm stream consume failed'), { code: code?.startsWith('stream_') ? code : 'stream_consume_failed' })
     }
     if (!text.startsWith('{') || !text.endsWith('}')) throw Object.assign(new Error('invalid model output'), { code: 'json_parse_failed' })
     try {

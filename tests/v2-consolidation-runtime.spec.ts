@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it } from 'vitest'
 import { computeProjectScopeId, computeSessionScopeId, type ResolvedScope } from '../src/runtime-scope.js'
-import { createConsolidationRuntimeV2, type ConsolidationModelRequestV2 } from '../src/v2/consolidation-runtime.js'
+import { createConsolidationRuntimeV2, createLlmConsolidationModelV2, type ConsolidationModelRequestV2 } from '../src/v2/consolidation-runtime.js'
 import { openOKFMemoryV2Store } from '../src/v2/okf-memory-store.js'
 import { readCurrentOKFGenerationV2 } from '../src/v2/okf-compiler.js'
 import { canonicalHash } from '../src/protocol/canonical.js'
@@ -60,6 +60,22 @@ describe('v2 consolidation runtime', () => {
       now: '2026-08-31T04:00:00.000Z', signal: new AbortController().signal,
     })
     expect(result).toEqual({ status: 'failed', reason_code: 'consolidation_judgment_model_no_adapter' })
+  })
+
+  it('preserves the concrete stream protocol failure code', async () => {
+    const scope = await project()
+    const model = createLlmConsolidationModelV2({
+      stream: () => (async function* () {
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      })(),
+    } as any)
+    const runtime = createConsolidationRuntimeV2({ model })
+    const result = await runtime.consolidate({
+      scope, evidence: { task: 'task', outcome: 'done' }, used_memory_refs: [], provider: 'p', model: 'm',
+      now: '2026-08-31T04:00:00.000Z', signal: new AbortController().signal,
+    })
+    expect(result.reason_code).toBe('consolidation_judgment_model_stream_finish_with_open_block')
   })
 
   it('automatically creates and publishes a three-level OKF path', async () => {
