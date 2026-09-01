@@ -5,7 +5,8 @@ import type { RecallRuntimeV2, RecallResultV2 } from '../v2/recall-runtime.js'
 import { readCurrentOKFGenerationV2 } from '../v2/okf-compiler.js'
 import { createMapFirstRecallV3, type MapRecallDecisionV3 } from './map-first-recall.js'
 import { buildRecallSubagentPromptV3, createDshSubagentFactoryV3, runDshSubagentV3 } from './dsh-subagent.js'
-import { pinGenerationV3 } from './map-offer.js'
+import { createMapContextMessageV3 } from './map-context.js'
+import { createMapOfferV3, pinGenerationV3 } from './map-offer.js'
 
 function taskText(messages: readonly UserMessage[]): string {
   return messages.filter((message) => message.source.kind === 'user').flatMap((message) => message.content.filter((block) => block.type === 'text').map((block) => block.text)).join('\n').slice(0, 32768)
@@ -65,15 +66,17 @@ export function createRecallPreStepHandlerV3(options: RecallPreStepHandlerV3Opti
       if (empty.status === 'completed') return { kind: 'enter', messages: [empty.message, ...decision.messages] }
       return decision
     }
-    const result = await mapRuntime.recall(pinGenerationV3(world), task, payload.signal)
+    const pin = pinGenerationV3(world)
+    const mapMessage = createMapContextMessageV3(createMapOfferV3(pin))
+    const result = await mapRuntime.recall(pin, task, payload.signal)
     if (legacy) {
       await options.onResult?.({ agent: payload.agent, turn: payload.turn }, legacy)
-      if (legacy.status === 'completed') return { kind: 'enter', messages: [legacy.message, ...decision.messages] }
+      if (legacy.status === 'completed') return { kind: 'enter', messages: [mapMessage, legacy.message, ...decision.messages] }
       return decision
     }
     if (result.status !== 'completed') return decision
     const v2Result: RecallResultV2 = { status: 'completed', reason_code: null, selected_memory_refs: result.selected_memory_refs, expansion_steps: 0, message: recallMessage(result.contents) }
     await options.onResult?.({ agent: payload.agent, turn: payload.turn }, v2Result)
-    return { kind: 'enter', messages: [v2Result.message, ...decision.messages] }
+    return { kind: 'enter', messages: [mapMessage, v2Result.message, ...decision.messages] }
   }
 }
