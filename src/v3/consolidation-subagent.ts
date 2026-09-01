@@ -1,4 +1,5 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { ConsolidationModelDecisionV2, ConsolidationModelRequestV2 } from '../v2/consolidation-runtime.js'
 import { createDshSubagentFactoryV3, runDshSubagentV3, type DshSubagentFactoryV3 } from './dsh-subagent.js'
 
 export class SubagentProtocolError extends Error { readonly code = 'subagent_protocol_invalid' }
@@ -25,4 +26,18 @@ export function buildConsolidationSubagentPromptV3(input: { task: string; outcom
 export async function runConsolidationSubagentV3(parent: Agent, input: { task: string; outcome: string; used_memory_refs: readonly string[]; provider: string; model: string; signal: AbortSignal }, factory: DshSubagentFactoryV3 = createDshSubagentFactoryV3()): Promise<ConsolidationJudgmentV3> {
   const output = await runDshSubagentV3(parent, { task: buildConsolidationSubagentPromptV3(input), provider: input.provider, model: input.model, signal: input.signal }, factory)
   return parseJudgment(output)
+}
+
+export function createConsolidationSubagentModelV3(parent: Agent, factory: DshSubagentFactoryV3 = createDshSubagentFactoryV3()) {
+  return async (request: ConsolidationModelRequestV2, route: { provider: string; model: string; signal: AbortSignal }): Promise<ConsolidationModelDecisionV2> => {
+    const prompt = ['You are the Mnemosyne Consolidation Subagent.', 'Return JSON only and use the exact decision shape required by the stage.', 'Do not include hidden reasoning.', JSON.stringify(request)].join('\n')
+    const output = await runDshSubagentV3(parent, { task: prompt, provider: route.provider, model: route.model, signal: route.signal }, factory)
+    let value: unknown
+    try { value = JSON.parse(output) } catch { throw new SubagentProtocolError() }
+    if (!value || typeof value !== 'object' || Array.isArray(value) || typeof (value as { decision?: unknown }).decision !== 'string') throw new SubagentProtocolError()
+    const decision = (value as { decision: string }).decision
+    const allowed: Record<string, string[]> = { judgment: ['skip', 'create'], category_titles: ['candidate', 'no_candidate'], category_summary: ['attach', 'expand', 'reject'], category_new: ['new'] }
+    if (!allowed[request.stage]?.includes(decision)) throw new SubagentProtocolError()
+    return value as ConsolidationModelDecisionV2
+  }
 }
