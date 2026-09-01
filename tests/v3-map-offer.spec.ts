@@ -31,6 +31,16 @@ describe('v3 map offer', () => {
     expect(second.entries[0]!.ref).toBe('node_32')
   })
 
+  it('uses the byte budget rather than silently truncating large titles', () => {
+    const source = generation()
+    source.files.set('indexes/root.json', JSON.stringify({ schema_version: 1, root_node_id: 'node_root', children: [{ ref: 'node_a', title: 'x'.repeat(7800) }, { ref: 'node_b', title: 'later' }], memories: [] }))
+    const offer = createMapOfferV3(pinGenerationV3(source))
+    expect(offer.entries).toHaveLength(1)
+    expect(offer.next_cursor).toBe('1')
+    const oversized = { ...source, files: new Map([['indexes/root.json', JSON.stringify({ schema_version: 1, root_node_id: 'node_root', children: [{ ref: 'node_a', title: 'x'.repeat(12000) }], memories: [] })]]) } as any
+    expect(() => createMapOfferV3(pinGenerationV3(oversized))).toThrow()
+  })
+
   it('binds the offer to the pinned generation and node', () => {
     const pin = pinGenerationV3(generation())
     const a = createMapOfferV3(pin, 'node_root')

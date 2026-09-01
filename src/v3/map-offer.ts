@@ -1,5 +1,5 @@
 import { MemoryStoreError } from '../memory-store-error.js'
-import { canonicalHash, compareCodePoints } from '../protocol/canonical.js'
+import { canonicalBytes, canonicalHash, compareCodePoints } from '../protocol/canonical.js'
 import type { CompiledOKFGenerationV2 } from '../v2/okf-compiler.js'
 
 export const MAP_OFFER_SCHEMA_VERSION = 1
@@ -90,7 +90,18 @@ export function createMapOfferV3(pin: PinnedGenerationV3, nodeId = 'node_root', 
     ...index.children.map((entry) => ({ ref: entry.ref, title: entry.title, kind: 'node' as const })),
     ...index.memories.map((entry) => ({ ref: entry.ref, title: entry.title, kind: 'memory' as const })),
   ].sort((a, b) => compareCodePoints(a.ref, b.ref))
-  const page = entries.slice(cursor, cursor + MAP_OFFER_PAGE_SIZE)
+  const remaining = entries.slice(cursor, cursor + MAP_OFFER_PAGE_SIZE)
+  const page: typeof entries = []
+  for (const entry of remaining) {
+    const candidate = [...page, entry]
+    const nextCursor = cursor + candidate.length < entries.length ? String(cursor + candidate.length) : null
+    const candidateIdentity = { schema_version: 1 as const, generation_id: pin.generation_id, catalog_id: pin.catalog_id, project_scope_id: pin.project_scope_id, node_id: nodeId, entries: candidate, next_cursor: nextCursor }
+    if (Buffer.byteLength(canonicalBytes(candidateIdentity), 'utf8') > MAP_OFFER_MAX_BYTES) {
+      if (page.length === 0) fail()
+      break
+    }
+    page.push(entry)
+  }
   const next = cursor + page.length < entries.length ? String(cursor + page.length) : null
   const identity = { schema_version: 1 as const, generation_id: pin.generation_id, catalog_id: pin.catalog_id, project_scope_id: pin.project_scope_id, node_id: nodeId, entries: page, next_cursor: next }
   return freeze({ ...identity, offer_sha256: canonicalHash(identity) })
