@@ -2,9 +2,10 @@ import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { ResolvedScope, ScopeRuntime } from '../runtime-scope.js'
 import type { RecallRuntimeV2, RecallResultV2 } from '../v2/recall-runtime.js'
+import type { CompiledOKFGenerationV2 } from '../v2/okf-compiler.js'
 import { readCurrentOKFGenerationV2 } from '../v2/okf-compiler.js'
 import { createMapFirstRecallV3, type MapRecallDecisionV3 } from './map-first-recall.js'
-import { buildRecallSubagentPromptV3, createDshSubagentFactoryV3, runDshSubagentV3 } from './dsh-subagent.js'
+import { buildRecallSubagentPromptV3, createDshSubagentFactoryV3, runDshSubagentV3, type DshSubagentFactoryV3 } from './dsh-subagent.js'
 import { createMapContextMessageV3 } from './map-context.js'
 import { createMapOfferV3, pinGenerationV3 } from './map-offer.js'
 
@@ -29,10 +30,12 @@ export interface RecallPreStepHandlerV3Options {
   legacyRuntime: RecallRuntimeV2
   beforeRecall?: (scope: ResolvedScope, signal: AbortSignal) => Promise<void>
   onResult?: (payload: { agent: Agent; turn: number }, result: RecallResultV2) => void | Promise<void>
+  loadWorld?: (scope: ResolvedScope) => Promise<CompiledOKFGenerationV2>
+  subagentFactory?: DshSubagentFactoryV3
 }
 
 export function createRecallPreStepHandlerV3(options: RecallPreStepHandlerV3Options) {
-  const factory = createDshSubagentFactoryV3()
+  const factory = options.subagentFactory ?? createDshSubagentFactoryV3()
   return async (payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>): Promise<PreStepDecision> => {
     const decision = await next()
     if (decision.kind === 'reject' || payload.step !== 1 || payload.agent.session.header.origin === 'subagent') return decision
@@ -58,7 +61,7 @@ export function createRecallPreStepHandlerV3(options: RecallPreStepHandlerV3Opti
     })
     let world
     try {
-      world = await readCurrentOKFGenerationV2({ project_root: resolution.scope.project_root, project_scope_id: resolution.scope.project_scope_id })
+      world = await (options.loadWorld ?? ((scope: ResolvedScope) => readCurrentOKFGenerationV2({ project_root: scope.project_root, project_scope_id: scope.project_scope_id })))(resolution.scope)
     } catch (error: unknown) {
       if ((error as { code?: string }).code !== 'memory_compile_not_found') return decision
       const empty = await options.legacyRuntime.recall({ scope: resolution.scope, task, provider, model, signal: payload.signal })
