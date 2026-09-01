@@ -14,6 +14,12 @@ import {
 import { createConsolidationRuntimeV2, createLlmConsolidationModelV2 } from './v2/consolidation-runtime.js'
 import { createRuntimeLoggerV2, type RuntimeLogRecordV2 } from './v2/runtime-log.js'
 import { createProjectConsolidationBarrierV2 } from './v2/project-consolidation-barrier.js'
+import { createRecallPreStepHandlerV3 } from './v3/recall-pre-step.js'
+import { createConsolidationSubagentModelV3 } from './v3/consolidation-subagent.js'
+
+export interface ObserverInstallOptions {
+  readonly mode?: 'v2' | 'v3'
+}
 
 function timestamp(): string {
   return new Date().toISOString()
@@ -31,6 +37,7 @@ export function install(
   ctx: Context,
   configOrCb?: PluginConfig | (() => void),
   maybeCb?: () => void,
+  installOptions: ObserverInstallOptions = {},
 ): void {
   const config: PluginConfig = typeof configOrCb === 'function' ? {} : configOrCb ?? {}
   const onSessionEvent: () => void = typeof configOrCb === 'function' ? configOrCb : maybeCb ?? (() => {})
@@ -69,7 +76,7 @@ export function install(
     },
   })
 
-  const recallHandler = createRecallPreStepHandlerV2({
+  const recallHandlerV2 = createRecallPreStepHandlerV2({
     runtime: recallRuntime,
     scopeRuntime,
     beforeRecall: (scope) => consolidationBarrier.wait(scope.project_scope_id),
@@ -77,9 +84,17 @@ export function install(
       recalledByTurn.set(`${payload.agent.session.id}:${payload.turn}`, result.selected_memory_refs)
     },
   })
+  const recallHandler = installOptions.mode === 'v3' ? createRecallPreStepHandlerV3({
+    scopeRuntime,
+    legacyRuntime: recallRuntime,
+    beforeRecall: (scope) => consolidationBarrier.wait(scope.project_scope_id),
+    onResult(payload, result: RecallResultV2) {
+      recalledByTurn.set(`${payload.agent.session.id}:${payload.turn}`, result.selected_memory_refs)
+    },
+  }) : recallHandlerV2
   ctx.on('agent/pre-step', (payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>) => recallHandler(payload, next))
 
-  const consolidationRuntime = createConsolidationRuntimeV2({
+  const consolidationRuntimeV2 = createConsolidationRuntimeV2({
     model: (request, route) => createLlmConsolidationModelV2(ctx.llm)(request, route),
   })
 
@@ -107,7 +122,7 @@ export function install(
     if (!session) return
     const resolution = scopeRuntime.observeSession(session)
     onSessionEvent()
-    if (disposed || resolution.status !== 'ready' || event?.type !== 'turn/end') return
+    if (disposed || resolution.status !== 'ready' || session.header.origin === 'subagent' || event?.type !== 'turn/end') return
     const reason = (event.data as { reason?: { kind?: string } | string } | undefined)?.reason
     const reasonKind = typeof reason === 'string' ? reason : reason?.kind
     if (reasonKind !== 'completed' && reasonKind !== 'stop') return
@@ -130,6 +145,9 @@ export function install(
     recalledByTurn.delete(`${session.id}:${turn}`)
     log(resolution.scope, { event: 'consolidation_start', timestamp: timestamp(), turn, result: 'started', memory_refs: used })
     const startedAt = Date.now()
+    const consolidationRuntime = installOptions.mode === 'v3' && agent
+      ? createConsolidationRuntimeV2({ model: (request, route) => createConsolidationSubagentModelV3(agent)(request, route) })
+      : consolidationRuntimeV2
     const operation = consolidationRuntime.consolidate({
       scope: resolution.scope,
       evidence: { task: evidence.user_text, outcome: evidence.assistant_text },
