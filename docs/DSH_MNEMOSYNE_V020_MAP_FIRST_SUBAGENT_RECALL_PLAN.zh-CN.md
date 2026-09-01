@@ -1,6 +1,6 @@
 # dsh-Mnemosyne v0.2 Recall Map-first 与 Subagent 开发设计
 
-> 状态：实现中（Map Offer、Recall Subagent 与 Disclosure Receipt 已完成；生产装配与 Consolidation Subagent 待完成）
+> 状态：实现中（Map Offer、Recall/Consolidation Subagent、Observer opt-in 装配、阶段日志与 Legacy fallback 已完成；生产默认切换、真实重启验收待完成）
 >
 > 范围：仅解决“主模型使用 OKF 地图”和“Mnemosyne 记忆操作由 Subagent 执行”两项问题。现有 Legacy Recall 保留为技术兜底。
 
