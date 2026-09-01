@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { AgentRegistry } from '@deepseek-ai/dsh-agent'
 import { AgentLoop } from '@deepseek-ai/dsh-agent-loop'
+import SessionProjection from '@deepseek-ai/dsh-session-projection'
 import { createUserMessage, LlmAdapter, LlmRuntime, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId, SessionStore } from '@deepseek-ai/dsh-session'
 import { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
@@ -53,10 +54,10 @@ describe('v0.2 real AgentLoop acceptance', () => {
               }
             : { decision: 'skip', reason_code: 'no_reusable_knowledge' }))
         }
-        if (system.startsWith('Choose one offered direct child category')) {
+        if (system.startsWith('No offered direct child category title fits')) {
           return textStream(JSON.stringify({ decision: 'new', title: 'Authentication', summary: '认证问题。' }))
         }
-        if (system.startsWith('After reading the selected category summary')) return textStream(JSON.stringify({ decision: 'attach' }))
+        if (system.startsWith('After reading only the selected category summary')) return textStream(JSON.stringify({ decision: 'attach' }))
         if (system.startsWith('You navigate project memory.')) return textStream(JSON.stringify({ selected_refs: [] }))
         mainRequests.push(options)
         return textStream('任务完成。')
@@ -70,7 +71,7 @@ describe('v0.2 real AgentLoop acceptance', () => {
       fibers.push(await ctx.plugin(LlmRuntime))
       fibers.push(await ctx.plugin(SystemPrompt))
       fibers.push(await ctx.plugin(ToolRuntime))
-      fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
+      fibers.push(await ctx.plugin(SessionProjection)); fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       unregister = ctx.llm.registerAdapter(['project-isolation'], new ProjectIsolationAdapter())
       pluginFiber = await ctx.plugin(MnemosynePlugin, { enabled: true })
 
@@ -94,6 +95,8 @@ describe('v0.2 real AgentLoop acceptance', () => {
         content: [{ type: 'text', text: '认证刷新时并发请求中断，应该怎样处理？' }], source: { kind: 'user' },
       }))
       await agentB.whenIdle()
+      await pluginFiber.dispose()
+      pluginFiber = undefined
 
       const recallEvents = agentB.session.events.filter((event) => {
         if (event.type !== 'user/message') return false
@@ -144,10 +147,10 @@ describe('v0.2 real AgentLoop acceptance', () => {
               }
             : { decision: 'skip', reason_code: 'no_reusable_knowledge' }))
         }
-        if (system.startsWith('Choose one offered direct child category')) {
+        if (system.startsWith('No offered direct child category title fits')) {
           return textStream(JSON.stringify({ decision: 'new', title: '依赖管理', summary: '依赖安装与版本约束问题。' }))
         }
-        if (system.startsWith('After reading the selected category summary')) return textStream(JSON.stringify({ decision: 'attach' }))
+        if (system.startsWith('After reading only the selected category summary')) return textStream(JSON.stringify({ decision: 'attach' }))
         mainRequests.push(options)
         return textStream('已按历史踩坑先定位依赖约束，没有删除锁文件。')
       }
@@ -160,7 +163,7 @@ describe('v0.2 real AgentLoop acceptance', () => {
       fibers.push(await ctx.plugin(LlmRuntime))
       fibers.push(await ctx.plugin(SystemPrompt))
       fibers.push(await ctx.plugin(ToolRuntime))
-      fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
+      fibers.push(await ctx.plugin(SessionProjection)); fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       unregister = ctx.llm.registerAdapter(['acceptance'], new AcceptanceAdapter())
       pluginFiber = await ctx.plugin(MnemosynePlugin, { enabled: true })
 

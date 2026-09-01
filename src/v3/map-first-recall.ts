@@ -1,5 +1,5 @@
 import { MemoryStoreError } from '../memory-store-error.js'
-import { createMapOfferV3, type PinnedGenerationV3 } from './map-offer.js'
+import { createMapOfferPagesV3, createMapOfferV3, type MapOfferV3, type PinnedGenerationV3 } from './map-offer.js'
 import { createDisclosureReceiptV3, type DisclosureReceiptV3 } from './recall-subagent.js'
 
 export class SubagentUnavailableError extends Error { readonly code = 'subagent_unavailable' }
@@ -22,11 +22,21 @@ interface Index { node_id: string; title?: string; summary?: string; children: A
 interface Summary { memory_id: string; title: string; summary: string }
 
 export function createMapFirstRecallV3(options: { invoke: MapRecallInvokerV3; fallback: (task: string, signal: AbortSignal) => Promise<MapFirstRecallResultV3> }) {
-  return { async recall(pin: PinnedGenerationV3, task: string, signal: AbortSignal): Promise<MapFirstRecallResultV3> {
+  return { async recall(pin: PinnedGenerationV3, task: string, signal: AbortSignal, rootOffers?: readonly MapOfferV3[]): Promise<MapFirstRecallResultV3> {
     try {
       const root = parse<Index>(pin.files.get('indexes/root.json'))
-      const rootOffer = createMapOfferV3(pin).entries
-      let selected = select(await options.invoke({ stage: 'root_titles', task, items: rootOffer.map((item) => ({ ...item })), signal }), rootOffer.map((item) => item.ref), 1)
+      const rootPages = rootOffers && rootOffers.length > 0 ? rootOffers : createMapOfferPagesV3(pin).pages
+      const rootChoices = rootPages.flatMap((page) => page.entries)
+      const rootSelected: string[] = []
+      for (const page of rootPages) {
+        const pageRefs = page.entries.map((item) => item.ref)
+        rootSelected.push(...select(await options.invoke({ stage: 'root_titles', task, items: page.entries.map((item) => ({ ...item })), signal }), pageRefs, 1))
+      }
+      let selected = rootSelected.length <= 1 ? rootSelected : select(
+        await options.invoke({ stage: 'root_titles', task, items: rootChoices.filter((item) => rootSelected.includes(item.ref)).map((item) => ({ ...item })), signal }),
+        rootSelected,
+        1,
+      )
       if (!selected.length) return { status: 'no_match', selected_memory_refs: [], contents: [], fallback_used: false, reason_code: 'recall_no_match' }
       let memoryRefs: string[] = []
       let depth = 0
@@ -34,7 +44,18 @@ export function createMapFirstRecallV3(options: { invoke: MapRecallInvokerV3; fa
         const node = parse<Index>(pin.files.get(`indexes/nodes/${selected[0]}.json`))
         if (!select(await options.invoke({ stage: 'node_summary', task, items: [{ ref: node.node_id, title: node.title ?? '', summary: node.summary, kind: 'node' }], signal }), [node.node_id], 1).length) break
         const choices = [...node.children.map((item) => ({ ...item, kind: 'node' as const })), ...node.memories.map((item) => ({ ...item, kind: 'memory' as const }))]
-        selected = select(await options.invoke({ stage: 'node_titles', task, items: choices, signal }), choices.map((item) => item.ref), 6)
+        const pages = createMapOfferPagesV3(pin, node.node_id).pages
+        const selectedByPage: string[] = []
+        for (const page of pages) {
+          const offered = page.entries.filter((item) => choices.some((choice) => choice.ref === item.ref))
+          if (offered.length === 0) continue
+          selectedByPage.push(...select(await options.invoke({ stage: 'node_titles', task, items: offered.map((item) => ({ ...item })), signal }), offered.map((item) => item.ref), 6))
+        }
+        selected = selectedByPage.length <= 6 ? selectedByPage : select(
+          await options.invoke({ stage: 'node_titles', task, items: choices.filter((item) => selectedByPage.includes(item.ref)), signal }),
+          selectedByPage,
+          6,
+        )
         const child = selected.find((ref) => node.children.some((item) => item.ref === ref))
         if (child) { selected = [child]; depth++; continue }
         memoryRefs = selected.filter((ref) => node.memories.some((item) => item.ref === ref)).slice(0, 5)

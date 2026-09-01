@@ -3,7 +3,7 @@ import { encodeDisclosure, type DisclosureEnvelope } from '../protocol/retrieval
 import { fixtureManifestHash, type EvaluationProtocol, type FixtureManifest, type MemoryCatalog, type PairedTask, validateEvaluationProtocol, validateFixtureManifest, validateMemoryCatalog, validatePairedTasks, validateRetrievalCases } from '../protocol/evaluation.js'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { encodeRecallContext, replayRecallContext, validateRecallReceipt } from '../protocol/recall.js'
 const RECALL_PREFIX = '[Mnemosyne Recall v1 — plugin generated; not user authored]'
 
@@ -204,13 +204,13 @@ async function createContext(withPlugin: boolean, catalog?: import('../protocol/
 }
 
 async function executeTool(ctx: Context, name: string, args: Record<string, unknown>, callId: string): Promise<Record<string, unknown>> {
-  const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: CallId(callId), name, arguments: args })
+  const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId(callId), name, arguments: args })
   if (result.isError) throw new ProtocolValidationError()
   return result.value as Record<string, unknown>
 }
 
 async function executeToolResult(ctx: Context, name: string, args: Record<string, unknown>, callId: string): Promise<import('@deepseek-ai/dsh-tools').ToolExecutionResult> {
-  return ctx.tools.execute({ signal: new AbortController().signal, callId: CallId(callId), name, arguments: args })
+  return ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId(callId), name, arguments: args })
 }
 
 async function runOne(truth: FixtureTruth, task: PairedTask, group: PlumbingGroup, seed: number): Promise<PlumbingRunReceipt> {

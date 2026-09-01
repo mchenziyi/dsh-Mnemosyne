@@ -4,10 +4,11 @@ import { resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { AgentRegistry } from '@deepseek-ai/dsh-agent'
 import { AgentLoop } from '@deepseek-ai/dsh-agent-loop'
-import { CallId, createUserMessage, LlmAdapter, LlmRuntime, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, createUserMessage, LlmAdapter, LlmRuntime, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId, SessionStore } from '@deepseek-ai/dsh-session'
 import { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { ToolRuntime } from '@deepseek-ai/dsh-tools'
+import SessionProjection from '@deepseek-ai/dsh-session-projection'
 import { ProtocolValidationError, canonicalBytes, canonicalHash, withoutHash } from '../src/protocol/canonical.js'
 import { AUDIT_COMMIT, DSH_VERSION } from '../src/compatibility.js'
 import {
@@ -18,7 +19,7 @@ import {
   type PublicSeamsAudit,
 } from '../src/protocol/dsh-baseline-audit.js'
 
-const TARGET_DSH_VERSION = '0.1.1-rc.2'
+const TARGET_DSH_VERSION = '0.1.2-alpha.3'
 
 const VALID_PUBLIC_SEAMS: PublicSeamsAudit = {
   cordis_plugin: 'pass',
@@ -49,7 +50,7 @@ describe('DSH baseline upgrade compatibility suite', () => {
     const dshDevs = Object.entries(pkgJson.devDependencies || {}).filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
 
     expect(dshPeers.length).toBe(2)
-    expect(dshDevs.length).toBe(23)
+    expect(dshDevs.length).toBe(24)
 
     for (const [name, version] of dshPeers) {
       expect(version, `peerDependency ${name} must be exact ${TARGET_DSH_VERSION}`).toBe(TARGET_DSH_VERSION)
@@ -175,7 +176,7 @@ describe('DSH baseline upgrade compatibility suite', () => {
     ).toThrow(ProtocolValidationError)
 
     // 2. Lockfile with only rc.8 produces status: 'blocked' and never ready
-    const rc8Lockfile = readFileSync(resolve(process.cwd(), 'pnpm-lock.yaml'), 'utf8').replace(/0\.1\.1-rc\.2/g, '0.1.0-rc.8')
+    const rc8Lockfile = readFileSync(resolve(process.cwd(), 'pnpm-lock.yaml'), 'utf8').replace(/0\.1\.2-alpha\.3/g, '0.1.0-rc.8')
     const auditRc8 = createDshBaselineAudit({
       npm_next_version: TARGET_DSH_VERSION,
       package_json_content: pkgContent,
@@ -333,8 +334,8 @@ describe('DSH baseline upgrade compatibility suite', () => {
         validateDshBaselineAudit({
           schema_version: 1,
           status: payload,
-          source_version: '0.1.0-rc.8',
-          target_version: '0.1.1-rc.2',
+          source_version: '0.1.1-rc.2',
+          target_version: '0.1.2-alpha.3',
           npm_next_version: payload,
           package_json_sha256: 'sha256_0000000000000000000000000000000000000000000000000000000000000000',
           lockfile_sha256: 'sha256_0000000000000000000000000000000000000000000000000000000000000000',
@@ -367,6 +368,7 @@ describe('DSH baseline upgrade compatibility suite', () => {
       fibers.push(await ctx.plugin(LlmRuntime))
       fibers.push(await ctx.plugin(SystemPrompt))
       fibers.push(await ctx.plugin(ToolRuntime))
+      fibers.push(await ctx.plugin(SessionProjection))
       fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
 
       expect((ctx as Context & { llm: LlmRuntime }).llm).toBeDefined()

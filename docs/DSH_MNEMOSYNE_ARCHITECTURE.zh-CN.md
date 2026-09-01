@@ -1,6 +1,6 @@
 # dsh-Mnemosyne 当前架构
 
-> 状态：✅ v0.2.0 当前有效架构
+> 状态：✅ v0.2.0 MVP Complete，当前有效架构
 >
 > 更新日期：2026-08-31
 
@@ -136,9 +136,11 @@ interface OKFCatalogV1 {
 Catalog 必须满足：
 
 - 单一 Root，Root 无父节点且不直接包含 Memory；
+- Root 深度为 0，最多允许 3 层非 Root Catalog Node；第 3 层不得继续创建子分类；
 - 父子边双向闭合；
 - 节点无环、全部从 Root 可达；
 - Memory 只属于一个 Catalog 节点；
+- 非 Root Node ID 由 `schema_version + project_scope_id + parent_node_id + exact_title` 确定性生成；同名节点在不同父路径下具有不同 ID；
 - 引用排序、去重并受数量上限约束。
 
 ## 五、存储与 Generation
@@ -166,7 +168,7 @@ Catalog 必须满足：
 4. 校验每个输出 Hash 与字节数；
 5. Generation 完整后原子切换 CURRENT。
 
-同一项目的 Consolidation 由项目级协调器串行执行，避免并发回合基于同一旧 Catalog 发布而丢失 Memory。不同项目互不阻塞。
+同一项目的 Consolidation 由项目级协调器串行执行，避免并发回合基于同一旧 Catalog 发布而丢失 Memory。下一轮 Recall 在读取 CURRENT 前，等待同一 Project 中已经启动的 Consolidation 收敛；成功、skip、noop 或失败均视为 settled。等待按 `project_scope_id` 隔离，不同 Project 互不阻塞。
 
 v0.1.0 的旧目录保留在磁盘，但 v0.2 Store、Compiler、Recall 和 CURRENT 完全忽略它们。
 
@@ -175,7 +177,7 @@ v0.1.0 的旧目录保留在磁盘，但 v0.2 Store、Compiler、Recall 和 CURR
 ### 6.1 上限
 
 - 同一主 turn 只运行一次；
-- 整个导航最多 6 个展开步骤；
+- 整个导航最多 8 次模型判断，保证最深合法三层路径仍可完成 `Title → Summary → Content`；
 - 每层最多选择 5 条 Memory 查看 Summary；
 - 最多确认 3 条完整 Content。
 
@@ -190,7 +192,7 @@ v0.1.0 的旧目录保留在磁盘，但 v0.2 Store、Compiler、Recall 和 CURR
 7. 将最终 Content 写成持久 plugin recall 消息；
 8. 主模型在同一请求中看到该消息并继续任务。
 
-Related Memory 在 Content 中只显示 Title/ref，不允许顺着关系直接绕过 Summary 层。
+Related Memory 在 Content 中只显示 Title/ref；v0.2 MVP 不据此自动启动第二条 Recall 路径。
 
 ### 6.3 失败降级
 
@@ -204,9 +206,13 @@ Related Memory 在 Content 中只显示 Title/ref，不允许顺着关系直接�
 2. plugin/system/recall 消息不得伪装成用户任务；
 3. 当前 Agent 模型返回严格的 skip 或 create；
 4. create 必须给出 Title、Summary、结构化 Markdown Content 和合法关联 ref；
-5. 模型只看分类 Title，选择现有分类或创建新分类；
-6. 写入 Memory、Catalog 并发布 Generation；
-7. 完全相同的规范内容返回 noop。
+5. Catalog 导航从 Root 开始：模型先看直接子节点 Title，只能选择候选或声明无候选；选中后只看该节点 Summary，并决定 `attach`、`expand` 或 `reject`；
+6. `reject` 返回同层并排除该候选；只有候选耗尽或明确无候选后，才通过独立阶段创建直接子节点；同层 Summary 不得批量披露；
+7. 最多创建/进入 3 层非 Root Node；到达深度 3 时不得继续下钻，不自动移动、合并或重组已有节点；
+8. 写入 Memory、Catalog 并发布 Generation；
+9. 完全相同的规范内容返回 noop。
+
+Consolidation judgment 的模型输出采用独立的 32 KiB UTF-8 上限；Recall 导航继续使用 8 KiB 上限。模型仍必须返回严格 JSON，超过阶段上限或未通过 Schema 校验均失败，不进行截断或宽松解析。
 
 Consolidation 是主任务完成后的附加路径。任何失败只记录日志，不改变已完成任务的结果。
 
@@ -235,7 +241,7 @@ Node 文件系统 API 无法对同 UID 恶意进程提供内核级目录能力�
 ## 十、版本与文档事实源
 
 - v0.1.0：已发布的工具式技术预览，只作为历史；
-- v0.2.0：当前零操作 OKF 产品架构，与 v0.1 数据不兼容；
+- v0.2.0：Zero-operation OKF Memory MVP 已完成，与 v0.1 数据不兼容；
 - 当前具体 Schema、限制和验收以 DSH_MNEMOSYNE_V020_ZERO_OPERATION_OKF_MEMORY_PLAN.zh-CN.md 为准；
 - 本地使用评估以 DSH_MNEMOSYNE_LOCAL_OBSERVATION_EVALUATION.zh-CN.md 为准；
 - 被删除的 v0.1/M0.5 执行计划仍可从 Git 历史中的 v0.1 发布提交读取，但不再作为当前设计输入。

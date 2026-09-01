@@ -6,6 +6,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import LlmRuntime, { createUserMessage, LlmAdapter, LlmError, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjection from '@deepseek-ai/dsh-session-projection'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import {
@@ -1122,6 +1123,7 @@ async function runRealCanarySingleRun(
     for (const plugin of [SessionStore, AgentRegistry, LlmRuntime, SystemPrompt, ToolRuntime]) {
       fibers.push(await ctx.plugin(plugin))
     }
+    fibers.push(await ctx.plugin(SessionProjection))
     fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
 
     // Register fixture tool

@@ -6,6 +6,7 @@ import { SubagentUnavailableError } from './map-first-recall.js'
 
 export interface DshSubagentRequestV3 { task: string; provider: string; model: string; signal: AbortSignal; form?: 'recall' | 'consolidation' }
 export type DshSubagentFactoryV3 = (parent: Agent, request: DshSubagentRequestV3) => Promise<AgentHandle>
+export class SubagentAbortedError extends Error { readonly code = 'subagent_aborted' }
 
 export function buildRecallSubagentPromptV3(request: { stage: string; task: string; items: readonly { ref: string; title: string; summary?: string; kind: string }[] }): string {
   return [
@@ -28,18 +29,33 @@ export function createDshSubagentFactoryV3(): DshSubagentFactoryV3 {
         sessionId: SessionId(`mnemosyne-${randomUUID()}`),
         meta: { cwd: parent.session.header.cwd, parentSession: parent.session.id, origin: 'subagent', delegationDepth: (parent.session.header.delegationDepth ?? 0) + 1 },
         agentOptions: { provider: request.provider, model: request.model, maxTokens: 512 },
+        signal: request.signal,
+        setup: (agentCtx) => {
+          agentCtx.tools.restrict({ allow: [] })
+          agentCtx.tools.guard(() => 'mnemosyne_subagent_tools_disabled')
+        },
       })
-    } catch { throw new SubagentUnavailableError() }
+    } catch {
+      if (request.signal.aborted) throw new SubagentAbortedError()
+      throw new SubagentUnavailableError()
+    }
   }
 }
 
 export async function runDshSubagentV3(parent: Agent, request: DshSubagentRequestV3, factory: DshSubagentFactoryV3): Promise<string> {
+  if (request.signal.aborted) throw new SubagentAbortedError()
   const handle = await factory(parent, request)
+  const onAbort = (): void => {
+    try { handle.agent.cancel({ kind: 'parent' }) } catch { /* disposal below remains authoritative */ }
+  }
+  request.signal.addEventListener('abort', onAbort, { once: true })
   try {
+    if (request.signal.aborted) onAbort()
     handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: request.task }], source: request.form === 'consolidation'
       ? { kind: 'plugin', plugin: 'dsh-mnemosyne', form: 'notice', summary: 'Consolidation subagent task' }
       : { kind: 'plugin', plugin: 'dsh-mnemosyne', form: 'recall' } }))
     await handle.agent.whenIdle()
+    if (request.signal.aborted) throw new SubagentAbortedError()
     const messages = handle.agent.session.events
       .filter((event) => event.type === 'assistant/message')
       .map((event) => textOf((event.data as unknown as { message: { content: readonly { type: string; text?: string }[] } }).message))
@@ -48,6 +64,7 @@ export async function runDshSubagentV3(parent: Agent, request: DshSubagentReques
     if (!output) throw new SubagentUnavailableError()
     return output
   } finally {
+    request.signal.removeEventListener('abort', onAbort)
     await handle.dispose()
   }
 }

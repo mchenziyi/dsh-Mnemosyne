@@ -1,5 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-tools'
 import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
 import type { Config as PluginConfig } from './config.js'
 import { createScopeRuntime, type ResolvedScope } from './runtime-scope.js'
@@ -14,8 +15,10 @@ import {
 import { createConsolidationRuntimeV2, createLlmConsolidationModelV2 } from './v2/consolidation-runtime.js'
 import { createRuntimeLoggerV2, type RuntimeLogRecordV2 } from './v2/runtime-log.js'
 import { createProjectConsolidationBarrierV2 } from './v2/project-consolidation-barrier.js'
-import { createRecallPreStepHandlerV3 } from './v3/recall-pre-step.js'
+import { createMutationCoordinator } from './mutation-coordinator.js'
+import { createMapOfferPreStepHandlerV3 } from './v3/recall-pre-step.js'
 import { createConsolidationSubagentModelV3 } from './v3/consolidation-subagent.js'
+import { createMapRecallToolRuntimeV3 } from './v3/map-recall-tool.js'
 import type { DshSubagentFactoryV3 } from './v3/dsh-subagent.js'
 import type { CompiledOKFGenerationV2 } from './v2/okf-compiler.js'
 
@@ -50,6 +53,7 @@ export function install(
   const sessionToAgent = new Map<string, Agent>()
   const recalledByTurn = new Map<string, string[]>()
   const consolidationBarrier = createProjectConsolidationBarrierV2()
+  const consolidationCoordinator = createMutationCoordinator()
   const runtimeAbort = new AbortController()
   let disposed = false
 
@@ -80,6 +84,15 @@ export function install(
     },
   })
 
+  const mapRecallToolRuntime = installOptions.mode === 'v3' ? createMapRecallToolRuntimeV3({ scopeRuntime, legacyRuntime: recallRuntime, subagentFactory: installOptions.subagentFactory, onEvent: (scope, event) => {
+    if (event.event === 'recall_start') log(scope, { event: 'recall_start', timestamp: timestamp(), result: 'started', route: 'map' })
+    else if (event.event === 'recall_layer') log(scope, { event: 'recall_layer', timestamp: timestamp(), result: 'selected', route: 'map', stage: event.stage, disclosed_count: event.disclosed_count ?? 0, selected_count: event.selected_count ?? 0 })
+    else if (event.event === 'recall_completed') log(scope, { event: 'recall_completed', timestamp: timestamp(), result: 'completed', route: 'map', selected_count: event.selected_count ?? 0 })
+    else if (event.event === 'recall_no_match') log(scope, { event: 'recall_no_match', timestamp: timestamp(), result: 'no_match', route: 'map', reason_code: event.reason_code ?? 'recall_no_match' })
+    else if (event.event === 'recall_fallback') log(scope, { event: 'recall_start', timestamp: timestamp(), result: 'started', route: 'legacy_fallback', fallback_reason: event.reason_code ?? 'subagent_unavailable' })
+    else log(scope, { event: 'recall_failed', timestamp: timestamp(), result: 'failed', route: 'map', reason_code: event.reason_code ?? 'recall_navigation_failed' })
+  } }) : undefined
+
   const recallHandlerV2 = createRecallPreStepHandlerV2({
     runtime: recallRuntime,
     scopeRuntime,
@@ -88,37 +101,23 @@ export function install(
       recalledByTurn.set(`${payload.agent.session.id}:${payload.turn}`, result.selected_memory_refs)
     },
   })
-  const recallHandler = installOptions.mode === 'v3' ? createRecallPreStepHandlerV3({
+  const recallHandler = installOptions.mode === 'v3' && mapRecallToolRuntime ? createMapOfferPreStepHandlerV3({
     scopeRuntime,
-    legacyRuntime: recallRuntime,
     loadWorld: installOptions.loadWorld,
-    subagentFactory: installOptions.subagentFactory,
+    recallToolRuntime: mapRecallToolRuntime,
     beforeRecall: (scope) => consolidationBarrier.wait(scope.project_scope_id),
-    onResult(payload, result: RecallResultV2) {
-      recalledByTurn.set(`${payload.agent.session.id}:${payload.turn}`, result.selected_memory_refs)
-    },
-    onEvent(scope, event) {
-      if (event.event === 'recall_start') log(scope, { event: 'recall_start', timestamp: timestamp(), result: 'started', route: 'map' })
-      else if (event.event === 'recall_layer') log(scope, {
-        event: 'recall_layer', timestamp: timestamp(), result: 'selected', route: 'map', stage: event.stage,
-        disclosed_count: event.disclosed_count, selected_count: event.selected_count,
-      })
-      else if (event.event === 'recall_completed') log(scope, { event: 'recall_completed', timestamp: timestamp(), result: 'completed', route: 'map', selected_count: event.selected_count })
-      else if (event.event === 'recall_no_match') log(scope, { event: 'recall_no_match', timestamp: timestamp(), result: 'no_match', route: 'map', reason_code: event.reason_code ?? 'recall_no_match' })
-      else if (event.event === 'recall_fallback') log(scope, { event: 'recall_start', timestamp: timestamp(), result: 'started', route: 'legacy_fallback', fallback_reason: event.reason_code ?? 'subagent_unavailable' })
-      else log(scope, { event: 'recall_failed', timestamp: timestamp(), result: 'failed', route: 'map', reason_code: event.reason_code ?? 'recall_navigation_failed' })
-    },
   }) : recallHandlerV2
   ctx.on('agent/pre-step', (payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>) => recallHandler(payload, next))
 
   const consolidationRuntimeV2 = createConsolidationRuntimeV2({
     model: (request, route) => createLlmConsolidationModelV2(ctx.llm)(request, route),
+    coordinator: consolidationCoordinator,
   })
 
   ctx.effect(() => async () => {
     disposed = true
-    runtimeAbort.abort()
     await consolidationBarrier.waitAll()
+    runtimeAbort.abort()
     await logger.dispose()
     scopeRuntime.clear()
     sessionToAgent.clear()
@@ -128,6 +127,7 @@ export function install(
   ctx.on('agent/created', (payload: { agent: Agent }) => {
     const agent = payload?.agent
     if (agent?.session?.id) sessionToAgent.set(String(agent.session.id), agent)
+    if (agent && mapRecallToolRuntime && agent.session.header.origin !== 'subagent') agent.ctx.tools.register(mapRecallToolRuntime.createTool() as never)
   })
 
   ctx.on('agent/disposed', (payload: { agent: Agent }) => {
@@ -158,14 +158,14 @@ export function install(
       log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn, result: 'failed', reason_code: 'model_route_unavailable' })
       return
     }
-    const used = recalledByTurn.get(`${session.id}:${turn}`) ?? []
+    const used = agent && mapRecallToolRuntime ? mapRecallToolRuntime.consumeUsedRefs(agent, turn) : recalledByTurn.get(`${session.id}:${turn}`) ?? []
     recalledByTurn.delete(`${session.id}:${turn}`)
     log(resolution.scope, { event: 'consolidation_start', timestamp: timestamp(), turn, result: 'started', memory_refs: used })
     const startedAt = Date.now()
     const consolidationRuntime = installOptions.mode === 'v3' && agent
-      ? createConsolidationRuntimeV2({ model: (request, route) => createConsolidationSubagentModelV3(agent, installOptions.subagentFactory)(request, route) })
+      ? createConsolidationRuntimeV2({ model: (request, route) => createConsolidationSubagentModelV3(agent, installOptions.subagentFactory)(request, route), coordinator: consolidationCoordinator })
       : consolidationRuntimeV2
-    const operation = consolidationRuntime.consolidate({
+    const request = {
       scope: resolution.scope,
       evidence: { task: evidence.user_text, outcome: evidence.assistant_text },
       used_memory_refs: used,
@@ -173,7 +173,11 @@ export function install(
       model,
       now: evidence.turn_end_time,
       signal: runtimeAbort.signal,
-    }).then((result) => {
+    }
+    const operationPromise = installOptions.mode === 'v3' && agent
+      ? agent.ctx.agents.withInitiator(agent, () => consolidationRuntime.consolidate(request))
+      : consolidationRuntime.consolidate(request)
+    const operation = operationPromise.then((result) => {
       if (result.status === 'created') {
         log(resolution.scope, { event: 'consolidation_created', timestamp: timestamp(), turn, result: 'created', memory_refs: result.memory_id ? [result.memory_id] : [], elapsed_ms: Date.now() - startedAt })
         log(resolution.scope, { event: 'catalog_updated', timestamp: timestamp(), turn, result: 'created', catalog_id: result.catalog_id })
@@ -194,7 +198,9 @@ export function install(
   ctx.on('session/disposed', (session: Session) => {
     if (!session) return
     const id = String(session.id)
+    const agent = sessionToAgent.get(id)
     sessionToAgent.delete(id)
+    if (agent && mapRecallToolRuntime) mapRecallToolRuntime.clearAgent(agent)
     for (const key of recalledByTurn.keys()) if (key.startsWith(`${id}:`)) recalledByTurn.delete(key)
     scopeRuntime.disposeSession(session)
   })

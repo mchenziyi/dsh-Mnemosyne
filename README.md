@@ -4,6 +4,19 @@
 
 `dsh-Mnemosyne` 会在普通对话中自动回忆和沉淀项目经验。安装后，用户只需正常使用 DSH，不需要学习或调用任何记忆工具。
 
+## 版本状态
+
+- `v0.1.0`：技术预览，验证了 DSH 插件装配、存储、Generation 与工具式记忆流程；不代表当前产品体验。
+- `v0.2.0`：**Zero-operation OKF Memory MVP（MVP Complete）**。用户只需正常对话，记忆的读取、组织与沉淀均由插件自动完成。
+
+v0.2.0 已闭环五项 MVP 能力：
+
+- **自动记**：正常 turn 结束后自动判断并沉淀可复用的项目经验；
+- **自动组织**：将新记忆组织进最多三层的 OKF Catalog；
+- **自动找**：新 Session 由模型沿 OKF 分类逐层找到相关记忆；
+- **按需读**：严格按 `Title → Summary → Content` 渐进披露；
+- **可靠隔离**：记忆跨 Session 和进程重启持久存在，不同 Project 严格隔离。
+
 ## v0.2.0 的工作方式
 
 ```text
@@ -27,7 +40,7 @@
 要求：
 
 - Node.js `>=22.19.0`
-- DeepSeek Harness / DSH 公开 SDK 基线 `0.1.1-rc.2`
+- DeepSeek Harness / DSH 公开 SDK 基线 `0.1.2-alpha.3`
 
 ```bash
 dsh plugin add @cziyi/dsh-mnemosyne
@@ -103,7 +116,9 @@ v0.2.0 聚焦项目级长期记忆闭环，不包含：
 设计与实现细节见：
 
 - [文档索引](docs/README.zh-CN.md)
+- [DSH Agent 安装、更新与卸载 Runbook](docs/DSH_MNEMOSYNE_DSH_AGENT_RUNBOOK.zh-CN.md)
 - [v0.2.0 零操作 OKF 记忆闭环实施计划](docs/DSH_MNEMOSYNE_V020_ZERO_OPERATION_OKF_MEMORY_PLAN.zh-CN.md)
+- [v0.2 MVP 收口设计与验收结果](docs/DSH_MNEMOSYNE_V020_MVP_CLOSURE_DESIGN.zh-CN.md)
 - [dsh-Mnemosyne 总体设计](docs/DSH_MNEMOSYNE_ARCHITECTURE.zh-CN.md)
 - [本地观察期监控与评估规范](docs/DSH_MNEMOSYNE_LOCAL_OBSERVATION_EVALUATION.zh-CN.md)
 - [版本路线图](docs/DSH_MNEMOSYNE_VERSION_ROADMAP.zh-CN.md)

@@ -3,7 +3,7 @@ import { canonicalHash } from '../src/protocol/canonical.js'
 import { Context } from '@deepseek-ai/cordis'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { apply, Config } from '../src/index.js'
 import { encodePlumbingSummary, loadEvaluationTruth, runNoMemoryProbe, runPlumbingEvaluation, summarizePlumbing, validatePlumbingReceipt, validatePlumbingSummary, validateRecallExecution, runScriptedFixtureAdapter, type PlumbingSummary } from '../src/m05c/plumbing.js'
@@ -53,13 +53,13 @@ describe('M0.5C plumbing execution', () => {
     expect(ctx.tools.get('mnemosyne_search')).toBeDefined()
     expect(ctx.tools.get('mnemosyne_open')).toBeDefined()
     expect(ctx.tools.get('mnemosyne_eval_recall_context')).toBeUndefined()
-    const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: CallId('m05c-search'), name: 'mnemosyne_search', arguments: { query: 'compiler cache targeted rebuild', top_k: 5 } })
+    const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId('m05c-search'), name: 'mnemosyne_search', arguments: { query: 'compiler cache targeted rebuild', top_k: 5 } })
     expect(result.isError).toBe(false)
     const search = result.value as Record<string, unknown>
-    const open = await ctx.tools.execute({ signal: new AbortController().signal, callId: CallId('m05c-open'), name: 'mnemosyne_open', arguments: { retrieval_id: search.retrieval_ref, search_disclosure_sha256: search.content_sha256, memory_id: (search.items as Array<Record<string, unknown>>)[0].memory_id } })
+    const open = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId('m05c-open'), name: 'mnemosyne_open', arguments: { retrieval_id: search.retrieval_ref, search_disclosure_sha256: search.content_sha256, memory_id: (search.items as Array<Record<string, unknown>>)[0].memory_id } })
     expect(open.isError).toBe(false)
     const unregister = ctx.tools.register(createRecallContextTool())
-    const recall = await ctx.tools.execute({ signal: new AbortController().signal, callId: CallId('m05c-recall'), name: 'mnemosyne_eval_recall_context', arguments: { search_disclosure_json: JSON.stringify(search), open_disclosure_jsons: [JSON.stringify(open.value)] } })
+    const recall = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId('m05c-recall'), name: 'mnemosyne_eval_recall_context', arguments: { search_disclosure_json: JSON.stringify(search), open_disclosure_jsons: [JSON.stringify(open.value)] } })
     expect(recall.isError).toBe(false)
     expect(validateRecallExecution(recall).replayVerified).toBe(true)
     expect(encodeRecallReceipt(validateRecallReceipt(recall.value))).toBe(encodeRecallReceipt(validateRecallReceipt(recall.value)))
@@ -79,10 +79,10 @@ describe('M0.5C plumbing execution', () => {
     expect(() => validateRecallContext(rehash({ ...replayed, memory_ids: [...replayed.memory_ids, 'memory_extra'].sort() }))).toThrow()
     expect(() => validateRecallContext(rehash({ ...replayed, open_disclosures: [...replayed.open_disclosures, replayed.open_disclosures[0]] }))).toThrow()
     expect(() => validateRecallContext(rehash({ ...replayed, open_disclosures: replayed.open_disclosures.map((open) => ({ ...open, parent_disclosure_sha256: `sha256_${'f'.repeat(64)}` })) }))).toThrow()
-    const invalid = await ctx.tools.execute({ signal: new AbortController().signal, callId: CallId('m05c-recall-invalid'), name: 'mnemosyne_eval_recall_context', arguments: { search_disclosure_json: '{}', open_disclosure_jsons: ['{}'] } })
+    const invalid = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId('m05c-recall-invalid'), name: 'mnemosyne_eval_recall_context', arguments: { search_disclosure_json: '{}', open_disclosure_jsons: ['{}'] } })
     expect(invalid.isError).toBe(true)
     expect(invalid.additionalContexts ?? []).toHaveLength(0)
-    const malicious = await ctx.tools.execute({ signal: new AbortController().signal, callId: CallId('m05c-recall-malicious'), name: 'mnemosyne_eval_recall_context', arguments: { search_disclosure_json: '{"secret":"password=supersecret /private/tmp"}', open_disclosure_jsons: ['{}'] } })
+    const malicious = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId('m05c-recall-malicious'), name: 'mnemosyne_eval_recall_context', arguments: { search_disclosure_json: '{"secret":"password=supersecret /private/tmp"}', open_disclosure_jsons: ['{}'] } })
     expect(malicious.isError).toBe(true)
     expect(JSON.stringify(malicious)).not.toContain('supersecret')
     expect(malicious.additionalContexts ?? []).toHaveLength(0)

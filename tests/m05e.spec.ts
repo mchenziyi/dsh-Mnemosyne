@@ -2,7 +2,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import { mkdtemp, rm, symlink, realpath, mkdir, lstat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CallId, LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import {
   BudgetLedger,
   createCanaryPlan,
@@ -40,7 +40,7 @@ class LoopingAdapter extends LlmAdapter {
   providerInfo(provider: string): { id: string; name: string } { return { id: provider, name: 'looping-test' } }
   async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     const taskId = options.messages.flatMap((message) => message.content.flatMap((content) => content.type === 'text' ? [content.text] : [])).join('\n').match(/task_id:(task_[a-z0-9][a-z0-9._-]{0,63})/)?.[1] ?? 'task_build_recovery'
-    const block = { type: 'tool-call' as const, id: CallId(`loop-task-fixture-${this.callNumber}`), name: 'm05d_task_fixture', arguments: JSON.stringify({ task_id: taskId }) }
+    const block = { type: 'tool-call' as const, id: ToolCallId(`loop-task-fixture-${this.callNumber}`), name: 'm05d_task_fixture', arguments: JSON.stringify({ task_id: taskId }) }
     yield { type: 'block-start', index: 0, blockType: 'tool-call' }
     yield { type: 'tool-call-delta', index: 0, id: block.id, name: block.name, argumentsDelta: block.arguments }
     yield { type: 'block-end', index: 0, block }
@@ -379,7 +379,7 @@ describe('M0.5E D2 canary preflight failure matrix', () => {
             providerInfo(provider: string) { return { id: provider, name: 'multi-call-1' } }
             async *stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
               await new Promise((r) => setTimeout(r, 15))
-              const block = { type: 'tool-call' as const, id: CallId('loop-1'), name: 'm05d_task_fixture', arguments: JSON.stringify({ task_id: context.task_id }) }
+              const block = { type: 'tool-call' as const, id: ToolCallId('loop-1'), name: 'm05d_task_fixture', arguments: JSON.stringify({ task_id: context.task_id }) }
               yield { type: 'block-start', index: 0, blockType: 'tool-call' }
               yield { type: 'tool-call-delta', index: 0, id: block.id, name: block.name, argumentsDelta: block.arguments }
               yield { type: 'block-end', index: 0, block }
@@ -546,7 +546,7 @@ describe('M0.5E D2 canary preflight failure matrix', () => {
             providerInfo(p: string) { return { id: p, name: 'task-1' } }
             async *stream(_o: GenerateOptions): AsyncIterable<StreamChunk> {
               await new Promise((r) => setTimeout(r, 40))
-              const block = { type: 'tool-call' as const, id: CallId('t1'), name: 'm05d_task_fixture', arguments: JSON.stringify({ task_id: context.task_id }) }
+              const block = { type: 'tool-call' as const, id: ToolCallId('t1'), name: 'm05d_task_fixture', arguments: JSON.stringify({ task_id: context.task_id }) }
               yield { type: 'block-start', index: 0, blockType: 'tool-call' }
               yield { type: 'tool-call-delta', index: 0, id: block.id, name: block.name, argumentsDelta: block.arguments }
               yield { type: 'block-end', index: 0, block }
@@ -683,4 +683,3 @@ describe('M0.5E D2 canary preflight failure matrix', () => {
     }
   })
 })
-

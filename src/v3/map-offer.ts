@@ -30,6 +30,11 @@ export interface MapOfferV3 {
   readonly offer_sha256: string
 }
 
+export interface MapOfferPagesV3 {
+  readonly map_ref: string
+  readonly pages: readonly MapOfferV3[]
+}
+
 type IndexFile = {
   node_id: string
   children: Array<{ ref: string; title: string }>
@@ -105,4 +110,26 @@ export function createMapOfferV3(pin: PinnedGenerationV3, nodeId = 'node_root', 
   const next = cursor + page.length < entries.length ? String(cursor + page.length) : null
   const identity = { schema_version: 1 as const, generation_id: pin.generation_id, catalog_id: pin.catalog_id, project_scope_id: pin.project_scope_id, node_id: nodeId, entries: page, next_cursor: next }
   return freeze({ ...identity, offer_sha256: canonicalHash(identity) })
+}
+
+export function createMapOfferPagesV3(pin: PinnedGenerationV3, nodeId = 'node_root'): MapOfferPagesV3 {
+  const pages: MapOfferV3[] = []
+  let cursor = 0
+  while (true) {
+    const page = createMapOfferV3(pin, nodeId, cursor)
+    pages.push(page)
+    if (page.next_cursor === null) break
+    const next = Number(page.next_cursor)
+    if (!Number.isSafeInteger(next) || next <= cursor || next > 512) fail()
+    cursor = next
+  }
+  const mapRef = canonicalHash({
+    schema_version: 1,
+    generation_id: pin.generation_id,
+    catalog_id: pin.catalog_id,
+    project_scope_id: pin.project_scope_id,
+    node_id: nodeId,
+    offer_sha256s: pages.map((page) => page.offer_sha256),
+  })
+  return freeze({ map_ref: mapRef, pages })
 }

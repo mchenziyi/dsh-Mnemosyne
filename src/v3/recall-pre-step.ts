@@ -8,9 +8,38 @@ import { createMapFirstRecallV3, type MapRecallDecisionV3 } from './map-first-re
 import { buildRecallSubagentPromptV3, createDshSubagentFactoryV3, runDshSubagentV3, type DshSubagentFactoryV3 } from './dsh-subagent.js'
 import { createMapContextMessageV3 } from './map-context.js'
 import { createMapOfferV3, pinGenerationV3 } from './map-offer.js'
+import { createMapOfferPagesV3 } from './map-offer.js'
+import type { MapRecallToolRuntimeV3 } from './map-recall-tool.js'
 
 function taskText(messages: readonly UserMessage[]): string {
   return messages.filter((message) => message.source.kind === 'user').flatMap((message) => message.content.filter((block) => block.type === 'text').map((block) => block.text)).join('\n').slice(0, 32768)
+}
+
+export function createMapOfferPreStepHandlerV3(options: {
+  scopeRuntime: ScopeRuntime
+  beforeRecall?: (scope: ResolvedScope, signal: AbortSignal) => Promise<void>
+  loadWorld?: (scope: ResolvedScope) => Promise<CompiledOKFGenerationV2>
+  recallToolRuntime: MapRecallToolRuntimeV3
+}) {
+  return async (payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>): Promise<PreStepDecision> => {
+    const decision = await next()
+    if (decision.kind === 'reject' || payload.step !== 1 || payload.agent.session.header.origin === 'subagent') return decision
+    if (!payload.agent.options.provider || !payload.agent.options.model || payload.signal.aborted) return decision
+    const resolution = options.scopeRuntime.observeSession(payload.agent.session)
+    if (resolution.status !== 'ready') return decision
+    await options.beforeRecall?.(resolution.scope, payload.signal)
+    if (payload.signal.aborted) return decision
+    let world: CompiledOKFGenerationV2
+    try {
+      world = await (options.loadWorld ?? ((scope: ResolvedScope) => readCurrentOKFGenerationV2({ project_root: scope.project_root, project_scope_id: scope.project_scope_id })))(resolution.scope)
+    } catch { return decision }
+    const pin = pinGenerationV3(world)
+    const pages = createMapOfferPagesV3(pin)
+    if (!pages.pages.some((page) => page.entries.length > 0)) return decision
+    const task = taskText(decision.messages)
+    const mapMessages = options.recallToolRuntime.bind({ agent: payload.agent, turn: payload.turn, task, scope: resolution.scope, pin, pages: pages.pages, map_ref: pages.map_ref })
+    return { kind: 'enter', messages: [...mapMessages, ...decision.messages] }
+  }
 }
 
 function recallMessage(contents: Array<{ ref: string; content: string }>): UserMessage {
@@ -77,6 +106,7 @@ export function createRecallPreStepHandlerV3(options: RecallPreStepHandlerV3Opti
     const mapMessage = createMapContextMessageV3(createMapOfferV3(pin))
     options.onEvent?.(resolution.scope, { event: 'recall_start' })
     const result = await mapRuntime.recall(pin, task, payload.signal)
+    if (payload.signal.aborted) return decision
     if (legacy) {
       await options.onResult?.({ agent: payload.agent, turn: payload.turn }, legacy)
       if (legacy.status === 'completed') return { kind: 'enter', messages: [mapMessage, legacy.message, ...decision.messages] }

@@ -8,7 +8,7 @@ import ToolRuntime, { type ToolRunContext } from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { SessionId, type Session, type SessionHeader } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { apply, Config } from '../src/index.js'
 import {
   computeProjectScopeId,
@@ -44,7 +44,7 @@ function mockAgent(agentId: string, session: Session): Agent {
 
 function mockToolContext(agent?: Agent): ToolRunContext {
   return {
-    callId: CallId('test-call-1'),
+    callId: ToolCallId('test-call-1'),
     signal: new AbortController().signal,
     name: 'mnemosyne_status',
     arguments: {},

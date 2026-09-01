@@ -1,7 +1,7 @@
 export const AUDIT_COMMIT = 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e'
-export const DSH_VERSION = '0.1.1-rc.2'
-export const CORDIS_VERSION = '4.0.1'
-export const SCHEMASTERY_VERSION = '3.18.1'
+export const DSH_VERSION = '0.1.2-alpha.3'
+export const CORDIS_VERSION = '4.0.2'
+export const SCHEMASTERY_VERSION = '3.18.2'
 
 export interface CompatibilityReport {
   readonly audit_commit: typeof AUDIT_COMMIT

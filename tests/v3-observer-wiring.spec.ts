@@ -27,8 +27,7 @@ describe('v3 observer wiring', () => {
     const user = { source: { kind: 'user' }, content: [{ type: 'text', text: '认证刷新问题' }] }
     const result = await handler({ agent: { options: { provider: 'p', model: 'm' }, session: { id: 's', header: { cwd: process.cwd() } } }, messages: [user], turn: 1, step: 1, signal: new AbortController().signal }, async () => ({ kind: 'enter', messages: [user] }))
     expect(result.kind).toBe('enter')
-    expect(result.messages.map((message: any) => message.source.form)).toEqual(['catalog', 'recall', undefined])
+    expect(result.messages.map((message: any) => message.source.form)).toEqual(['catalog', undefined])
     expect(result.messages[0].content[0].text).toContain('Authentication')
-    expect(result.messages[1].content[0].text).toContain('完整经验正文')
   })
 })

@@ -22,7 +22,7 @@ async function load(specifier) {
   throw new Error(`cannot resolve ${specifier} from the isolated profile`)
 }
 
-const [{ Context }, { default: ToolRuntime }, { default: SystemPrompt }, { CallId }, plugin] = await Promise.all([
+const [{ Context }, { default: ToolRuntime }, { default: SystemPrompt }, { ToolCallId }, plugin] = await Promise.all([
   load('@deepseek-ai/cordis'),
   load('@deepseek-ai/dsh-tools'),
   load('@deepseek-ai/dsh-system-prompt'),
@@ -42,7 +42,7 @@ const fiber = await ctx.plugin({
 
 const result = await ctx.tools.execute({
   signal: new AbortController().signal,
-  callId: CallId('m0-profile-status'),
+  callId: ToolCallId('m0-profile-status'),
   name: 'mnemosyne_status',
   arguments: {},
 })
@@ -53,7 +53,7 @@ if (JSON.stringify(result.value) !== JSON.stringify(plugin.STATUS_OUTPUT)) {
 
 const searchResult = await ctx.tools.execute({
   signal: new AbortController().signal,
-  callId: CallId('m0-profile-search'),
+  callId: ToolCallId('m0-profile-search'),
   name: 'mnemosyne_search',
   arguments: { query: 'compiler cache targeted rebuild' },
 })
@@ -63,7 +63,7 @@ if (searchResult.isError || !searchResult.value?.items?.length || searchResult.v
 const search = searchResult.value
 const openResult = await ctx.tools.execute({
   signal: new AbortController().signal,
-  callId: CallId('m0-profile-open'),
+  callId: ToolCallId('m0-profile-open'),
   name: 'mnemosyne_open',
   arguments: {
     retrieval_id: search.retrieval_ref,

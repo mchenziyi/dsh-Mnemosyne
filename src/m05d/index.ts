@@ -2,8 +2,9 @@ import { canonicalBytes, canonicalHash, ProtocolValidationError } from '../proto
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import LlmRuntime, { CallId, createUserMessage, LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { ToolCallId, createUserMessage, LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjection from '@deepseek-ai/dsh-session-projection'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { assertHash, assertSafeText } from '../protocol/canonical.js'
@@ -465,7 +466,7 @@ export class FakeProvider extends LlmAdapter {
   async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.state.calls += 1
     const toolNames = new Set((options.tools ?? []).map((tool) => tool.name))
-    let block: StreamChunk extends infer _ ? ({ type: 'text'; text: string } | { type: 'tool-call'; id: ReturnType<typeof CallId>; name: string; arguments: string }) : never
+    let block: StreamChunk extends infer _ ? ({ type: 'text'; text: string } | { type: 'tool-call'; id: ReturnType<typeof ToolCallId>; name: string; arguments: string }) : never
     const messageText = (message: GenerateOptions['messages'][number]) => message.content.flatMap((content) => content.type === 'text' ? [content.text] : content.type === 'tool-result' ? content.content.flatMap((block) => block.type === 'text' ? [block.text] : []) : [])
     const visible = options.messages.flatMap(messageText).join('\n')
     const visibleUserText = options.messages.filter((message) => message.role === 'user').flatMap(messageText).join('\n')
@@ -478,17 +479,17 @@ export class FakeProvider extends LlmAdapter {
     const hasSearchDisclosure = visible.includes('"items"') && visible.includes('"retrieval_ref"')
     const hasOpenDisclosure = visible.includes('"body"') && visible.includes('"memory_id"')
     if (!hasFixtureResult && toolNames.has('m05d_task_fixture')) {
-      block = { type: 'tool-call', id: CallId('m05d-task-fixture'), name: 'm05d_task_fixture', arguments: JSON.stringify({ task_id: visible.match(/task_id:(task_[a-z0-9][a-z0-9._-]{0,63})/)?.[1] ?? 'task_missing' }) }
+      block = { type: 'tool-call', id: ToolCallId('m05d-task-fixture'), name: 'm05d_task_fixture', arguments: JSON.stringify({ task_id: visible.match(/task_id:(task_[a-z0-9][a-z0-9._-]{0,63})/)?.[1] ?? 'task_missing' }) }
     }
     else if (hasFixtureResult && !hasSearchDisclosure && toolNames.has('mnemosyne_search')) {
       const query = visibleUserText.split('\n').filter((line) => !line.startsWith('M05D_TASK_SHAPE') && !line.startsWith('task_id:')).at(-1) ?? 'offline synthetic task'
-      block = { type: 'tool-call', id: CallId('m05d-search'), name: 'mnemosyne_search', arguments: JSON.stringify({ query }) }
+      block = { type: 'tool-call', id: ToolCallId('m05d-search'), name: 'mnemosyne_search', arguments: JSON.stringify({ query }) }
     }
     else if (hasSearchDisclosure && !hasOpenDisclosure && toolNames.has('mnemosyne_open')) {
       const searchText = visibleUserText.split('\n').reverse().find((line) => line.includes('"items"') && line.includes('"retrieval_ref"'))
       if (!searchText) throw new ProtocolValidationError()
       const searchDisclosure = validateSearchDisclosure(JSON.parse(searchText))
-      block = { type: 'tool-call', id: CallId('m05d-open'), name: 'mnemosyne_open', arguments: JSON.stringify({ memory_id: searchDisclosure.items[0].memory_id, retrieval_id: searchDisclosure.retrieval_ref, search_disclosure_sha256: searchDisclosure.content_sha256 }) }
+      block = { type: 'tool-call', id: ToolCallId('m05d-open'), name: 'mnemosyne_open', arguments: JSON.stringify({ memory_id: searchDisclosure.items[0].memory_id, retrieval_id: searchDisclosure.retrieval_ref, search_disclosure_sha256: searchDisclosure.content_sha256 }) }
     } else {
       const shapeMatch = visibleUserText.match(/M05D_TASK_SHAPE\n(\{[^\n]+\})/)
       const shape = shapeMatch ? JSON.parse(shapeMatch[1]) as { task_id: string; result_fields: string[] } : undefined
@@ -550,7 +551,7 @@ export async function runAgentLoopEvidence(task: M05DTask, group: M05DGroup, cat
   const taskSequences: number[] = []
   let acquisitionSequence: number | undefined
   try {
-    for (const plugin of [SessionStore, AgentRegistry, LlmRuntime, SystemPrompt, ToolRuntime]) fibers.push(await ctx.plugin(plugin))
+    for (const plugin of [SessionStore, AgentRegistry, LlmRuntime, SystemPrompt, ToolRuntime, SessionProjection]) fibers.push(await ctx.plugin(plugin))
     fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
     llmRuntime = ctx.llm
     toolRuntime = ctx.tools

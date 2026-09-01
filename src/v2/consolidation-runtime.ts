@@ -3,7 +3,7 @@ import { canonicalHash, compareCodePoints } from '../protocol/canonical.js'
 import type { ResolvedScope } from '../runtime-scope.js'
 import { assertUtcTimestamp } from '../memory-fact.js'
 import { MemoryStoreError } from '../memory-store-error.js'
-import { createMutationCoordinator } from '../mutation-coordinator.js'
+import { createMutationCoordinator, type MutationCoordinator } from '../mutation-coordinator.js'
 import {
   computeOKFCatalogNodeIdV1,
   computeOKFCatalogV1Hash,
@@ -15,6 +15,8 @@ import { computeOKFMemoryV2Hash, type OKFMemoryV2 } from './okf-memory.js'
 import { openOKFMemoryV2Store } from './okf-memory-store.js'
 import { publishOKFGenerationV2, readCurrentOKFGenerationV2 } from './okf-compiler.js'
 import { consumeStrictModelTextV2 } from './recall-runtime.js'
+
+const MAX_CONSOLIDATION_MODEL_OUTPUT_BYTES = 32768
 
 export interface ConsolidationEvidenceV2 {
   task: string
@@ -39,6 +41,12 @@ export type ConsolidationModelRequestV2 = {
   memory: { title: string; summary: string }
   category: { ref: string; title: string; summary: string }
   current_depth: number
+} | {
+  schema_version: 1
+  stage: 'category_new'
+  memory: { title: string; summary: string }
+  current_node_ref: string
+  current_depth: number
 }
 
 export type ConsolidationModelDecisionV2 = {
@@ -51,14 +59,16 @@ export type ConsolidationModelDecisionV2 = {
   content: string
   related_memory_refs: string[]
 } | {
-  decision: 'existing'
+  decision: 'candidate'
   node_ref: string
+} | {
+  decision: 'no_candidate'
 } | {
   decision: 'new'
   title: string
   summary: string
 } | {
-  decision: 'attach' | 'expand'
+  decision: 'attach' | 'expand' | 'reject'
 }
 
 export type ConsolidationModelV2 = (
@@ -90,6 +100,7 @@ export interface ConsolidationRuntimeV2 {
 
 export interface ConsolidationRuntimeV2Options {
   model: ConsolidationModelV2
+  coordinator?: MutationCoordinator
 }
 
 function boundedText(value: unknown, maxBytes: number): string {
@@ -127,22 +138,29 @@ function validateJudgment(raw: ConsolidationModelDecisionV2, offeredRefs: string
   return raw
 }
 
-function validateCategorySelection(raw: ConsolidationModelDecisionV2, categories: Array<{ ref: string; title: string }>): Extract<ConsolidationModelDecisionV2, { decision: 'existing' | 'new' }> {
+function validateCategoryCandidate(raw: ConsolidationModelDecisionV2, categories: Array<{ ref: string; title: string }>): Extract<ConsolidationModelDecisionV2, { decision: 'candidate' | 'no_candidate' }> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('invalid_model_output')
-  if (raw.decision === 'existing') {
+  if (raw.decision === 'candidate') {
     if (Object.keys(raw).sort().join('|') !== 'decision|node_ref' || !categories.some((category) => category.ref === raw.node_ref)) throw new Error('invalid_model_output')
     return raw
   }
-  if (raw.decision !== 'new' || Object.keys(raw).sort().join('|') !== 'decision|summary|title') throw new Error('invalid_model_output')
-  boundedText(raw.title, 320)
-  boundedText(raw.summary, 2000)
+  if (raw.decision !== 'no_candidate' || Object.keys(raw).sort().join('|') !== 'decision') throw new Error('invalid_model_output')
   return raw
 }
 
-function validateCategoryExpansion(raw: ConsolidationModelDecisionV2, depth: number): Extract<ConsolidationModelDecisionV2, { decision: 'attach' | 'expand' }> {
+function validateNewCategory(raw: ConsolidationModelDecisionV2, categories: Array<{ ref: string; title: string }>): Extract<ConsolidationModelDecisionV2, { decision: 'new' }> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || raw.decision !== 'new' || Object.keys(raw).sort().join('|') !== 'decision|summary|title') throw new Error('invalid_model_output')
+  boundedText(raw.title, 320)
+  boundedText(raw.summary, 2000)
+  if (categories.some((category) => category.title === raw.title)) throw new Error('invalid_model_output')
+  return raw
+}
+
+function validateCategoryExpansion(raw: ConsolidationModelDecisionV2, depth: number, allowReject: boolean): Extract<ConsolidationModelDecisionV2, { decision: 'attach' | 'expand' | 'reject' }> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).sort().join('|') !== 'decision') throw new Error('invalid_model_output')
-  if (raw.decision !== 'attach' && raw.decision !== 'expand') throw new Error('invalid_model_output')
-  if (depth === OKF_CATALOG_MAX_DEPTH && raw.decision !== 'attach') throw new Error('invalid_model_output')
+  if (raw.decision !== 'attach' && raw.decision !== 'expand' && raw.decision !== 'reject') throw new Error('invalid_model_output')
+  if (!allowReject && raw.decision === 'reject') throw new Error('invalid_model_output')
+  if (depth === OKF_CATALOG_MAX_DEPTH && raw.decision === 'expand') throw new Error('invalid_model_output')
   return raw
 }
 
@@ -174,12 +192,7 @@ function initialCatalog(scope: string, now: string): OKFCatalogV1 {
   return catalog
 }
 
-function addCategory(catalog: OKFCatalogV1, parent: OKFCatalogNodeV1, category: Extract<ConsolidationModelDecisionV2, { decision: 'existing' | 'new' }>): OKFCatalogNodeV1 {
-  if (category.decision === 'existing') {
-    const node = catalog.nodes.find((candidate) => candidate.node_id === category.node_ref)
-    if (!node || node.parent_node_id !== parent.node_id || !parent.child_node_refs.includes(node.node_id)) throw new Error('invalid_category')
-    return node
-  }
+function addCategory(catalog: OKFCatalogV1, parent: OKFCatalogNodeV1, category: Extract<ConsolidationModelDecisionV2, { decision: 'new' }>): OKFCatalogNodeV1 {
   const id = computeOKFCatalogNodeIdV1(catalog.project_scope_id, parent.node_id, category.title)
   const existing = catalog.nodes.find((candidate) => candidate.node_id === id)
   if (existing) {
@@ -215,7 +228,7 @@ async function currentCatalog(scope: ResolvedScope): Promise<OKFCatalogV1> {
 }
 
 export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Options): ConsolidationRuntimeV2 {
-  const coordinator = createMutationCoordinator()
+  const coordinator = options.coordinator ?? createMutationCoordinator()
   return {
     async consolidate(request: ConsolidationRequestV2): Promise<ConsolidationResultV2> {
       return await coordinator.run(request.scope.project_scope_id, async () => {
@@ -261,28 +274,81 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
           }
           let current = catalog.nodes.find((node) => node.node_id === catalog.root_node_id)!
           let depth = 0
-          while (true) {
+          catalogNavigation: while (true) {
             stage = 'category_selection'
             const categories = current.child_node_refs.map((ref) => ({ ref, title: catalog.nodes.find((node) => node.node_id === ref)!.title }))
-            let rawCategory: ConsolidationModelDecisionV2
+            let remaining = [...categories]
+            while (remaining.length > 0) {
+              let rawCandidate: ConsolidationModelDecisionV2
+              try {
+                rawCandidate = await options.model({
+                  schema_version: 1,
+                  stage: 'category_titles',
+                  memory: { title: judgment.title, summary: judgment.summary },
+                  current_node_ref: current.node_id,
+                  current_depth: depth,
+                  categories: remaining,
+                }, route)
+              } catch {
+                return { status: 'failed', reason_code: 'consolidation_category_model_failed' }
+              }
+              let candidate: Extract<ConsolidationModelDecisionV2, { decision: 'candidate' | 'no_candidate' }>
+              try { candidate = validateCategoryCandidate(rawCandidate, remaining) } catch {
+                return { status: 'failed', reason_code: 'consolidation_category_invalid' }
+              }
+              if (candidate.decision === 'no_candidate') break
+              const selected = catalog.nodes.find((node) => node.node_id === candidate.node_ref)
+              if (!selected || selected.parent_node_id !== current.node_id || !current.child_node_refs.includes(selected.node_id)) {
+                return { status: 'failed', reason_code: 'consolidation_category_invalid' }
+              }
+              stage = 'category_expansion'
+              let rawExpansion: ConsolidationModelDecisionV2
+              try {
+                rawExpansion = await options.model({
+                  schema_version: 1,
+                  stage: 'category_summary',
+                  memory: { title: judgment.title, summary: judgment.summary },
+                  category: { ref: selected.node_id, title: selected.title, summary: selected.summary },
+                  current_depth: depth + 1,
+                }, route)
+              } catch {
+                return { status: 'failed', reason_code: 'consolidation_category_model_failed' }
+              }
+              let expansion: Extract<ConsolidationModelDecisionV2, { decision: 'attach' | 'expand' | 'reject' }>
+              try { expansion = validateCategoryExpansion(rawExpansion, depth + 1, true) } catch {
+                return { status: 'failed', reason_code: 'consolidation_category_invalid' }
+              }
+              if (expansion.decision === 'reject') {
+                remaining = remaining.filter((category) => category.ref !== selected.node_id)
+                stage = 'category_selection'
+                continue
+              }
+              current = selected
+              depth++
+              if (expansion.decision === 'attach') break catalogNavigation
+              continue catalogNavigation
+            }
+
+            stage = 'category_selection'
+            let rawNewCategory: ConsolidationModelDecisionV2
             try {
-              rawCategory = await options.model({
+              rawNewCategory = await options.model({
                 schema_version: 1,
-                stage: 'category_titles',
+                stage: 'category_new',
                 memory: { title: judgment.title, summary: judgment.summary },
                 current_node_ref: current.node_id,
                 current_depth: depth,
-                categories,
               }, route)
             } catch {
               return { status: 'failed', reason_code: 'consolidation_category_model_failed' }
             }
-            let category: Extract<ConsolidationModelDecisionV2, { decision: 'existing' | 'new' }>
-            try { category = validateCategorySelection(rawCategory, categories) } catch {
+            let newCategory: Extract<ConsolidationModelDecisionV2, { decision: 'new' }>
+            try { newCategory = validateNewCategory(rawNewCategory, categories) } catch {
               return { status: 'failed', reason_code: 'consolidation_category_invalid' }
             }
-            current = addCategory(catalog, current, category)
+            current = addCategory(catalog, current, newCategory)
             depth++
+            if (depth === OKF_CATALOG_MAX_DEPTH) break
             stage = 'category_expansion'
             let rawExpansion: ConsolidationModelDecisionV2
             try {
@@ -296,8 +362,8 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
             } catch {
               return { status: 'failed', reason_code: 'consolidation_category_model_failed' }
             }
-            let expansion: Extract<ConsolidationModelDecisionV2, { decision: 'attach' | 'expand' }>
-            try { expansion = validateCategoryExpansion(rawExpansion, depth) } catch {
+            let expansion: Extract<ConsolidationModelDecisionV2, { decision: 'attach' | 'expand' | 'reject' }>
+            try { expansion = validateCategoryExpansion(rawExpansion, depth, false) } catch {
               return { status: 'failed', reason_code: 'consolidation_category_invalid' }
             }
             if (expansion.decision === 'attach') break
@@ -346,8 +412,10 @@ export function createLlmConsolidationModelV2(llm: LlmRuntime): ConsolidationMod
     const system = request.stage === 'judgment'
       ? 'Judge whether the completed turn produced reusable project knowledge. Your final response MUST be exactly one JSON object: no Markdown fences, no prose, no explanations, and no extra fields. Return exactly one of these shapes: {"decision":"skip","reason_code":"no_reusable_knowledge"} or {"decision":"create","title":"...","summary":"...","content":"...","related_memory_refs":[]}. For skip, reason_code must be one of no_reusable_knowledge, insufficient_evidence, task_incomplete. For create, title, summary, and content must be non-empty strings, and related_memory_refs must contain only IDs from used_memory_refs.'
       : request.stage === 'category_titles'
-        ? 'Choose one offered direct child category. Your final response MUST be exactly one JSON object with no Markdown, prose, explanations, or extra fields. Return either {"decision":"existing","node_ref":"<one offered ref>"} or {"decision":"new","title":"<non-empty title>","summary":"<non-empty summary>"}. Never invent an existing ref.'
-        : 'After reading the selected category summary, your final response MUST be exactly one JSON object with no Markdown, prose, explanations, or extra fields. Return exactly {"decision":"attach"} to place the memory here, or exactly {"decision":"expand"} to inspect or create one more specific child category.'
+        ? 'Using only the offered direct child category titles, choose one plausible category to inspect. Your final response MUST be exactly one JSON object with no Markdown, prose, explanations, or extra fields. Return either {"decision":"candidate","node_ref":"<one offered ref>"} or exactly {"decision":"no_candidate"} when no offered title could contain the memory. Never invent a ref and never create a category in this stage.'
+        : request.stage === 'category_new'
+          ? 'No offered direct child category title fits this memory. Create one broad reusable direct child category, not a restatement of the memory title. Your final response MUST be exactly one JSON object with no Markdown, prose, explanations, or extra fields: {"decision":"new","title":"<non-empty category title>","summary":"<non-empty category scope summary>"}.'
+          : 'After reading only the selected category summary, decide whether the memory belongs here. Your final response MUST be exactly one JSON object with no Markdown, prose, explanations, or extra fields. Return exactly {"decision":"attach"} only when this category is already the narrowest reusable home for the memory. Return {"decision":"expand"} when the memory belongs here but a meaningfully narrower reusable subject should contain it. Return {"decision":"reject"} when the summary proves this category does not fit. Do not expand merely to restate one memory title. At the maximum depth, never return expand.'
     let stream: AsyncIterable<import('@deepseek-ai/dsh-llm').StreamChunk>
     try {
       stream = llm.stream({
@@ -356,7 +424,7 @@ export function createLlmConsolidationModelV2(llm: LlmRuntime): ConsolidationMod
         system,
         messages: [createUserMessage({ content: [{ type: 'text', text: JSON.stringify(request) }], source: { kind: 'plugin', plugin: 'dsh-mnemosyne', form: 'notice', summary: 'memory consolidation request' } })],
         tools: [],
-        maxTokens: request.stage === 'judgment' ? 2048 : 256,
+        maxTokens: request.stage === 'judgment' ? 1024 : 256,
         signal: route.signal,
       })
     } catch {
@@ -364,7 +432,7 @@ export function createLlmConsolidationModelV2(llm: LlmRuntime): ConsolidationMod
     }
     let text: string
     try {
-      text = (await consumeStrictModelTextV2(stream)).trim()
+      text = (await consumeStrictModelTextV2(stream, request.stage === 'judgment' ? MAX_CONSOLIDATION_MODEL_OUTPUT_BYTES : 8192)).trim()
     } catch (error: unknown) {
       const code = safeLlmFailureCode(error)
       throw Object.assign(new Error('llm stream consume failed'), { code: code?.startsWith('stream_') ? code : 'stream_consume_failed' })

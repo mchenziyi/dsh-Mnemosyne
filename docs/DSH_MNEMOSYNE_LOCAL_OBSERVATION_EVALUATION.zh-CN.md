@@ -1,6 +1,6 @@
 # dsh-Mnemosyne v0.2 本地观察期监控与评估规范
 
-> 状态：✅ 评估口径已冻结，待 v0.2.0 本地连续运行时执行
+> 状态：🟡 首轮本地闭环已验证，继续观察中
 >
 > 日期：2026-08-31
 >
@@ -10,7 +10,7 @@
 
 ## 一、目标
 
-本规范用于插件安装后连续运行 3～7 天的真实项目观察。评估重点不是“生成了多少记忆”，而是：
+本规范用于插件安装后连续运行 3～7 天的真实项目观察。当前已在 `test` 项目取得自动记忆、Catalog/Generation 发布、跨会话 Recall 及 `Title → Summary → Content` 正文注入的首轮真实证据；跨项目隔离沿用既有 E2E 门禁并继续纳入观察。评估重点不是“生成了多少记忆”，而是：
 
 1. 用户只进行正常对话时，Recall 与 Consolidation 是否自动运行；
 2. 每条记忆是否符合 OKF Memory v2，且内容正确、有用、不过度泛化；
@@ -95,7 +95,7 @@ uncertain
 | `recall_no_match` | 模型确认没有相关记忆的次数 |
 | `recall_failed` | Catalog、Generation、模型导航或消息注入失败次数 |
 | `recall_error_rate` | `failed / started` |
-| `expansion_steps` | 单轮导航展开次数，最大必须 `<= 6` |
+| `expansion_steps` | 单轮导航模型判断/展开次数，最大必须 `<= 8` |
 | `summaries_disclosed` | 单层展示的 Memory Summary 数，最大必须 `<= 5` |
 | `contents_selected` | 最终进入主模型的完整 Memory 数，最大必须 `<= 3` |
 | `disclosure_order_violation` | 跳过 Title 或 Summary 直接披露 Content 的次数，必须为 `0` |

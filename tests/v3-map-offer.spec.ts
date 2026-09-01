@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { createMapOfferV3, MAP_OFFER_PAGE_SIZE, pinGenerationV3 } from '../src/v3/map-offer.js'
+import { createMapOfferPagesV3, createMapOfferV3, MAP_OFFER_MAX_BYTES, MAP_OFFER_PAGE_SIZE, pinGenerationV3 } from '../src/v3/map-offer.js'
+import { canonicalBytes } from '../src/protocol/canonical.js'
 
 function generation() {
   const children = Array.from({ length: MAP_OFFER_PAGE_SIZE + 2 }, (_, i) => ({ ref: `node_${String(i).padStart(2, '0')}`, title: `分类 ${i}` }))
@@ -47,5 +48,14 @@ describe('v3 map offer', () => {
     const b = createMapOfferV3(pin, 'node_root', 1)
     expect(a.offer_sha256).not.toBe(b.offer_sha256)
     expect(() => createMapOfferV3(pin, 'node_missing')).toThrow()
+  })
+
+  it('materializes every bounded page behind one deterministic map ref', () => {
+    const pin = pinGenerationV3(generation())
+    const bundle = createMapOfferPagesV3(pin)
+    expect(bundle.pages).toHaveLength(2)
+    expect(bundle.pages.flatMap((page) => page.entries)).toHaveLength(MAP_OFFER_PAGE_SIZE + 2)
+    expect(bundle.pages.every((page) => Buffer.byteLength(canonicalBytes(page), 'utf8') <= MAP_OFFER_MAX_BYTES)).toBe(true)
+    expect(createMapOfferPagesV3(pin).map_ref).toBe(bundle.map_ref)
   })
 })

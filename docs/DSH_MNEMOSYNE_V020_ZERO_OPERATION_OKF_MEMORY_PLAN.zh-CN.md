@@ -93,9 +93,9 @@ interface OKFCatalogV1 {
 }
 ```
 
-Catalog 是独立规范对象。分类重组只产生新 Catalog，不修改 Memory。节点、父子边和 Memory 引用必须闭合，不得有环、重复引用或断链。
+Catalog 是独立规范对象。分类重组只产生新 Catalog，不修改 Memory。节点、父子边和 Memory 引用必须闭合，不得有环、重复引用或断链。Root 深度为 0，最多允许 3 层非 Root Node；非 Root Node ID 绑定 `project_scope_id + parent_node_id + exact_title`，因此不同父路径下的同名节点不会冲突。
 
-新记忆沉淀时，模型先阅读已有分类 Title，必要时阅读分类 Summary，然后选择已有分类；均不匹配时创建新分类。
+新记忆沉淀时，模型从 Root 开始逐层阅读直接子分类 Title。Title 阶段只能选择候选或声明无候选；选中后只披露该候选的 Summary，再决定 `attach | expand | reject`。`reject` 返回同层并排除该候选；只有候选耗尽或明确无候选后，才由独立阶段创建直接子分类。不得批量披露同层 Summary。到达深度 3 时不得继续下钻。MVP 不移动或重组已有节点。
 
 ## 四、存储与原子发布
 
@@ -114,7 +114,8 @@ Catalog 是独立规范对象。分类重组只产生新 Catalog，不修改 Mem
 - Memory 与 Catalog 先 no-overwrite 原子发布，再构建 Generation；
 - CURRENT 只在 Generation 完整校验后原子切换；
 - 引用断链、Hash 漂移或输出不完整均 fail closed；
-- Consolidation 失败不得影响已经完成的主任务。
+- Consolidation 失败不得影响已经完成的主任务；
+- 下一轮 Recall 在读取 CURRENT 前等待同 Project 已启动的 Consolidation 收敛；不同 Project 不互相阻塞。
 
 ## 五、Generation 分层视图
 
@@ -143,8 +144,8 @@ Recall 监听公开 `agent/pre-step`。仅当当前用户 turn 尚未执行 Reca
 5. 模型根据 Summary 最多确认 3 条 Memory；
 6. 插件读取被确认 Memory 的完整 Content；
 7. 最终内容以 `source.kind=plugin, form=recall` 的持久消息进入主请求；
-8. Related Memory 只披露 Title，需要读取时重新走 Title → Summary → Content；
-9. 整个导航最多 6 个展开步骤，超限时只使用已确认内容。
+8. Related Memory 只披露 Title；v0.2 MVP 不据此自动启动第二条 Recall 路径；
+9. 整个单路径导航最多 8 次模型判断，保证最深合法三层 Catalog 可以走到 Content。
 
 模型输出严格结构化 ref 选择。程序只校验 ref 来自本轮已披露集合，不进行关键词、tags、文本相似度或权重打分，不保存隐藏思考。
 
@@ -163,9 +164,13 @@ Recall 监听公开 `agent/pre-step`。仅当当前用户 turn 尚未执行 Reca
 2. 使用当前 Agent 的 provider/model 判断 `skip | create`；
 3. `create` 必须返回 Title、Summary、结构化 Markdown Content；
 4. 使用旧记忆后发现新踩坑时，新 Memory 关联旧 Memory；
-5. 模型选择已有 Catalog 分类，或给出新分类；
-6. 严格校验后写入 Memory 与新 Catalog，并编译/发布新 Generation；
-7. 规范内容完全相同返回 `noop`。
+5. 模型从 Root 开始按 `Title 候选 → 单个 Summary → attach/expand/reject` 逐层选择 Catalog 分类；
+6. 只有候选耗尽或明确无候选时才创建直接子分类；
+7. 非 Root 分类最多 3 层，到达深度上限时禁止继续下钻；
+8. 严格校验后写入 Memory 与新 Catalog，并编译/发布新 Generation；
+9. 规范内容完全相同返回 `noop`。
+
+Consolidation judgment 的模型输出采用独立的 32 KiB UTF-8 上限；Recall 导航继续使用 8 KiB 上限。输出超限或 Schema 不合法时 fail closed，不截断、不兼容解析。
 
 正常成功但无新知识、任务尚未完成或证据不足均 `skip`。不修订旧 Memory，不记录成功计数，不自动晋升。
 
@@ -195,12 +200,12 @@ Recall 监听公开 `agent/pre-step`。仅当当前用户 turn 尚未执行 Reca
 
 - Schema：Memory/Catalog 严格解码、Hash、引用闭合、旧 v1 忽略；
 - 编译：Title/Summary/Content 三层输出、相关标题解析、断链失败；
-- 披露：阶段输入不越级，最多 5 Summary/3 Content/6 展开；
+- 披露：阶段输入不越级，最多 5 Summary/3 Content/8 次模型判断；
 - 自动闭环：空库、create、skip、noop、跨 Session 语义改写召回、新踩坑关联且旧字节不变；
 - 产品边界：Tool Registry、根导出和发布包零 `mnemosyne_*`；
 - 日志：可解释未召回、未沉淀和失败，且无敏感正文。
 
-真实验收使用两个 Session：A 完成一个无历史经验任务并自动沉淀；B 用不同措辞提出同类问题。日志必须证明 Title → Summary → Content 展开，DSH Session 必须证明主模型收到持久 recall 消息，全程用户不调用工具。
+真实验收包括：两个 Session 完成自动沉淀与换措辞 Recall；Project A 自动沉淀的 Memory 在 Project B 的 Recall、主模型请求和日志中完全不可见；独立 DSH 进程 A 自动沉淀并退出后，进程 B 从磁盘 CURRENT/Generation 自动 Recall。日志必须证明 Title → Summary → Content 展开，DSH Session 必须证明主模型收到持久 recall 消息，全程用户不调用工具。
 
 ## 十一、实施与提交 Gate
 

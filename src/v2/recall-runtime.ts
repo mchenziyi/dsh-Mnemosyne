@@ -237,7 +237,7 @@ export function createRecallPreStepHandlerV2(options: RecallPreStepHandlerV2Opti
   }
 }
 
-export async function consumeStrictModelTextV2(stream: AsyncIterable<StreamChunk>): Promise<string> {
+export async function consumeStrictModelTextV2(stream: AsyncIterable<StreamChunk>, maxTextBytes = 8192): Promise<string> {
   const fail = (code: string): never => { throw Object.assign(new Error('invalid model stream'), { code }) }
   let text: string | null = null
   const active = new Map<number, 'text' | 'reasoning'>()
@@ -257,7 +257,7 @@ export async function consumeStrictModelTextV2(stream: AsyncIterable<StreamChunk
       if (active.get(chunk.index) !== chunk.block.type) fail('stream_block_end_invalid')
       if (chunk.block.type === 'text') {
         if (text !== null) fail('stream_multiple_text_blocks')
-        if (Buffer.byteLength(chunk.block.text, 'utf8') > 8192) fail('stream_text_size_exceeded')
+        if (Buffer.byteLength(chunk.block.text, 'utf8') > maxTextBytes) fail('stream_text_size_exceeded')
         text = chunk.block.text
       }
       active.delete(chunk.index)
