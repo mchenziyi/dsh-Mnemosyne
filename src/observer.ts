@@ -16,9 +16,13 @@ import { createRuntimeLoggerV2, type RuntimeLogRecordV2 } from './v2/runtime-log
 import { createProjectConsolidationBarrierV2 } from './v2/project-consolidation-barrier.js'
 import { createRecallPreStepHandlerV3 } from './v3/recall-pre-step.js'
 import { createConsolidationSubagentModelV3 } from './v3/consolidation-subagent.js'
+import type { DshSubagentFactoryV3 } from './v3/dsh-subagent.js'
+import type { CompiledOKFGenerationV2 } from './v2/okf-compiler.js'
 
 export interface ObserverInstallOptions {
   readonly mode?: 'v2' | 'v3'
+  readonly loadWorld?: (scope: ResolvedScope) => Promise<CompiledOKFGenerationV2>
+  readonly subagentFactory?: DshSubagentFactoryV3
 }
 
 function timestamp(): string {
@@ -87,6 +91,8 @@ export function install(
   const recallHandler = installOptions.mode === 'v3' ? createRecallPreStepHandlerV3({
     scopeRuntime,
     legacyRuntime: recallRuntime,
+    loadWorld: installOptions.loadWorld,
+    subagentFactory: installOptions.subagentFactory,
     beforeRecall: (scope) => consolidationBarrier.wait(scope.project_scope_id),
     onResult(payload, result: RecallResultV2) {
       recalledByTurn.set(`${payload.agent.session.id}:${payload.turn}`, result.selected_memory_refs)
