@@ -114,6 +114,16 @@ Subagent 在独立上下文中执行：
 
 父 Agent 只接收 `created`、`skip`、`noop` 或 `failed` 结果。
 
+### 4.2.1 参考与延伸语义
+
+Consolidation 必须区分“参考（reference）”与“延伸（extension）”，不能仅因本轮读取过旧 Memory 就建立新关系。
+
+- **参考**：本轮只是使用已有 Memory，未产生新的可复用条件、限制、失败教训或变体。结果可以是 `skip`；不得仅凭 `used_memory_refs` 创建新 Memory 或新增关联边。
+- **延伸**：本轮在已有 Memory 基础上发现了新的适用条件、限制、失败方式、修正方案或可复用变体。模型返回 `create` 时，才可将作为依据的旧 Memory refs 写入新 Memory 的 `related_memory_refs`；旧 Memory 字节保持不变。
+- **新问题无旧依据**：没有使用旧 Memory 但产生了可复用经验时，创建独立 Memory，关联引用保持为空。
+
+程序不根据关键词、成功次数或“是否调用过 Recall”推断两种语义；只校验模型结构化判断、引用闭合和持久化结果。`related_memory_refs` 表达延伸依据的图边，不改变 Memory 的树形 Catalog 归属，也不触发相关 Memory 的自动正文读取。
+
 ### 4.3 用户可见性
 
 用户不需要发送记忆命令，但可以看到：
@@ -221,6 +231,7 @@ Catalog 继续保持：
 - 新经验写入项目级 v2 Memory；
 - Catalog 和 Generation 原子发布；
 - 无新知识时 `skip`，不写 Memory。
+- 仅参考旧 Memory 时不创建新 Memory；发现新条件或新踩坑时创建延伸 Memory，并保留旧 Memory 不变。
 
 ### Fallback
 
