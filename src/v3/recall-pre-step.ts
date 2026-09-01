@@ -77,7 +77,7 @@ export function createRecallPreStepHandlerV3(options: RecallPreStepHandlerV3Opti
       if (legacy.status === 'completed') return { kind: 'enter', messages: [mapMessage, legacy.message, ...decision.messages] }
       return decision
     }
-    if (result.status !== 'completed') return decision
+    if (result.status !== 'completed') return { kind: 'enter', messages: [mapMessage, ...decision.messages] }
     const v2Result: RecallResultV2 = { status: 'completed', reason_code: null, selected_memory_refs: result.selected_memory_refs, expansion_steps: 0, message: recallMessage(result.contents) }
     await options.onResult?.({ agent: payload.agent, turn: payload.turn }, v2Result)
     return { kind: 'enter', messages: [mapMessage, v2Result.message, ...decision.messages] }

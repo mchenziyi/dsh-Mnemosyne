@@ -33,4 +33,28 @@ describe('v3 recall pre-step', () => {
     const result = await handler({ agent: { options: { provider: 'p', model: 'm' }, session: { id: 's', header: { origin: 'subagent' } } } as any, messages: [], turn: 1, step: 1, signal: new AbortController().signal }, async () => ({ kind: 'enter', messages: [] }))
     expect(result).toEqual({ kind: 'enter', messages: [] }); expect(legacy).toBe(0)
   })
+
+  it('still exposes the title map when navigation finds no matching memory', async () => {
+    const scope = { project_root: '/tmp/project', project_scope_id: 'sha256_' + 'a'.repeat(64), session_scope_id: 'sha256_' + 'b'.repeat(64) }
+    const world = { generation_id: 'gen_' + 'c'.repeat(64), manifest: { project_scope_id: scope.project_scope_id, catalog_id: 'catalog_' + 'd'.repeat(64) }, files: new Map([
+      ['indexes/root.json', JSON.stringify({ schema_version: 1, root_node_id: 'node_root', children: [{ ref: 'node_auth', title: 'Authentication' }] })],
+      ['indexes/nodes/node_auth.json', JSON.stringify({ schema_version: 1, node_id: 'node_auth', title: 'Authentication', summary: 'SECRET_SUMMARY', children: [], memories: [] })],
+    ]) } as any
+    const child = { followup: () => undefined, whenIdle: async () => undefined, session: { events: [] as any[] } }
+    const handler = createRecallPreStepHandlerV3({
+      scopeRuntime: { observeSession: () => ({ status: 'ready', scope }) } as any,
+      legacyRuntime: { recall: async () => ({ status: 'empty', reason_code: 'memory_empty', selected_memory_refs: [], expansion_steps: 0 }) } as any,
+      loadWorld: async () => world,
+      subagentFactory: async () => {
+        child.session.events = [{ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '{"selected_refs":[]}' }] } } }]
+        return { agent: child, dispose: async () => undefined } as any
+      },
+    })
+    const user = { source: { kind: 'user' }, content: [{ type: 'text', text: 'unrelated task' }] } as any
+    const result = await handler({ agent: { options: { provider: 'p', model: 'm' }, session: { id: 's', header: {} } } as any, messages: [user], turn: 1, step: 1, signal: new AbortController().signal }, async () => ({ kind: 'enter', messages: [user] }))
+    expect(result.kind).toBe('enter')
+    expect((result as any).messages.map((message: any) => message.source.form)).toEqual(['catalog', undefined])
+    expect(JSON.stringify((result as any).messages[0])).toContain('Authentication')
+    expect(JSON.stringify((result as any).messages[0])).not.toContain('SECRET_SUMMARY')
+  })
 })
