@@ -17,7 +17,7 @@ describe('v2 runtime JSONL diagnostics', () => {
       const logger = createRuntimeLoggerV2()
       await logger.log(scope, {
         event: 'recall_layer', timestamp: '2026-08-28T05:00:00.000Z', turn: 3, stage: 'memory_summaries',
-        expansion_step: 4, disclosed_count: 2, selected_count: 1, memory_refs: ['mem_safe'], result: 'selected',
+        expansion_step: 4, disclosed_count: 2, selected_count: 1, memory_refs: ['mem_safe'], result: 'selected', route: 'map', attempt_id: 'a1',
       })
       await logger.log(scope, { event: 'consolidation_skip', timestamp: '2026-08-28T05:00:01.000Z', turn: 3, result: 'skipped', reason_code: 'no_reusable_knowledge' })
       await logger.dispose()
@@ -25,6 +25,7 @@ describe('v2 runtime JSONL diagnostics', () => {
       const rows = text.trim().split('\n').map((line) => JSON.parse(line))
       expect(rows).toHaveLength(2)
       expect(rows[0]).toMatchObject({ event: 'recall_layer', disclosed_count: 2, selected_count: 1 })
+      expect(rows[0]).toMatchObject({ route: 'map', attempt_id: 'a1' })
       expect(text).not.toContain('user_text')
       expect(text).not.toContain('memory_content')
       expect(text).not.toContain('/Users/')

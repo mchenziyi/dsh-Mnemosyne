@@ -25,6 +25,9 @@ export interface RuntimeLogRecordV2 {
   disclosed_count?: number
   selected_count?: number
   elapsed_ms?: number
+  route?: 'map' | 'legacy_fallback'
+  attempt_id?: string
+  fallback_reason?: string
 }
 
 export interface RuntimeLoggerV2 {
@@ -45,6 +48,9 @@ function validateRecord(record: RuntimeLogRecordV2): RuntimeLogRecordV2 {
   if (!EVENTS.has(record.event) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(record.timestamp)) throw new Error('runtime_log_invalid')
   if (record.reason_code !== undefined && record.reason_code !== null && !REASON.test(record.reason_code)) throw new Error('runtime_log_invalid')
   if (record.elapsed_ms !== undefined && (!Number.isInteger(record.elapsed_ms) || record.elapsed_ms < 0 || record.elapsed_ms > 86_400_000)) throw new Error('runtime_log_invalid')
+  if (record.route !== undefined && record.route !== 'map' && record.route !== 'legacy_fallback') throw new Error('runtime_log_invalid')
+  if (record.attempt_id !== undefined && !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(record.attempt_id)) throw new Error('runtime_log_invalid')
+  if (record.fallback_reason !== undefined && !REASON.test(record.fallback_reason)) throw new Error('runtime_log_invalid')
   for (const value of [record.generation_id, record.catalog_id, ...(record.memory_refs ?? []), ...(record.index_refs ?? [])]) {
     if (value !== undefined && !REF.test(value)) throw new Error('runtime_log_invalid')
   }
