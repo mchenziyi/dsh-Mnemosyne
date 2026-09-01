@@ -17,7 +17,8 @@ describe('v3 recall pre-step', () => {
       child.session.events = [{ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: JSON.stringify({ selected_refs: selected }) }] } } }]
       return { agent: child, dispose: async () => undefined } as any
     }
-    const handler = createRecallPreStepHandlerV3({ scopeRuntime: { observeSession: () => ({ status: 'ready', scope }) } as any, legacyRuntime: { recall: async () => ({ status: 'empty', reason_code: 'memory_empty', selected_memory_refs: [], expansion_steps: 0 }) } as any, loadWorld: async () => world, subagentFactory: factory })
+    const events: string[] = []
+    const handler = createRecallPreStepHandlerV3({ scopeRuntime: { observeSession: () => ({ status: 'ready', scope }) } as any, legacyRuntime: { recall: async () => ({ status: 'empty', reason_code: 'memory_empty', selected_memory_refs: [], expansion_steps: 0 }) } as any, loadWorld: async () => world, subagentFactory: factory, onEvent: (_scope, event) => events.push(event.event) })
     const user = { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '认证刷新问题' }] } as any
     const result = await handler({ agent: { options: { provider: 'p', model: 'm' }, session: { id: 's', header: {} } } as any, messages: [user], turn: 1, step: 1, signal: new AbortController().signal }, async () => ({ kind: 'enter', messages: [user] }))
     expect(result.kind).toBe('enter')
@@ -25,6 +26,7 @@ describe('v3 recall pre-step', () => {
     expect(JSON.stringify((result as any).messages[0])).toContain('Authentication')
     expect(JSON.stringify((result as any).messages[0])).not.toContain('认证经验')
     expect(JSON.stringify((result as any).messages[1])).toContain('完整经验正文')
+    expect(events).toEqual(['recall_start', 'recall_layer', 'recall_layer', 'recall_layer', 'recall_layer', 'recall_completed'])
   })
 
   it('does not recurse for subagent-origin sessions', async () => {

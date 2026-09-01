@@ -97,6 +97,16 @@ export function install(
     onResult(payload, result: RecallResultV2) {
       recalledByTurn.set(`${payload.agent.session.id}:${payload.turn}`, result.selected_memory_refs)
     },
+    onEvent(scope, event) {
+      if (event.event === 'recall_start') log(scope, { event: 'recall_start', timestamp: timestamp(), result: 'started', route: 'map' })
+      else if (event.event === 'recall_layer') log(scope, {
+        event: 'recall_layer', timestamp: timestamp(), result: 'selected', route: 'map', stage: event.stage,
+        disclosed_count: event.disclosed_count, selected_count: event.selected_count,
+      })
+      else if (event.event === 'recall_completed') log(scope, { event: 'recall_completed', timestamp: timestamp(), result: 'completed', route: 'map', selected_count: event.selected_count })
+      else if (event.event === 'recall_no_match') log(scope, { event: 'recall_no_match', timestamp: timestamp(), result: 'no_match', route: 'map', reason_code: event.reason_code ?? 'recall_no_match' })
+      else log(scope, { event: 'recall_failed', timestamp: timestamp(), result: 'failed', route: 'map', reason_code: event.reason_code ?? 'recall_navigation_failed' })
+    },
   }) : recallHandlerV2
   ctx.on('agent/pre-step', (payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>) => recallHandler(payload, next))
 

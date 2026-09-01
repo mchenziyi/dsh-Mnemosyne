@@ -32,6 +32,7 @@ export interface RecallPreStepHandlerV3Options {
   onResult?: (payload: { agent: Agent; turn: number }, result: RecallResultV2) => void | Promise<void>
   loadWorld?: (scope: ResolvedScope) => Promise<CompiledOKFGenerationV2>
   subagentFactory?: DshSubagentFactoryV3
+  onEvent?: (scope: ResolvedScope, event: { event: 'recall_start' | 'recall_layer' | 'recall_completed' | 'recall_no_match' | 'recall_failed'; stage?: string; disclosed_count?: number; selected_count?: number; reason_code?: string | null }) => void
 }
 
 export function createRecallPreStepHandlerV3(options: RecallPreStepHandlerV3Options) {
@@ -52,7 +53,9 @@ export function createRecallPreStepHandlerV3(options: RecallPreStepHandlerV3Opti
       invoke: async (request) => {
         const prompt = buildRecallSubagentPromptV3(request)
         const output = await runDshSubagentV3(payload.agent, { task: prompt, provider, model, signal: payload.signal }, factory)
-        return parseDecision(output)
+        const parsed = parseDecision(output)
+        options.onEvent?.(resolution.scope, { event: 'recall_layer', stage: request.stage, disclosed_count: request.items.length, selected_count: parsed.selected_refs.length })
+        return parsed
       },
       fallback: async () => {
         legacy = await options.legacyRuntime.recall({ scope: resolution.scope, task, provider, model, signal: payload.signal })
@@ -71,13 +74,18 @@ export function createRecallPreStepHandlerV3(options: RecallPreStepHandlerV3Opti
     }
     const pin = pinGenerationV3(world)
     const mapMessage = createMapContextMessageV3(createMapOfferV3(pin))
+    options.onEvent?.(resolution.scope, { event: 'recall_start' })
     const result = await mapRuntime.recall(pin, task, payload.signal)
     if (legacy) {
       await options.onResult?.({ agent: payload.agent, turn: payload.turn }, legacy)
       if (legacy.status === 'completed') return { kind: 'enter', messages: [mapMessage, legacy.message, ...decision.messages] }
       return decision
     }
-    if (result.status !== 'completed') return { kind: 'enter', messages: [mapMessage, ...decision.messages] }
+    if (result.status !== 'completed') {
+      options.onEvent?.(resolution.scope, { event: result.status === 'no_match' ? 'recall_no_match' : 'recall_failed', reason_code: result.reason_code })
+      return { kind: 'enter', messages: [mapMessage, ...decision.messages] }
+    }
+    options.onEvent?.(resolution.scope, { event: 'recall_completed', selected_count: result.selected_memory_refs.length })
     const v2Result: RecallResultV2 = { status: 'completed', reason_code: null, selected_memory_refs: result.selected_memory_refs, expansion_steps: 0, message: recallMessage(result.contents) }
     await options.onResult?.({ agent: payload.agent, turn: payload.turn }, v2Result)
     return { kind: 'enter', messages: [mapMessage, v2Result.message, ...decision.messages] }
