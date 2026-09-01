@@ -7,6 +7,15 @@ import { SubagentUnavailableError } from './map-first-recall.js'
 export interface DshSubagentRequestV3 { task: string; provider: string; model: string; signal: AbortSignal }
 export type DshSubagentFactoryV3 = (parent: Agent, request: DshSubagentRequestV3) => Promise<AgentHandle>
 
+export function buildRecallSubagentPromptV3(request: { stage: string; task: string; items: readonly { ref: string; title: string; summary?: string; kind: string }[] }): string {
+  return [
+    'You are the Mnemosyne Recall Subagent.',
+    'Return JSON only with exactly one key: selected_refs (an array of refs).',
+    'Choose only refs present in the supplied items. Do not explain your choice.',
+    JSON.stringify({ schema_version: 1, stage: request.stage, task: request.task, items: request.items }),
+  ].join('\n')
+}
+
 function textOf(message: { content: readonly { type: string; text?: string }[] }): string {
   return message.content.filter((block) => block.type === 'text').map((block) => block.text).join('\n')
 }

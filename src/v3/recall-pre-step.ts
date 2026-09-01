@@ -4,7 +4,7 @@ import type { ResolvedScope, ScopeRuntime } from '../runtime-scope.js'
 import type { RecallRuntimeV2, RecallResultV2 } from '../v2/recall-runtime.js'
 import { readCurrentOKFGenerationV2 } from '../v2/okf-compiler.js'
 import { createMapFirstRecallV3, type MapRecallDecisionV3 } from './map-first-recall.js'
-import { createDshSubagentFactoryV3, runDshSubagentV3 } from './dsh-subagent.js'
+import { buildRecallSubagentPromptV3, createDshSubagentFactoryV3, runDshSubagentV3 } from './dsh-subagent.js'
 import { pinGenerationV3 } from './map-offer.js'
 
 function taskText(messages: readonly UserMessage[]): string {
@@ -46,7 +46,7 @@ export function createRecallPreStepHandlerV3(options: RecallPreStepHandlerV3Opti
     let legacy: RecallResultV2 | undefined
     const mapRuntime = createMapFirstRecallV3({
       invoke: async (request) => {
-        const prompt = JSON.stringify({ schema_version: 1, stage: request.stage, task: request.task, items: request.items })
+        const prompt = buildRecallSubagentPromptV3(request)
         const output = await runDshSubagentV3(payload.agent, { task: prompt, provider, model, signal: payload.signal }, factory)
         return parseDecision(output)
       },
