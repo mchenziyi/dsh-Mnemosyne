@@ -74,7 +74,11 @@ function readIndex(pin: PinnedGenerationV3, nodeId: string): IndexFile {
   try {
     const parsed = JSON.parse(raw) as IndexFile
     if (parsed.node_id !== undefined && parsed.node_id !== nodeId) fail()
-    if (!Array.isArray(parsed.children) || !Array.isArray(parsed.memories)) fail()
+    if (!Array.isArray(parsed.children)) fail()
+    if (nodeId === 'node_root') {
+      if (parsed.memories !== undefined && !Array.isArray(parsed.memories)) fail()
+      parsed.memories ??= []
+    } else if (!Array.isArray(parsed.memories)) fail()
     return parsed
   } catch { return fail() }
 }
