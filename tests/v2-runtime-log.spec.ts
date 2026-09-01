@@ -55,4 +55,20 @@ describe('v2 runtime JSONL diagnostics', () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  it('rejects unknown payload fields instead of persisting them', async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'mnemosyne-v2-log-fields-')))
+    try {
+      const project = computeProjectScopeId(root)
+      const scope: ResolvedScope = {
+        schema_version: 1, session_id: 'session_log', project_root: root, source: 'session_header',
+        project_scope_id: project, session_scope_id: computeSessionScopeId(project, 'session_log'),
+      }
+      const logger = createRuntimeLoggerV2()
+      await expect(logger.log(scope, { event: 'recall_start', timestamp: '2026-08-28T05:00:00.000Z', result: 'started', content: 'SECRET' } as any)).rejects.toThrow()
+      await logger.dispose()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })

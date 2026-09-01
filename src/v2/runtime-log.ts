@@ -41,11 +41,15 @@ const EVENTS = new Set<RuntimeLogEventV2>([
   'consolidation_start', 'consolidation_skip', 'consolidation_created', 'consolidation_noop', 'consolidation_failed',
   'catalog_updated', 'generation_published', 'generation_failed',
 ])
+const FIELDS = new Set([
+  'event', 'timestamp', 'turn', 'result', 'reason_code', 'generation_id', 'catalog_id', 'memory_refs', 'index_refs',
+  'stage', 'expansion_step', 'disclosed_count', 'selected_count', 'elapsed_ms', 'route', 'attempt_id', 'fallback_reason',
+])
 const REASON = /^[a-z][a-z0-9_]{0,63}$/
 const REF = /^(?:sha256|gen|catalog|mem|node)_[a-z0-9._-]{1,64}$/
 
 function validateRecord(record: RuntimeLogRecordV2): RuntimeLogRecordV2 {
-  if (!EVENTS.has(record.event) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(record.timestamp)) throw new Error('runtime_log_invalid')
+  if (!record || typeof record !== 'object' || Object.keys(record).some((key) => !FIELDS.has(key)) || !EVENTS.has(record.event) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(record.timestamp)) throw new Error('runtime_log_invalid')
   if (record.reason_code !== undefined && record.reason_code !== null && !REASON.test(record.reason_code)) throw new Error('runtime_log_invalid')
   if (record.elapsed_ms !== undefined && (!Number.isInteger(record.elapsed_ms) || record.elapsed_ms < 0 || record.elapsed_ms > 86_400_000)) throw new Error('runtime_log_invalid')
   if (record.route !== undefined && record.route !== 'map' && record.route !== 'legacy_fallback') throw new Error('runtime_log_invalid')
