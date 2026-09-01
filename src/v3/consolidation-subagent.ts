@@ -20,7 +20,7 @@ function parseJudgment(text: string): ConsolidationJudgmentV3 {
 }
 
 export function buildConsolidationSubagentPromptV3(input: { task: string; outcome: string; used_memory_refs: readonly string[] }): string {
-  return ['You are the Mnemosyne Consolidation Subagent.', 'Return JSON only. Return either {"decision":"skip","reason_code":"..."} or {"decision":"create","title":"...","summary":"...","content":"...","related_memory_refs":[]}.', 'Create only reusable project experience. Do not include hidden reasoning.', JSON.stringify({ schema_version: 1, task: input.task, outcome: input.outcome, used_memory_refs: input.used_memory_refs })].join('\n')
+  return ['You are the Mnemosyne Consolidation Subagent.', 'Return JSON only. Return either {"decision":"skip","reason_code":"..."} or {"decision":"create","title":"...","summary":"...","content":"...","related_memory_refs":[]}.', 'Use skip when existing memories were only referenced and no new reusable condition, limitation, failure lesson, correction, or variant was discovered.', 'Use create only for genuinely new reusable experience; when it extends a used memory, include that memory ref in related_memory_refs. Never create only because a memory was read.', 'Do not include hidden reasoning.', JSON.stringify({ schema_version: 1, task: input.task, outcome: input.outcome, used_memory_refs: input.used_memory_refs })].join('\n')
 }
 
 export async function runConsolidationSubagentV3(parent: Agent, input: { task: string; outcome: string; used_memory_refs: readonly string[]; provider: string; model: string; signal: AbortSignal }, factory: DshSubagentFactoryV3 = createDshSubagentFactoryV3()): Promise<ConsolidationJudgmentV3> {

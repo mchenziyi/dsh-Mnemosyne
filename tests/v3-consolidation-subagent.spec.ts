@@ -5,6 +5,8 @@ describe('v3 consolidation subagent', () => {
   it('uses a strict create/skip task packet', () => {
     const prompt = buildConsolidationSubagentPromptV3({ task: 'task', outcome: 'done', used_memory_refs: [] })
     expect(prompt).toContain('Return JSON only'); expect(prompt).toContain('used_memory_refs')
+    expect(prompt).toContain('Never create only because a memory was read')
+    expect(prompt).toContain('extends a used memory')
   })
   it('validates structured create output and rejects malformed output', async () => {
     const child = { followup: () => undefined, whenIdle: async () => undefined, session: { events: [{ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: JSON.stringify({ decision: 'create', title: '经验', summary: '摘要', content: '正文', related_memory_refs: [] }) }] } } }] } }
