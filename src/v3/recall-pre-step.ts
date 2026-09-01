@@ -32,7 +32,7 @@ export interface RecallPreStepHandlerV3Options {
   onResult?: (payload: { agent: Agent; turn: number }, result: RecallResultV2) => void | Promise<void>
   loadWorld?: (scope: ResolvedScope) => Promise<CompiledOKFGenerationV2>
   subagentFactory?: DshSubagentFactoryV3
-  onEvent?: (scope: ResolvedScope, event: { event: 'recall_start' | 'recall_layer' | 'recall_completed' | 'recall_no_match' | 'recall_failed'; stage?: string; disclosed_count?: number; selected_count?: number; reason_code?: string | null }) => void
+  onEvent?: (scope: ResolvedScope, event: { event: 'recall_start' | 'recall_layer' | 'recall_completed' | 'recall_no_match' | 'recall_failed' | 'recall_fallback'; stage?: string; disclosed_count?: number; selected_count?: number; reason_code?: string | null }) => void
 }
 
 export function createRecallPreStepHandlerV3(options: RecallPreStepHandlerV3Options) {
@@ -58,6 +58,7 @@ export function createRecallPreStepHandlerV3(options: RecallPreStepHandlerV3Opti
         return parsed
       },
       fallback: async () => {
+        options.onEvent?.(resolution.scope, { event: 'recall_fallback', reason_code: 'subagent_unavailable' })
         legacy = await options.legacyRuntime.recall({ scope: resolution.scope, task, provider, model, signal: payload.signal })
         return { status: legacy.status === 'completed' ? 'completed' : legacy.status === 'empty' ? 'no_match' : legacy.status, selected_memory_refs: legacy.selected_memory_refs, contents: [], fallback_used: true, reason_code: legacy.reason_code }
       },

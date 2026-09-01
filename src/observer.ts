@@ -105,6 +105,7 @@ export function install(
       })
       else if (event.event === 'recall_completed') log(scope, { event: 'recall_completed', timestamp: timestamp(), result: 'completed', route: 'map', selected_count: event.selected_count })
       else if (event.event === 'recall_no_match') log(scope, { event: 'recall_no_match', timestamp: timestamp(), result: 'no_match', route: 'map', reason_code: event.reason_code ?? 'recall_no_match' })
+      else if (event.event === 'recall_fallback') log(scope, { event: 'recall_start', timestamp: timestamp(), result: 'started', route: 'legacy_fallback', fallback_reason: event.reason_code ?? 'subagent_unavailable' })
       else log(scope, { event: 'recall_failed', timestamp: timestamp(), result: 'failed', route: 'map', reason_code: event.reason_code ?? 'recall_navigation_failed' })
     },
   }) : recallHandlerV2

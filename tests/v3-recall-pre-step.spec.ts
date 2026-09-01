@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createRecallPreStepHandlerV3 } from '../src/v3/recall-pre-step.js'
+import { SubagentUnavailableError } from '../src/v3/map-first-recall.js'
 
 describe('v3 recall pre-step', () => {
   it('injects the title map and only final content into the parent step', async () => {
@@ -34,6 +35,22 @@ describe('v3 recall pre-step', () => {
     const handler = createRecallPreStepHandlerV3({ scopeRuntime: { observeSession: () => ({ status: 'ready', scope: {} }) } as any, legacyRuntime: { recall: async () => { legacy++; throw new Error() } } as any })
     const result = await handler({ agent: { options: { provider: 'p', model: 'm' }, session: { id: 's', header: { origin: 'subagent' } } } as any, messages: [], turn: 1, step: 1, signal: new AbortController().signal }, async () => ({ kind: 'enter', messages: [] }))
     expect(result).toEqual({ kind: 'enter', messages: [] }); expect(legacy).toBe(0)
+  })
+
+  it('reports an explicit legacy fallback without treating no-match as fallback', async () => {
+    const scope = { project_root: '/tmp/project', project_scope_id: 'sha256_' + 'a'.repeat(64), session_scope_id: 'sha256_' + 'b'.repeat(64) }
+    const events: any[] = []
+    const handler = createRecallPreStepHandlerV3({
+      scopeRuntime: { observeSession: () => ({ status: 'ready', scope }) } as any,
+      legacyRuntime: { recall: async () => ({ status: 'empty', reason_code: 'memory_empty', selected_memory_refs: [], expansion_steps: 0 }) } as any,
+      loadWorld: async () => ({ generation_id: 'gen_' + 'c'.repeat(64), manifest: { project_scope_id: scope.project_scope_id, catalog_id: 'catalog_' + 'd'.repeat(64) }, files: new Map([['indexes/root.json', JSON.stringify({ schema_version: 1, root_node_id: 'node_root', children: [], memories: [] })]]) } as any),
+      subagentFactory: async () => { throw new SubagentUnavailableError() },
+      onEvent: (_scope, event) => events.push(event),
+    })
+    const user = { source: { kind: 'user' }, content: [{ type: 'text', text: 'task' }] } as any
+    await handler({ agent: { options: { provider: 'p', model: 'm' }, session: { id: 's', header: {} } } as any, messages: [user], turn: 1, step: 1, signal: new AbortController().signal }, async () => ({ kind: 'enter', messages: [user] }))
+    expect(events.map((event) => event.event)).toContain('recall_fallback')
+    expect(events.find((event) => event.event === 'recall_fallback').reason_code).toBe('subagent_unavailable')
   })
 
   it('still exposes the title map when navigation finds no matching memory', async () => {
