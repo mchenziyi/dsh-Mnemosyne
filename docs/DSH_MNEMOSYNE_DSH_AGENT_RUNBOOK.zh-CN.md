@@ -34,7 +34,7 @@ npm view @cziyi/dsh-mnemosyne version
 要求：
 
 - Node.js 满足包声明的 `>=22.19.0`；
-- 当前 v0.2 发布基线为 DSH `0.1.1-rc.2`；若用户环境不同，不宣称兼容，先报告差异；
+- 当前开发与验证基线为 DSH `0.1.2-alpha.3`；若用户环境不同，不宣称兼容，先报告差异；
 - registry 可访问并能解析目标包版本。
 
 ### 2.2 确认目标 Profile
