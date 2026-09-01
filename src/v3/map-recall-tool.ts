@@ -9,6 +9,7 @@ import { createMapFirstRecallV3, type MapFirstRecallResultV3 } from './map-first
 import { createMapContextMessageV3 } from './map-context.js'
 import { createMapOfferPagesV3, type MapOfferV3, type PinnedGenerationV3 } from './map-offer.js'
 import { createDshSubagentFactoryV3, runDshSubagentV3, type DshSubagentFactoryV3 } from './dsh-subagent.js'
+import type { ParentTaskSetV3 } from './subagent-lifecycle.js'
 
 const PARAMETERS = { map_ref: { type: 'string', required: true } } as const
 const OUTPUT_SCHEMA = {
@@ -48,6 +49,7 @@ export interface MapRecallToolRuntimeV3Options {
   legacyRuntime: RecallRuntimeV2
   loadWorld?: never
   subagentFactory?: DshSubagentFactoryV3
+  parentTasks?: (agent: Agent) => ParentTaskSetV3
   onEvent?: (scope: ResolvedScope, event: { event: 'recall_start' | 'recall_layer' | 'recall_completed' | 'recall_no_match' | 'recall_failed' | 'recall_fallback'; stage?: string; disclosed_count?: number; selected_count?: number; reason_code?: string | null }) => void
 }
 
@@ -85,7 +87,7 @@ export function createMapRecallToolRuntimeV3(options: MapRecallToolRuntimeV3Opti
     let fallbackMessage: UserMessage | undefined
     const runtime = createMapFirstRecallV3({
       invoke: async (request) => {
-        const output = await runDshSubagentV3(exec.agent!, { task: JSON.stringify({ schema_version: 1, stage: request.stage, task: request.task, items: request.items }), provider: exec.agent!.options.provider!, model: exec.agent!.options.model!, signal: exec.signal }, factory)
+        const output = await runDshSubagentV3(exec.agent!, { task: JSON.stringify({ schema_version: 1, stage: request.stage, task: request.task, items: request.items }), provider: exec.agent!.options.provider!, model: exec.agent!.options.model!, signal: exec.signal, parentTasks: options.parentTasks?.(exec.agent!) }, factory)
         const parsed = JSON.parse(output) as { selected_refs?: unknown }
         if (!Array.isArray(parsed.selected_refs)) throw new MemoryStoreError('memory_store_invalid_input')
         options.onEvent?.(binding.scope, { event: 'recall_layer', stage: request.stage, disclosed_count: request.items.length, selected_count: parsed.selected_refs.length })

@@ -10,6 +10,7 @@ import { createMapContextMessageV3 } from './map-context.js'
 import { createMapOfferV3, pinGenerationV3 } from './map-offer.js'
 import { createMapOfferPagesV3 } from './map-offer.js'
 import type { MapRecallToolRuntimeV3 } from './map-recall-tool.js'
+import type { ParentTaskSetV3 } from './subagent-lifecycle.js'
 
 function taskText(messages: readonly UserMessage[]): string {
   return messages.filter((message) => message.source.kind === 'user').flatMap((message) => message.content.filter((block) => block.type === 'text').map((block) => block.text)).join('\n').slice(0, 32768)
@@ -61,6 +62,7 @@ export interface RecallPreStepHandlerV3Options {
   onResult?: (payload: { agent: Agent; turn: number }, result: RecallResultV2) => void | Promise<void>
   loadWorld?: (scope: ResolvedScope) => Promise<CompiledOKFGenerationV2>
   subagentFactory?: DshSubagentFactoryV3
+  parentTasks?: ParentTaskSetV3
   onEvent?: (scope: ResolvedScope, event: { event: 'recall_start' | 'recall_layer' | 'recall_completed' | 'recall_no_match' | 'recall_failed' | 'recall_fallback'; stage?: string; disclosed_count?: number; selected_count?: number; reason_code?: string | null }) => void
 }
 
@@ -81,7 +83,7 @@ export function createRecallPreStepHandlerV3(options: RecallPreStepHandlerV3Opti
     const mapRuntime = createMapFirstRecallV3({
       invoke: async (request) => {
         const prompt = buildRecallSubagentPromptV3(request)
-        const output = await runDshSubagentV3(payload.agent, { task: prompt, provider, model, signal: payload.signal }, factory)
+        const output = await runDshSubagentV3(payload.agent, { task: prompt, provider, model, signal: payload.signal, parentTasks: options.parentTasks }, factory)
         const parsed = parseDecision(output)
         options.onEvent?.(resolution.scope, { event: 'recall_layer', stage: request.stage, disclosed_count: request.items.length, selected_count: parsed.selected_refs.length })
         return parsed

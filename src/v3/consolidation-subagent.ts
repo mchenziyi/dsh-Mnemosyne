@@ -1,6 +1,7 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ConsolidationModelDecisionV2, ConsolidationModelRequestV2 } from '../v2/consolidation-runtime.js'
 import { createDshSubagentFactoryV3, runDshSubagentV3, type DshSubagentFactoryV3 } from './dsh-subagent.js'
+import type { ParentTaskSetV3 } from './subagent-lifecycle.js'
 
 export class SubagentProtocolError extends Error { readonly code = 'subagent_protocol_invalid' }
 export interface ConsolidationJudgmentV3 { decision: 'skip' | 'create'; title?: string; summary?: string; content?: string; related_memory_refs?: string[]; reason_code?: string }
@@ -28,10 +29,10 @@ export async function runConsolidationSubagentV3(parent: Agent, input: { task: s
   return parseJudgment(output)
 }
 
-export function createConsolidationSubagentModelV3(parent: Agent, factory: DshSubagentFactoryV3 = createDshSubagentFactoryV3()) {
+export function createConsolidationSubagentModelV3(parent: Agent, factory: DshSubagentFactoryV3 = createDshSubagentFactoryV3(), parentTasks?: ParentTaskSetV3) {
   return async (request: ConsolidationModelRequestV2, route: { provider: string; model: string; signal: AbortSignal }): Promise<ConsolidationModelDecisionV2> => {
     const prompt = ['You are the Mnemosyne Consolidation Subagent.', 'Return JSON only and use the exact decision shape required by the stage.', 'Do not include hidden reasoning.', JSON.stringify(request)].join('\n')
-    const output = await parent.ctx.agents.withInitiator(parent, () => runDshSubagentV3(parent, { task: prompt, provider: route.provider, model: route.model, signal: route.signal, form: 'consolidation' }, factory))
+    const output = await parent.ctx.agents.withInitiator(parent, () => runDshSubagentV3(parent, { task: prompt, provider: route.provider, model: route.model, signal: route.signal, form: 'consolidation', parentTasks }, factory))
     let value: unknown
     try { value = JSON.parse(output) } catch { throw new SubagentProtocolError() }
     if (!value || typeof value !== 'object' || Array.isArray(value) || typeof (value as { decision?: unknown }).decision !== 'string') throw new SubagentProtocolError()

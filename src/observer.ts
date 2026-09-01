@@ -21,6 +21,7 @@ import { createConsolidationSubagentModelV3 } from './v3/consolidation-subagent.
 import { createMapRecallToolRuntimeV3 } from './v3/map-recall-tool.js'
 import type { DshSubagentFactoryV3 } from './v3/dsh-subagent.js'
 import type { CompiledOKFGenerationV2 } from './v2/okf-compiler.js'
+import { createSubagentLifecycleV3 } from './v3/subagent-lifecycle.js'
 
 export interface ObserverInstallOptions {
   readonly mode?: 'v2' | 'v3'
@@ -54,6 +55,7 @@ export function install(
   const recalledByTurn = new Map<string, string[]>()
   const consolidationBarrier = createProjectConsolidationBarrierV2()
   const consolidationCoordinator = createMutationCoordinator()
+  const subagentLifecycle = createSubagentLifecycleV3()
   const runtimeAbort = new AbortController()
   let disposed = false
 
@@ -84,7 +86,7 @@ export function install(
     },
   })
 
-  const mapRecallToolRuntime = installOptions.mode === 'v3' ? createMapRecallToolRuntimeV3({ scopeRuntime, legacyRuntime: recallRuntime, subagentFactory: installOptions.subagentFactory, onEvent: (scope, event) => {
+  const mapRecallToolRuntime = installOptions.mode === 'v3' ? createMapRecallToolRuntimeV3({ scopeRuntime, legacyRuntime: recallRuntime, subagentFactory: installOptions.subagentFactory, parentTasks: (agent) => subagentLifecycle.for(agent), onEvent: (scope, event) => {
     if (event.event === 'recall_start') log(scope, { event: 'recall_start', timestamp: timestamp(), result: 'started', route: 'map' })
     else if (event.event === 'recall_layer') log(scope, { event: 'recall_layer', timestamp: timestamp(), result: 'selected', route: 'map', stage: event.stage, disclosed_count: event.disclosed_count ?? 0, selected_count: event.selected_count ?? 0 })
     else if (event.event === 'recall_completed') log(scope, { event: 'recall_completed', timestamp: timestamp(), result: 'completed', route: 'map', selected_count: event.selected_count ?? 0 })
@@ -116,8 +118,9 @@ export function install(
 
   ctx.effect(() => async () => {
     disposed = true
-    await consolidationBarrier.waitAll()
     runtimeAbort.abort()
+    await subagentLifecycle.waitAll()
+    await consolidationBarrier.waitAll()
     await logger.dispose()
     scopeRuntime.clear()
     sessionToAgent.clear()
@@ -133,6 +136,7 @@ export function install(
   ctx.on('agent/disposed', (payload: { agent: Agent }) => {
     const agent = payload?.agent
     if (agent?.session?.id) sessionToAgent.delete(String(agent.session.id))
+    if (agent && agent.session.header.origin !== 'subagent') void subagentLifecycle.dispose(agent)
   })
 
   ctx.on('session/event', async (session: Session, event: SessionEvent) => {
@@ -163,7 +167,7 @@ export function install(
     log(resolution.scope, { event: 'consolidation_start', timestamp: timestamp(), turn, result: 'started', memory_refs: used })
     const startedAt = Date.now()
     const consolidationRuntime = installOptions.mode === 'v3' && agent
-      ? createConsolidationRuntimeV2({ model: (request, route) => createConsolidationSubagentModelV3(agent, installOptions.subagentFactory)(request, route), coordinator: consolidationCoordinator })
+      ? createConsolidationRuntimeV2({ model: (request, route) => createConsolidationSubagentModelV3(agent, installOptions.subagentFactory, subagentLifecycle.for(agent))(request, route), coordinator: consolidationCoordinator })
       : consolidationRuntimeV2
     const request = {
       scope: resolution.scope,
@@ -192,6 +196,7 @@ export function install(
     }).catch(() => {
       log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn, result: 'failed', reason_code: 'consolidation_failed', elapsed_ms: Date.now() - startedAt })
     })
+    if (installOptions.mode === 'v3' && agent) subagentLifecycle.for(agent).track(operation)
     consolidationBarrier.track(resolution.scope.project_scope_id, operation)
   })
 

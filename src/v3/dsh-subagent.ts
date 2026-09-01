@@ -3,8 +3,9 @@ import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import { SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SubagentUnavailableError } from './map-first-recall.js'
+import type { ParentTaskSetV3 } from './subagent-lifecycle.js'
 
-export interface DshSubagentRequestV3 { task: string; provider: string; model: string; signal: AbortSignal; form?: 'recall' | 'consolidation' }
+export interface DshSubagentRequestV3 { task: string; provider: string; model: string; signal: AbortSignal; form?: 'recall' | 'consolidation'; parentTasks?: ParentTaskSetV3 }
 export type DshSubagentFactoryV3 = (parent: Agent, request: DshSubagentRequestV3) => Promise<AgentHandle>
 export class SubagentAbortedError extends Error { readonly code = 'subagent_aborted' }
 
@@ -43,28 +44,31 @@ export function createDshSubagentFactoryV3(): DshSubagentFactoryV3 {
 }
 
 export async function runDshSubagentV3(parent: Agent, request: DshSubagentRequestV3, factory: DshSubagentFactoryV3): Promise<string> {
-  if (request.signal.aborted) throw new SubagentAbortedError()
-  const handle = await factory(parent, request)
-  const onAbort = (): void => {
-    try { handle.agent.cancel({ kind: 'parent' }) } catch { /* disposal below remains authoritative */ }
-  }
-  request.signal.addEventListener('abort', onAbort, { once: true })
-  try {
-    if (request.signal.aborted) onAbort()
-    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: request.task }], source: request.form === 'consolidation'
-      ? { kind: 'plugin', plugin: 'dsh-mnemosyne', form: 'notice', summary: 'Consolidation subagent task' }
-      : { kind: 'plugin', plugin: 'dsh-mnemosyne', form: 'recall' } }))
-    await handle.agent.whenIdle()
+  const run = async (): Promise<string> => {
     if (request.signal.aborted) throw new SubagentAbortedError()
-    const messages = handle.agent.session.events
-      .filter((event) => event.type === 'assistant/message')
-      .map((event) => textOf((event.data as unknown as { message: { content: readonly { type: string; text?: string }[] } }).message))
-      .filter(Boolean)
-    const output = messages.at(-1)
-    if (!output) throw new SubagentUnavailableError()
-    return output
-  } finally {
-    request.signal.removeEventListener('abort', onAbort)
-    await handle.dispose()
+    const handle = await factory(parent, request)
+    const onAbort = (): void => {
+      try { handle.agent.cancel({ kind: 'parent' }) } catch { /* disposal below remains authoritative */ }
+    }
+    request.signal.addEventListener('abort', onAbort, { once: true })
+    try {
+      if (request.signal.aborted) onAbort()
+      handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: request.task }], source: request.form === 'consolidation'
+        ? { kind: 'plugin', plugin: 'dsh-mnemosyne', form: 'notice', summary: 'Consolidation subagent task' }
+        : { kind: 'plugin', plugin: 'dsh-mnemosyne', form: 'recall' } }))
+      await handle.agent.whenIdle()
+      if (request.signal.aborted) throw new SubagentAbortedError()
+      const messages = handle.agent.session.events
+        .filter((event) => event.type === 'assistant/message')
+        .map((event) => textOf((event.data as unknown as { message: { content: readonly { type: string; text?: string }[] } }).message))
+        .filter(Boolean)
+      const output = messages.at(-1)
+      if (!output) throw new SubagentUnavailableError()
+      return output
+    } finally {
+      request.signal.removeEventListener('abort', onAbort)
+      await handle.dispose()
+    }
   }
+  return request.parentTasks ? request.parentTasks.track(run()) : run()
 }
