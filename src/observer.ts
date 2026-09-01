@@ -162,7 +162,7 @@ export function install(
     log(resolution.scope, { event: 'consolidation_start', timestamp: timestamp(), turn, result: 'started', memory_refs: used })
     const startedAt = Date.now()
     const consolidationRuntime = installOptions.mode === 'v3' && agent
-      ? createConsolidationRuntimeV2({ model: (request, route) => createConsolidationSubagentModelV3(agent)(request, route) })
+      ? createConsolidationRuntimeV2({ model: (request, route) => createConsolidationSubagentModelV3(agent, installOptions.subagentFactory)(request, route) })
       : consolidationRuntimeV2
     const operation = consolidationRuntime.consolidate({
       scope: resolution.scope,
