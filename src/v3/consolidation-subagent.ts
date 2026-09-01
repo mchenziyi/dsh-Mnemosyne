@@ -24,14 +24,14 @@ export function buildConsolidationSubagentPromptV3(input: { task: string; outcom
 }
 
 export async function runConsolidationSubagentV3(parent: Agent, input: { task: string; outcome: string; used_memory_refs: readonly string[]; provider: string; model: string; signal: AbortSignal }, factory: DshSubagentFactoryV3 = createDshSubagentFactoryV3()): Promise<ConsolidationJudgmentV3> {
-  const output = await runDshSubagentV3(parent, { task: buildConsolidationSubagentPromptV3(input), provider: input.provider, model: input.model, signal: input.signal }, factory)
+  const output = await runDshSubagentV3(parent, { task: buildConsolidationSubagentPromptV3(input), provider: input.provider, model: input.model, signal: input.signal, form: 'consolidation' }, factory)
   return parseJudgment(output)
 }
 
 export function createConsolidationSubagentModelV3(parent: Agent, factory: DshSubagentFactoryV3 = createDshSubagentFactoryV3()) {
   return async (request: ConsolidationModelRequestV2, route: { provider: string; model: string; signal: AbortSignal }): Promise<ConsolidationModelDecisionV2> => {
     const prompt = ['You are the Mnemosyne Consolidation Subagent.', 'Return JSON only and use the exact decision shape required by the stage.', 'Do not include hidden reasoning.', JSON.stringify(request)].join('\n')
-    const output = await runDshSubagentV3(parent, { task: prompt, provider: route.provider, model: route.model, signal: route.signal }, factory)
+    const output = await runDshSubagentV3(parent, { task: prompt, provider: route.provider, model: route.model, signal: route.signal, form: 'consolidation' }, factory)
     let value: unknown
     try { value = JSON.parse(output) } catch { throw new SubagentProtocolError() }
     if (!value || typeof value !== 'object' || Array.isArray(value) || typeof (value as { decision?: unknown }).decision !== 'string') throw new SubagentProtocolError()

@@ -15,4 +15,11 @@ describe('v3 dsh subagent adapter', () => {
     const output = await runDshSubagentV3({} as any, { task: 'map', provider: 'p', model: 'm', signal: new AbortController().signal }, factory)
     expect(output).toContain('selected_refs'); expect(disposed).toBe(true)
   })
+  it('uses the requested session event form for consolidation work', async () => {
+    let source: any
+    const child = { followup: (message: any) => { source = message.source }, whenIdle: async () => undefined, session: { events: [{ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '{"decision":"skip"}' }] } } }] } }
+    const factory: DshSubagentFactoryV3 = async () => ({ agent: child as any, dispose: async () => undefined }) as any
+    await runDshSubagentV3({} as any, { task: 'consolidate', provider: 'p', model: 'm', signal: new AbortController().signal, form: 'consolidation' }, factory)
+    expect(source).toMatchObject({ kind: 'plugin', plugin: 'dsh-mnemosyne', form: 'notice' })
+  })
 })

@@ -4,7 +4,7 @@ import { SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SubagentUnavailableError } from './map-first-recall.js'
 
-export interface DshSubagentRequestV3 { task: string; provider: string; model: string; signal: AbortSignal }
+export interface DshSubagentRequestV3 { task: string; provider: string; model: string; signal: AbortSignal; form?: 'recall' | 'consolidation' }
 export type DshSubagentFactoryV3 = (parent: Agent, request: DshSubagentRequestV3) => Promise<AgentHandle>
 
 export function buildRecallSubagentPromptV3(request: { stage: string; task: string; items: readonly { ref: string; title: string; summary?: string; kind: string }[] }): string {
@@ -36,7 +36,9 @@ export function createDshSubagentFactoryV3(): DshSubagentFactoryV3 {
 export async function runDshSubagentV3(parent: Agent, request: DshSubagentRequestV3, factory: DshSubagentFactoryV3): Promise<string> {
   const handle = await factory(parent, request)
   try {
-    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: request.task }], source: { kind: 'plugin', plugin: 'dsh-mnemosyne', form: 'recall' } }))
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: request.task }], source: request.form === 'consolidation'
+      ? { kind: 'plugin', plugin: 'dsh-mnemosyne', form: 'notice', summary: 'Consolidation subagent task' }
+      : { kind: 'plugin', plugin: 'dsh-mnemosyne', form: 'recall' } }))
     await handle.agent.whenIdle()
     const messages = handle.agent.session.events
       .filter((event) => event.type === 'assistant/message')
