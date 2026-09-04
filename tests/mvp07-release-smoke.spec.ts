@@ -128,7 +128,7 @@ describe('MVP-07A Final CTO Review: Isolated Profile Release Smoke', () => {
     }
   })
 
-  it('Gate B Comprehensive Smoke: real tarball install, exact source binding, 7 tools runtime smoke, credential isolation, and clean cleanup', async () => {
+  it('Gate B Comprehensive Smoke: real tarball install, exact source binding, real DSH runtime smoke, credential isolation, and clean cleanup', async () => {
     const base = await realpath(tmpdir())
     const tempParent = await mkdtemp(join(base, 'dsh-parent-real-gate-'))
 

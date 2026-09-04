@@ -9,6 +9,7 @@ import { publishOKFGenerationV2, readCurrentOKFGenerationV2 } from '../src/v2/ok
 import { canonicalHash } from '../src/protocol/canonical.js'
 import { computeOKFMemoryV2Hash, type OKFMemoryV2 } from '../src/v2/okf-memory.js'
 import { computeOKFCatalogNodeIdV1, computeOKFCatalogV1Hash, type OKFCatalogV1 } from '../src/v2/okf-catalog.js'
+import { createConsolidationSubagentModelV3 } from '../src/v3/consolidation-subagent.js'
 
 const roots: string[] = []
 
@@ -28,6 +29,34 @@ async function project(session = 'session_a'): Promise<ResolvedScope> {
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+})
+
+it.each([
+  '<tool_calls><invoke name="exec"></invoke></tool_calls>',
+  '```json\n{"decision":"skip","reason_code":"no_reusable_knowledge"}\n```',
+  '{"decision":"remember"}',
+  '{"decision":"skip","reason_code":"no_reusable_knowledge","extra":true}',
+  JSON.stringify({ decision: 'create', title: '经验', summary: '总结', content: '正文', related_memory_refs: ['mem_unoffered'] }),
+  JSON.stringify({ decision: 'create', title: '经验', summary: '总结', content: '正文', related_memory_refs: ['mem_unoffered', 'mem_unoffered'] }),
+  JSON.stringify({ decision: 'create', title: 'retry 抛出原始 Error', summary: '用对象严格相等验证异常身份。', content: '最后一次失败应抛出原始异常，不应重新包装。' }),
+  JSON.stringify({ decision: 'create', title: '经验', summary: '总结', content: '正文', related_memory_refs: null }),
+  JSON.stringify({ decision: 'create', title: '经验', summary: '总结', content: '正文', related_memory_refs: '' }),
+])('does not publish invalid production subagent output %#', async (text) => {
+  const scope = await project()
+  let calls = 0
+  let disposals = 0
+  const factory = async () => {
+    calls++
+    return { agent: { followup() {}, whenIdle: async () => undefined, session: { events: [{ type: 'assistant/message', data: { message: { content: [{ type: 'text', text }] } } }] } }, dispose: async () => { disposals++ } } as any
+  }
+  const runtime = createConsolidationRuntimeV2({ model: createConsolidationSubagentModelV3({} as any, factory) })
+  const result = await runtime.consolidate({ scope, evidence: { task: 'task', outcome: 'done' }, used_memory_refs: [], provider: 'p', model: 'm', now: '2026-09-04T06:00:00.000Z', signal: new AbortController().signal })
+  expect(result.status).toBe('failed')
+  expect(calls).toBe(1)
+  expect(disposals).toBe(1)
+  if (text.includes('retry 抛出原始 Error')) expect(result.reason_code).toBe('consolidation_judgment_missing_related_memory_refs')
+  expect(await openOKFMemoryV2Store({ project_root: scope.project_root, project_scope_id: scope.project_scope_id }).listMemories()).toEqual([])
+  await expect(readFile(join(scope.project_root, '.dsh-mnemosyne', 'v2', 'CURRENT'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
 async function seedRootCategories(scope: ResolvedScope, categories: Array<{ title: string; summary: string }>): Promise<void> {
@@ -73,7 +102,7 @@ describe('v2 consolidation runtime', () => {
 
   it('reports invalid judgment output separately from model failure', async () => {
     const scope = await project()
-    const runtime = createConsolidationRuntimeV2({ model: async () => ({ decision: 'create' } as any) })
+    const runtime = createConsolidationRuntimeV2({ model: async () => ({ decision: 'create', related_memory_refs: null } as any) })
     const result = await runtime.consolidate({
       scope, evidence: { task: 'task', outcome: 'done' }, used_memory_refs: [], provider: 'p', model: 'm',
       now: '2026-08-31T04:00:00.000Z', signal: new AbortController().signal,

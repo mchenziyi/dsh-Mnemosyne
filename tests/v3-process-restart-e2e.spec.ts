@@ -24,12 +24,23 @@ function stream(text) {
   })()
 }
 
+function toolStream(mapRef) {
+  return (async function* () {
+    yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+    yield { type: 'tool-call-delta', index: 0, id: 'call_mnemosyne_recall', name: 'mnemosyne_recall', argumentsDelta: JSON.stringify({ map_ref: mapRef }) }
+    yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'call_mnemosyne_recall', name: 'mnemosyne_recall', arguments: JSON.stringify({ map_ref: mapRef }) } }
+    yield { type: 'finish', reason: { kind: 'tool-calls' } }
+  })()
+}
+
 function lastText(options) {
   const content = options?.messages?.at(-1)?.content
   return Array.isArray(content) ? content.filter((block) => block.type === 'text').map((block) => block.text).join('\\n') : ''
 }
 
 export function apply(ctx) {
+  let mapRequested = false
+  const recallCalls = []
   ctx.on('llm/stream', (options) => {
     const system = typeof options?.system === 'string' ? options.system : ''
     const messages = JSON.stringify(options?.messages ?? [])
@@ -39,6 +50,7 @@ export function apply(ctx) {
     }
     if (last.includes('You are the Mnemosyne Recall Subagent.')) {
       const packet = JSON.parse(last.split('\\n').at(-1))
+      recallCalls.push({ stage: packet.stage, session_id: String(options?.sessionId ?? '') })
       return stream(JSON.stringify({ selected_refs: packet.items.length === 0 ? [] : [packet.items[0].ref] }))
     }
     if (last.includes('You are the Mnemosyne Consolidation Subagent.')) {
@@ -57,9 +69,19 @@ export function apply(ctx) {
     if (system.startsWith('You navigate project memory.')) return stream(JSON.stringify({ selected_refs: [] }))
 
     const sawMap = messages.includes('[Mnemosyne Map v3')
-    const sawRecall = messages.includes('[Mnemosyne Recall v3') && messages.includes('进程重启后仍应恢复的完整经验')
+    const hasRecallTool = JSON.stringify(options?.tools ?? []).includes('mnemosyne_recall')
+    if (!mapRequested && sawMap && hasRecallTool) {
+      const mapText = Array.isArray(options?.messages)
+        ? options.messages.flatMap((message) => Array.isArray(message.content) ? message.content : []).find((block) => block.type === 'text' && block.text.startsWith('[Mnemosyne Map v3'))
+        : undefined
+      if (mapText?.type === 'text') {
+        const map = JSON.parse(mapText.text.slice(mapText.text.indexOf('\\n') + 1))
+        if (typeof map.map_ref === 'string') { mapRequested = true; return toolStream(map.map_ref) }
+      }
+    }
+    const recallToolAvailable = hasRecallTool && sawMap
     const receipt = process.env.V3_RESTART_RECEIPT
-    if (receipt) writeFileSync(receipt, JSON.stringify({ pid: process.pid, saw_map: sawMap, saw_recall: sawRecall, messages }), { mode: 0o600 })
+    if (receipt) writeFileSync(receipt, JSON.stringify({ pid: process.pid, saw_map: sawMap, recall_tool_available: recallToolAvailable, parent_session_id: String(options?.sessionId ?? ''), recall_calls: recallCalls, messages }), { mode: 0o600 })
     return stream(messages.includes('Process A')
       ? '已完成 Process A 认证窗口修复并验证。'
       : '已根据恢复的项目经验处理 Process B 同类问题。')
@@ -117,8 +139,8 @@ describe('v0.3 real DSH process restart acceptance', () => {
     await execFileAsync('dsh', ['--profile', 'headless', '--patch', patch, 'Process A：认证状态切换故障已经通过保留旧状态窗口解决。'], {
       cwd: projectRoot, env: { ...env, V3_RESTART_RECEIPT: receiptA }, timeout: 30000, maxBuffer: 1024 * 1024,
     })
-    const first = JSON.parse(await readFile(receiptA, 'utf8')) as { pid: number; saw_map: boolean; saw_recall: boolean }
-    expect(first.saw_recall).toBe(false)
+    const first = JSON.parse(await readFile(receiptA, 'utf8')) as { pid: number; saw_map: boolean; recall_tool_available: boolean }
+    expect(first.recall_tool_available).toBe(false)
     const scope = computeProjectScopeId(await realpath(projectRoot))
     const store = openOKFMemoryV2Store({ project_root: projectRoot, project_scope_id: scope })
     expect((await store.listMemories()).map((memory) => memory.title)).toEqual(['进程重启后恢复认证窗口经验'])
@@ -127,14 +149,18 @@ describe('v0.3 real DSH process restart acceptance', () => {
     await execFileAsync('dsh', ['--profile', 'headless', '--patch', patch, 'Process B：刷新认证时并发请求中断，该如何避免？'], {
       cwd: projectRoot, env: { ...env, V3_RESTART_RECEIPT: receiptB }, timeout: 30000, maxBuffer: 1024 * 1024,
     })
-    const second = JSON.parse(await readFile(receiptB, 'utf8')) as { pid: number; saw_map: boolean; saw_recall: boolean; messages: string }
+    const second = JSON.parse(await readFile(receiptB, 'utf8')) as { pid: number; saw_map: boolean; recall_tool_available: boolean; parent_session_id: string; recall_calls: Array<{ stage: string; session_id: string }>; messages: string }
     expect(second.pid).not.toBe(first.pid)
     expect(second.saw_map).toBe(true)
-    expect(second.saw_recall).toBe(true)
+    expect(second.recall_tool_available).toBe(true)
+    expect(second.recall_calls.map((call) => call.stage)).toEqual(['root_titles', 'node_summary', 'node_titles', 'memory_summaries'])
+    expect(second.recall_calls.every((call) => call.session_id.length > 0 && call.session_id !== second.parent_session_id)).toBe(true)
+    expect(second.messages).toContain('[Mnemosyne Recall v3')
     expect(second.messages).toContain('进程重启后仍应恢复的完整经验')
 
     const log = await readFile(join(projectRoot, '.dsh-mnemosyne', 'debug', 'runtime.jsonl'), 'utf8')
     expect(log).toContain('"route":"map"')
     expect(log).toContain('"event":"recall_completed"')
+
   }, 90000)
 })

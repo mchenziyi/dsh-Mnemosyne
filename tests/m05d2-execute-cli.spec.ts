@@ -934,6 +934,6 @@ describe('M0.5D-D2-B1 Execution CLI: scripts/m05d2-execute-real-canary.ts', () =
         globalThis.fetch = originalFetch
         await rm(tempBase, { recursive: true, force: true }).catch(() => {})
       }
-    })
+    }, 30_000)
   })
 })

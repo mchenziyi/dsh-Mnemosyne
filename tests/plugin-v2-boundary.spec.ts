@@ -13,7 +13,7 @@ describe('v0.2 zero-operation plugin boundary', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(LlmRuntime)
-    expect(MnemosynePlugin.inject).toEqual(['llm'])
+    expect(MnemosynePlugin.inject).toEqual(['llm', 'agents'])
     expect(MnemosynePlugin).not.toHaveProperty('createStatusTool')
     const fiber = await ctx.plugin(MnemosynePlugin, { enabled: true })
     for (const name of NAMES) expect(ctx.tools.get(name)).toBeUndefined()

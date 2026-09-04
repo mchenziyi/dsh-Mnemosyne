@@ -8,6 +8,10 @@ import { canonicalBytes } from '../protocol/canonical.js'
 export type RuntimeLogEventV2 =
   | 'recall_start' | 'recall_layer' | 'recall_no_match' | 'recall_completed' | 'recall_failed'
   | 'consolidation_start' | 'consolidation_skip' | 'consolidation_created' | 'consolidation_noop' | 'consolidation_failed'
+  | 'consolidation_subagent_created' | 'consolidation_subagent_followup_sent' | 'consolidation_subagent_completed' | 'consolidation_subagent_timeout' | 'consolidation_subagent_disposed'
+  | 'consolidation_subagent_diagnostic'
+  | 'consolidation_operation_registered' | 'consolidation_operation_scheduled' | 'consolidation_operation_started'
+  | 'agent_resolution_started' | 'agent_resolution_succeeded' | 'agent_resolution_failed'
   | 'catalog_updated' | 'generation_published' | 'generation_failed'
 
 export interface RuntimeLogRecordV2 {
@@ -28,6 +32,10 @@ export interface RuntimeLogRecordV2 {
   route?: 'map' | 'legacy_fallback'
   attempt_id?: string
   fallback_reason?: string
+  phase?: string
+  child_status?: 'idle' | 'running'
+  child_turn?: number
+  child_step?: number
 }
 
 export interface RuntimeLoggerV2 {
@@ -39,11 +47,15 @@ export interface RuntimeLoggerV2 {
 const EVENTS = new Set<RuntimeLogEventV2>([
   'recall_start', 'recall_layer', 'recall_no_match', 'recall_completed', 'recall_failed',
   'consolidation_start', 'consolidation_skip', 'consolidation_created', 'consolidation_noop', 'consolidation_failed',
+  'consolidation_subagent_created', 'consolidation_subagent_followup_sent', 'consolidation_subagent_completed', 'consolidation_subagent_timeout', 'consolidation_subagent_disposed',
+    'consolidation_subagent_diagnostic',
+    'consolidation_operation_registered', 'consolidation_operation_scheduled', 'consolidation_operation_started',
+  'agent_resolution_started', 'agent_resolution_succeeded', 'agent_resolution_failed',
   'catalog_updated', 'generation_published', 'generation_failed',
 ])
 const FIELDS = new Set([
   'event', 'timestamp', 'turn', 'result', 'reason_code', 'generation_id', 'catalog_id', 'memory_refs', 'index_refs',
-  'stage', 'expansion_step', 'disclosed_count', 'selected_count', 'elapsed_ms', 'route', 'attempt_id', 'fallback_reason',
+  'stage', 'expansion_step', 'disclosed_count', 'selected_count', 'elapsed_ms', 'route', 'attempt_id', 'fallback_reason', 'phase', 'child_status', 'child_turn', 'child_step',
 ])
 const REASON = /^[a-z][a-z0-9_]{0,63}$/
 const REF = /^(?:sha256|gen|catalog|mem|node)_[a-z0-9._-]{1,64}$/

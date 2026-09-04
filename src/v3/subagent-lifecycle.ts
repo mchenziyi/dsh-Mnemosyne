@@ -1,6 +1,7 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 export interface ParentTaskSetV3 {
+  readonly signal: AbortSignal
   track<T>(task: Promise<T>): Promise<T>
   wait(): Promise<void>
   cancel(): void
@@ -16,8 +17,10 @@ export interface SubagentLifecycleV3 {
 
 function createTaskSet(): ParentTaskSetV3 {
   const tasks = new Set<Promise<unknown>>()
+  const controller = new AbortController()
   let cancelled = false
   return {
+    signal: controller.signal,
     track<T>(task: Promise<T>): Promise<T> {
       if (cancelled) return Promise.reject(new Error('subagent_parent_disposed'))
       const settled = task.then(() => undefined, () => undefined)
@@ -26,7 +29,7 @@ function createTaskSet(): ParentTaskSetV3 {
       return task
     },
     wait: async () => { await Promise.all([...tasks]) },
-    cancel: () => { cancelled = true },
+    cancel: () => { cancelled = true; controller.abort() },
     size: () => tasks.size,
   }
 }

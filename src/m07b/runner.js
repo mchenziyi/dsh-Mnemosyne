@@ -136,7 +136,7 @@ export async function executePrepare(params) {
     throw new Error('dsh_version_check_failed')
   }
 
-  if (dshVersionOut !== '0.1.1-rc.2') {
+  if (dshVersionOut !== '0.1.1-rc.2' && dshVersionOut !== '0.1.2-alpha.3' && dshVersionOut !== '0.1.2-alpha.4') {
     throw new Error('dsh_version_mismatch')
   }
 
@@ -407,7 +407,7 @@ export async function executeCanary(params) {
     throw new Error('dsh_version_check_failed')
   }
 
-  if (dshVersionOut !== '0.1.1-rc.2') {
+  if (dshVersionOut !== '0.1.1-rc.2' && dshVersionOut !== '0.1.2-alpha.3' && dshVersionOut !== '0.1.2-alpha.4') {
     throw new Error('dsh_version_mismatch')
   }
 

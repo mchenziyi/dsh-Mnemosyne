@@ -280,10 +280,11 @@ export function validateModelReceipt(raw: unknown, observedMemoryIds: readonly s
   return { schema_version: 1, task_id: receipt.task_id as string, exit_code: exitCode, result: result as ModelReceipt['result'], adopted_memory_ids: adopted, failure_code: receipt.failure_code as string | null }
 }
 
-export interface Usage { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number }
+export interface Usage { inputTokens: number; outputTokens: number; totalTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number }
 export function validateUsage(value: unknown): Usage {
-  const usage = object(value); exactKeys(usage, ['inputTokens', 'outputTokens', ...usage.cacheReadTokens === undefined ? [] : ['cacheReadTokens'], ...usage.cacheWriteTokens === undefined ? [] : ['cacheWriteTokens'], ...usage.reasoningTokens === undefined ? [] : ['reasoningTokens']])
-  for (const key of ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'reasoningTokens']) if (usage[key] !== undefined && (!Number.isSafeInteger(usage[key]) || (usage[key] as number) < 0)) throw new ProtocolValidationError()
+  const usage = object(value); exactKeys(usage, ['inputTokens', 'outputTokens', ...usage.totalTokens === undefined ? [] : ['totalTokens'], ...usage.cacheReadTokens === undefined ? [] : ['cacheReadTokens'], ...usage.cacheWriteTokens === undefined ? [] : ['cacheWriteTokens'], ...usage.reasoningTokens === undefined ? [] : ['reasoningTokens']])
+  for (const key of ['inputTokens', 'outputTokens', 'totalTokens', 'cacheReadTokens', 'cacheWriteTokens', 'reasoningTokens']) if (usage[key] !== undefined && (!Number.isSafeInteger(usage[key]) || (usage[key] as number) < 0)) throw new ProtocolValidationError()
+  if (usage.totalTokens !== undefined && usage.totalTokens !== (usage.inputTokens as number) + (usage.outputTokens as number)) throw new ProtocolValidationError()
   return usage as unknown as Usage
 }
 
@@ -587,7 +588,7 @@ export async function runAgentLoopEvidence(task: M05DTask, group: M05DGroup, cat
     if (timeoutState.callTimedOut) throw new M05DAgentTimeoutError()
     const actualTaskCalls = options.adapterFactory && options.claim ? taskCallCounter.value : fakeProvider.callCount
     if (actualTaskCalls < 1 || actualTaskCalls > 4) throw new ProtocolValidationError()
-    const events = agent.session.events
+    const events = (typeof (agent.session as any).snapshotEvents === 'function' ? agent.session.snapshotEvents() : (agent.session as any).events ?? []) as any[]
     const toolCalls = events.filter((event: (typeof events)[number]) => event.type === 'tool/call').map((event: (typeof events)[number] & { type: 'tool/call' }) => event.data.name)
     const memoryEvents = events.filter((event: (typeof events)[number]) => event.type === 'user/message').map((event: (typeof events)[number] & { type: 'user/message' }) => event.data.source.kind === 'plugin' && event.data.source.form === 'recall' ? 'recall_user_message' : 'user_message')
     const usageEvents = events.filter((event: (typeof events)[number]) => event.type === 'assistant/message').flatMap((event: (typeof events)[number] & { type: 'assistant/message' }) => event.data.usage ? [validateUsage(event.data.usage)] : [])
@@ -595,13 +596,14 @@ export async function runAgentLoopEvidence(task: M05DTask, group: M05DGroup, cat
     const usage = usageEvents.reduce((total, item) => ({ inputTokens: total.inputTokens + item.inputTokens, outputTokens: total.outputTokens + item.outputTokens, ...(total.cacheReadTokens !== undefined || item.cacheReadTokens !== undefined ? { cacheReadTokens: (total.cacheReadTokens ?? 0) + (item.cacheReadTokens ?? 0) } : {}), ...(total.cacheWriteTokens !== undefined || item.cacheWriteTokens !== undefined ? { cacheWriteTokens: (total.cacheWriteTokens ?? 0) + (item.cacheWriteTokens ?? 0) } : {}), ...(total.reasoningTokens !== undefined || item.reasoningTokens !== undefined ? { reasoningTokens: (total.reasoningTokens ?? 0) + (item.reasoningTokens ?? 0) } : {}) }), { inputTokens: 0, outputTokens: 0 } as Usage)
     const assistant = [...events].reverse().find((event: (typeof events)[number]) => event.type === 'assistant/message' && event.data.message.content.length === 1 && event.data.message.content[0].type === 'text')
     if (!assistant || assistant.type !== 'assistant/message' || assistant.data.message.content.length !== 1 || assistant.data.message.content[0].type !== 'text') throw new ProtocolValidationError()
-    const taskComplete = agent.session.events.some((event) => event.type === 'turn/end')
+    const taskEvents = (typeof (agent.session as any).snapshotEvents === 'function' ? agent.session.snapshotEvents() : (agent.session as any).events ?? []) as any[]
+    const taskComplete = taskEvents.some((event: any) => event.type === 'turn/end')
     if (!taskComplete) throw new ProtocolValidationError()
     const textMemoryIds = (text: string) => [...text.matchAll(/"memory_id":"(memory_[a-z0-9][a-z0-9._-]{0,63})"/g)].map((match) => match[1])
-    const recallTexts = events.filter((event: (typeof events)[number]) => event.type === 'user/message').flatMap((event: (typeof events)[number] & { type: 'user/message' }) => event.data.source.kind === 'plugin' && event.data.source.form === 'recall' ? event.data.content.flatMap((content) => content.type === 'text' ? [content.text] : []) : [])
+    const recallTexts = events.filter((event: (typeof events)[number]) => event.type === 'user/message').flatMap((event: (typeof events)[number] & { type: 'user/message' }) => event.data.source.kind === 'plugin' && event.data.source.form === 'recall' ? event.data.content.flatMap((content: any) => content.type === 'text' ? [content.text] : []) : [])
     const recallContexts = recallTexts.map((text) => text.startsWith(RECALL_PREFIX) ? replayRecallContext(text.slice(RECALL_PREFIX.length).trimStart()) : (() => { throw new ProtocolValidationError() })())
     const recallMemoryIds = recallTexts.flatMap(textMemoryIds)
-    const toolResultTexts = events.filter((event: (typeof events)[number]) => event.type === 'tool/result').flatMap((event: (typeof events)[number] & { type: 'tool/result' }) => event.data.message.content.flatMap((content) => content.type === 'tool-result' ? content.content.flatMap((block) => block.type === 'text' ? [block.text] : []) : []))
+    const toolResultTexts = events.filter((event: (typeof events)[number]) => event.type === 'tool/result').flatMap((event: (typeof events)[number] & { type: 'tool/result' }) => event.data.message.content.flatMap((content: any) => content.type === 'tool-result' ? content.content.flatMap((block: any) => block.type === 'text' ? [block.text] : []) : []))
     const toolMemoryIds = toolResultTexts.flatMap(textMemoryIds)
     const toolResultValues = toolResultTexts.map((text) => { try { return object(JSON.parse(text)) } catch { throw new ProtocolValidationError() } })
     const searchDisclosures = toolResultValues.filter((value) => Array.isArray(value.items)).map(validateSearchDisclosure)

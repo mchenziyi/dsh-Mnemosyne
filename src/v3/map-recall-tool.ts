@@ -8,8 +8,9 @@ import { MemoryStoreError } from '../memory-store-error.js'
 import { createMapFirstRecallV3, type MapFirstRecallResultV3 } from './map-first-recall.js'
 import { createMapContextMessageV3 } from './map-context.js'
 import { createMapOfferPagesV3, type MapOfferV3, type PinnedGenerationV3 } from './map-offer.js'
-import { createDshSubagentFactoryV3, runDshSubagentV3, type DshSubagentFactoryV3 } from './dsh-subagent.js'
+import { buildRecallSubagentPromptV3, createDshSubagentFactoryV3, runDshSubagentV3, type DshSubagentFactoryV3 } from './dsh-subagent.js'
 import type { ParentTaskSetV3 } from './subagent-lifecycle.js'
+import { RECALL_POLICY_V3 } from './recall-policy.js'
 
 const PARAMETERS = { map_ref: { type: 'string', required: true } } as const
 const OUTPUT_SCHEMA = {
@@ -69,7 +70,12 @@ export function createMapRecallToolRuntimeV3(options: MapRecallToolRuntimeV3Opti
     const byTurn = bindings.get(input.agent) ?? new Map<number, Binding>()
     byTurn.set(input.turn, { ...input, state: 'offered', selected_memory_refs: [] })
     bindings.set(input.agent, byTurn)
-    return input.pages.map((page, index) => createMapContextMessageV3(page, input.map_ref, index, input.pages.length))
+    return input.pages.map((page, index) => {
+      const message = createMapContextMessageV3(page, input.map_ref, index, input.pages.length)
+      // Complete deployment personas can suppress contributed system sections.
+      // Keep the current-map protocol visible without altering the JSON block.
+      return index === 0 ? { ...message, content: [...message.content, { type: 'text' as const, text: RECALL_POLICY_V3 }] } : message
+    })
   }
 
   const execute = async (rawArgs: unknown, exec: ToolRunContext) => {
@@ -87,7 +93,7 @@ export function createMapRecallToolRuntimeV3(options: MapRecallToolRuntimeV3Opti
     let fallbackMessage: UserMessage | undefined
     const runtime = createMapFirstRecallV3({
       invoke: async (request) => {
-        const output = await runDshSubagentV3(exec.agent!, { task: JSON.stringify({ schema_version: 1, stage: request.stage, task: request.task, items: request.items }), provider: exec.agent!.options.provider!, model: exec.agent!.options.model!, signal: exec.signal, parentTasks: options.parentTasks?.(exec.agent!) }, factory)
+        const output = await runDshSubagentV3(exec.agent!, { task: buildRecallSubagentPromptV3(request), provider: exec.agent!.options.provider!, model: exec.agent!.options.model!, signal: exec.signal, parentTasks: options.parentTasks?.(exec.agent!) }, factory)
         const parsed = JSON.parse(output) as { selected_refs?: unknown }
         if (!Array.isArray(parsed.selected_refs)) throw new MemoryStoreError('memory_store_invalid_input')
         options.onEvent?.(binding.scope, { event: 'recall_layer', stage: request.stage, disclosed_count: request.items.length, selected_count: parsed.selected_refs.length })

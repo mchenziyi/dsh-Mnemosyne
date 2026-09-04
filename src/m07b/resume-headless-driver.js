@@ -239,7 +239,9 @@ async function run(ctx, config, io) {
         runId: resolvedRunId,
         projectScopeId,
         sessionId: agent.session.id,
-        sessionEvents: agent.session.events || [],
+        sessionEvents: typeof agent.session.snapshotEvents === 'function'
+          ? agent.session.snapshotEvents()
+          : (Array.isArray(agent.session.events) ? agent.session.events : []),
       })
       await writeStrictSessionEvidence(evidenceDir, strictEvidence, { allowOverwrite: true })
     } catch {
@@ -263,7 +265,10 @@ async function run(ctx, config, io) {
     await res.dispose().catch(() => {})
   }
 
-  const outcome = summarize(agent.session.events || [], firstSeq)
+  const events = typeof agent.session.snapshotEvents === 'function'
+    ? agent.session.snapshotEvents()
+    : (Array.isArray(agent.session.events) ? agent.session.events : [])
+  const outcome = summarize(events, firstSeq)
   if (outcome.text) {
     io.stdout.write(outcome.text + '\n')
   }

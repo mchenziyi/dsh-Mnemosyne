@@ -31,7 +31,9 @@ export function resolveBoundToolCall(
   const scope = resolved.scope
   const session = exec.agent?.session
 
-  const events = session?.events
+  const events = session && typeof (session as any).snapshotEvents === 'function'
+    ? session.snapshotEvents()
+    : (session as any)?.events
   if (!Array.isArray(events) || events.length === 0) {
     throw new MemoryStoreError('memory_store_invalid_input')
   }

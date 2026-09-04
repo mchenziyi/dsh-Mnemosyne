@@ -1,10 +1,12 @@
-# dsh-Mnemosyne v0.2 Recall Map-first 与 Subagent 开发设计
+# dsh-Mnemosyne v0.3 Recall Map-first、Subagent 与延伸记忆设计
 
-> 状态：实现中（Map Offer、Recall/Consolidation Subagent、Observer opt-in 装配、阶段日志与 Legacy fallback 已完成；生产默认切换、真实重启验收待完成）
+> 状态：🟢 已完成（Map Offer、Recall/Consolidation Subagent、参考/延伸语义、生产默认装配、Legacy fallback 与真实双进程重启验收全部通过）
 >
-> 范围：仅解决“主模型使用 OKF 地图”和“Mnemosyne 记忆操作由 Subagent 执行”两项问题。现有 Legacy Recall 保留为技术兜底。
+> 范围：仅解决“主模型使用 OKF 地图”“Mnemosyne 记忆操作由 Subagent 执行”和“区分参考与延伸记忆”三项问题。现有 Legacy Recall 保留为技术兜底。
 
 ## 一、目标
+
+2026-09-04 收口补充：产品包为 v0.2.9，v3 指内部运行路径。主 Agent 通过系统规则及随当前地图提供的操作规则判断相关性：可能相关时先调用内部 Recall，无关时跳过；完整自定义 persona 不应使地图规则消失。本地测试验证请求契约，真实 Web 已分别观察到相关任务召回及无关任务跳过，详见 [Runbook](DSH_MNEMOSYNE_DSH_AGENT_RUNBOOK.zh-CN.md#八v029-本地验收记录2026-09-04)。
 
 当前 Mnemosyne 已经生成 Catalog、Root Index、Node Index、Summary View 和 Content View，但 Recall Runtime 会在主任务开始前独立调用模型多次完成导航，导致固定延迟，并使主 Agent 看不到地图。
 
@@ -207,6 +209,8 @@ Catalog 继续保持：
 10. 运行全量测试和真实双 Session 验收。
 
 每一步通过对应测试后独立提交，未完成前不发布新版本。
+
+当前实现已完成上述步骤。真实 DSH 双进程测试证明：Process A 通过 Consolidation Subagent 写入并发布 Memory，Process B 从新进程恢复同一 Generation，父 Agent 通过地图调用 Recall Subagent，按 `root_titles → node_summary → node_titles → memory_summaries` 完成渐进式披露并收到完整 Content。全仓 alpha.4 门禁为 `82` 个测试文件、`806` 项测试全部通过；真实 Web 子代理生命周期另行跟踪。
 
 ## 十、验收标准
 

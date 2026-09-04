@@ -31,7 +31,7 @@ export async function executeCanaryPreflight(options) {
     throw new Error('dsh_cli_unavailable')
   }
 
-  if (dsh_version !== '0.1.1-rc.2') {
+  if (dsh_version !== '0.1.1-rc.2' && dsh_version !== '0.1.2-alpha.3' && dsh_version !== '0.1.2-alpha.4') {
     throw new Error('unsupported_dsh_version')
   }
 
@@ -48,7 +48,7 @@ export async function executeCanaryPreflight(options) {
     status: 'awaiting_user_approval',
     package_name: artifact.packageName,
     package_version: artifact.packageVersion,
-    dsh_version: '0.1.1-rc.2',
+    dsh_version,
     package_sha256: artifact.packageSha256,
     plan_id: plan.plan_id,
     plan_sha256,

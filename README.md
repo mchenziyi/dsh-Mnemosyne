@@ -8,6 +8,7 @@
 
 - `v0.1.0`：技术预览，验证了 DSH 插件装配、存储、Generation 与工具式记忆流程；不代表当前产品体验。
 - `v0.2.0`：**Zero-operation OKF Memory MVP（MVP Complete）**。用户只需正常对话，记忆的读取、组织与沉淀均由插件自动完成。
+- `v0.2.9`：本地验收版本，修复 Web 子代理生命周期、沉淀输出契约和主模型地图使用规则。2026-09-04 已通过相关任务召回、无关任务跳过及沉淀/会话收尾验收；尚未发布 npm，详见 [验收记录](docs/DSH_MNEMOSYNE_DSH_AGENT_RUNBOOK.zh-CN.md#八v029-本地验收记录2026-09-04)。
 
 v0.2.0 已闭环五项 MVP 能力：
 
@@ -40,7 +41,7 @@ v0.2.0 已闭环五项 MVP 能力：
 要求：
 
 - Node.js `>=22.19.0`
-- DeepSeek Harness / DSH 公开 SDK 基线 `0.1.2-alpha.3`
+- DeepSeek Harness / DSH 公开 SDK 基线 `0.1.2-alpha.4`
 
 ```bash
 dsh plugin add @cziyi/dsh-mnemosyne

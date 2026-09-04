@@ -99,6 +99,8 @@ describe('M0.5D D0/D1 failure matrix', () => {
     expect(() => validateModelReceipt('{"schema_version":1}')).toThrow()
     expect(() => validateModelReceipt('```json\n{}\n```')).toThrow()
     expect(() => validateUsage({ inputTokens: -1, outputTokens: 0 })).toThrow()
+    expect(validateUsage({ inputTokens: 1, outputTokens: 2, totalTokens: 3 })).toEqual({ inputTokens: 1, outputTokens: 2, totalTokens: 3 })
+    expect(() => validateUsage({ inputTokens: 1, outputTokens: 2, totalTokens: 4 })).toThrow()
     expect(() => validateUsage({ inputTokens: 1, outputTokens: 1, reasoningTokens: 1, billedInput: 1 })).toThrow()
   })
 

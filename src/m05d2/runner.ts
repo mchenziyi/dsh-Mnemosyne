@@ -1341,7 +1341,7 @@ async function runRealCanarySingleRun(
 
     if (taskCallCount < 1 || taskCallCount > 4) throw new ProtocolValidationError()
 
-    const events = agent.session.events
+    const events = (typeof (agent.session as any).snapshotEvents === 'function' ? agent.session.snapshotEvents() : (agent.session as any).events ?? []) as any[]
     const toolCalls = events
       .filter((event: any) => event.type === 'tool/call')
       .map((event: any) => event.data.name as string)

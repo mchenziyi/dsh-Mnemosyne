@@ -1,4 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
+import { randomUUID } from 'node:crypto'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
@@ -19,7 +20,8 @@ import { createMutationCoordinator } from './mutation-coordinator.js'
 import { createMapOfferPreStepHandlerV3 } from './v3/recall-pre-step.js'
 import { createConsolidationSubagentModelV3 } from './v3/consolidation-subagent.js'
 import { createMapRecallToolRuntimeV3 } from './v3/map-recall-tool.js'
-import type { DshSubagentFactoryV3 } from './v3/dsh-subagent.js'
+import { withRecallPolicyV3 } from './v3/recall-policy.js'
+import { createDshSubagentFactoryV3, type DshSubagentFactoryV3 } from './v3/dsh-subagent.js'
 import type { CompiledOKFGenerationV2 } from './v2/okf-compiler.js'
 import { createSubagentLifecycleV3 } from './v3/subagent-lifecycle.js'
 
@@ -40,6 +42,11 @@ function turnOf(event: SessionEvent): number | null {
   return typeof nested === 'number' && Number.isInteger(nested) && nested > 0 ? nested : null
 }
 
+export function resolveParentAgentV3(sessionId: string, sessionToAgent: ReadonlyMap<string, Agent>, registry?: { get?: (id: string) => Agent | undefined; list?: () => Agent[] }, fallback?: Agent): Agent | undefined {
+  const candidates = [sessionToAgent.get(sessionId), registry?.get?.(sessionId), ...(registry?.list?.() ?? []), fallback]
+  return candidates.find((candidate) => candidate !== undefined && candidate.session?.header?.origin !== 'subagent' && String(candidate.session.id) === sessionId)
+}
+
 /** Internal lifecycle seam used by component tests; not exported by the package. */
 export function install(
   ctx: Context,
@@ -53,14 +60,28 @@ export function install(
   const logger = createRuntimeLoggerV2()
   const sessionToAgent = new Map<string, Agent>()
   const recalledByTurn = new Map<string, string[]>()
+  const handledTurns = new Set<string>()
   const consolidationBarrier = createProjectConsolidationBarrierV2()
   const consolidationCoordinator = createMutationCoordinator()
   const subagentLifecycle = createSubagentLifecycleV3()
+  const subagentFactory: DshSubagentFactoryV3 | undefined = installOptions.mode === 'v3'
+    ? installOptions.subagentFactory ?? createDshSubagentFactoryV3()
+    : undefined
   const runtimeAbort = new AbortController()
   let disposed = false
 
+  const hostLogger = (() => {
+    try { return ctx.logger?.('dsh-mnemosyne') }
+    catch { return undefined }
+  })()
+
   const log = (scope: ResolvedScope, record: RuntimeLogRecordV2): void => {
     void logger.log(scope, record).catch(() => undefined)
+  }
+
+  const immediateDiagnostic = (attemptId: string, phase: string, reasonCode: string, elapsedMs: number): void => {
+    try { hostLogger?.info(`[mnemosyne-lifecycle] attempt_id=${attemptId} phase=${phase} reason_code=${reasonCode} elapsed_ms=${elapsedMs}`) }
+    catch { /* diagnostics must not affect execution */ }
   }
 
   const recallRuntime = createRecallRuntimeV2({
@@ -86,7 +107,7 @@ export function install(
     },
   })
 
-  const mapRecallToolRuntime = installOptions.mode === 'v3' ? createMapRecallToolRuntimeV3({ scopeRuntime, legacyRuntime: recallRuntime, subagentFactory: installOptions.subagentFactory, parentTasks: (agent) => subagentLifecycle.for(agent), onEvent: (scope, event) => {
+  const mapRecallToolRuntime = installOptions.mode === 'v3' ? createMapRecallToolRuntimeV3({ scopeRuntime, legacyRuntime: recallRuntime, subagentFactory: subagentFactory ?? installOptions.subagentFactory, parentTasks: (agent) => subagentLifecycle.for(agent), onEvent: (scope, event) => {
     if (event.event === 'recall_start') log(scope, { event: 'recall_start', timestamp: timestamp(), result: 'started', route: 'map' })
     else if (event.event === 'recall_layer') log(scope, { event: 'recall_layer', timestamp: timestamp(), result: 'selected', route: 'map', stage: event.stage, disclosed_count: event.disclosed_count ?? 0, selected_count: event.selected_count ?? 0 })
     else if (event.event === 'recall_completed') log(scope, { event: 'recall_completed', timestamp: timestamp(), result: 'completed', route: 'map', selected_count: event.selected_count ?? 0 })
@@ -94,6 +115,10 @@ export function install(
     else if (event.event === 'recall_fallback') log(scope, { event: 'recall_start', timestamp: timestamp(), result: 'started', route: 'legacy_fallback', fallback_reason: event.reason_code ?? 'subagent_unavailable' })
     else log(scope, { event: 'recall_failed', timestamp: timestamp(), result: 'failed', route: 'map', reason_code: event.reason_code ?? 'recall_navigation_failed' })
   } }) : undefined
+
+  if (installOptions.mode === 'v3') {
+    ctx.on('system-prompt/assemble', async (_assembly, _context, next) => withRecallPolicyV3(await next()))
+  }
 
   const recallHandlerV2 = createRecallPreStepHandlerV2({
     runtime: recallRuntime,
@@ -109,7 +134,10 @@ export function install(
     recallToolRuntime: mapRecallToolRuntime,
     beforeRecall: (scope) => consolidationBarrier.wait(scope.project_scope_id),
   }) : recallHandlerV2
-  ctx.on('agent/pre-step', (payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>) => recallHandler(payload, next))
+  ctx.on('agent/pre-step', (payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>) => {
+    if (payload.agent.session?.header?.origin === 'subagent') return Promise.resolve({ kind: 'enter', messages: payload.messages })
+    return recallHandler(payload, next)
+  })
 
   const consolidationRuntimeV2 = createConsolidationRuntimeV2({
     model: (request, route) => createLlmConsolidationModelV2(ctx.llm)(request, route),
@@ -130,16 +158,106 @@ export function install(
   ctx.on('agent/created', (payload: { agent: Agent }) => {
     const agent = payload?.agent
     if (agent?.session?.id) sessionToAgent.set(String(agent.session.id), agent)
-    if (agent && mapRecallToolRuntime && agent.session.header.origin !== 'subagent') agent.ctx.tools.register(mapRecallToolRuntime.createTool() as never)
+    if (agent && mapRecallToolRuntime && agent.session?.header?.origin !== 'subagent' && agent.ctx?.tools) agent.ctx.tools.register(mapRecallToolRuntime.createTool() as never)
   })
 
   ctx.on('agent/disposed', (payload: { agent: Agent }) => {
     const agent = payload?.agent
     if (agent?.session?.id) sessionToAgent.delete(String(agent.session.id))
-    if (agent && agent.session.header.origin !== 'subagent') void subagentLifecycle.dispose(agent)
+    if (agent && agent.session?.header?.origin !== 'subagent') void subagentLifecycle.dispose(agent)
   })
 
-  ctx.on('session/event', async (session: Session, event: SessionEvent) => {
+  const runConsolidation = async (session: Session, resolution: { status: 'ready'; scope: ResolvedScope }, evidence: NonNullable<ReturnType<typeof extractAcquisitionEvidence>>, used: string[], agent: Agent | undefined, signal: AbortSignal, attemptId: string): Promise<void> => {
+    const agentOptions = (agent as { options?: { provider?: string; model?: string } } | undefined)?.options
+    const provider = agentOptions?.provider ?? evidence.route.provider
+    const model = agentOptions?.model ?? evidence.route.model
+    if (!provider || !model) {
+      log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn: evidence.turn, result: 'failed', reason_code: 'model_route_unavailable', attempt_id: attemptId })
+      return
+    }
+    if (installOptions.mode === 'v3' && (!agent || !agent.ctx?.agents)) {
+      log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn: evidence.turn, result: 'failed', reason_code: 'consolidation_agent_unavailable', attempt_id: attemptId })
+      return
+    }
+    const v3Agent = agent as Agent
+    recalledByTurn.delete(`${session.id}:${evidence.turn}`)
+    log(resolution.scope, { event: 'consolidation_start', timestamp: timestamp(), turn: evidence.turn, result: 'started', memory_refs: used, attempt_id: attemptId })
+    const startedAt = Date.now()
+    const onSubagentEvent = (event: Parameters<NonNullable<Parameters<typeof createConsolidationSubagentModelV3>[3]>>[0], detail?: Parameters<NonNullable<Parameters<typeof createConsolidationSubagentModelV3>[3]>>[1]): void => {
+        const eventMap = {
+          created: 'consolidation_subagent_created',
+          followup_sent: 'consolidation_subagent_followup_sent',
+          running: 'consolidation_subagent_diagnostic',
+          error: 'consolidation_subagent_diagnostic',
+          completed: 'consolidation_subagent_completed',
+          timeout: 'consolidation_subagent_timeout',
+          disposed: 'consolidation_subagent_disposed',
+        } as const
+        const phase = detail?.phase ?? (event === 'running' || event === 'error' ? event : undefined)
+        const reasonCode = detail?.reason_code ?? `subagent_${event}`
+        const elapsedMs = detail?.elapsed_ms ?? Date.now() - startedAt
+        log(resolution.scope, {
+          event: eventMap[event], timestamp: timestamp(), turn: evidence.turn,
+          result: event === 'timeout' || event === 'error' ? 'failed' : 'observed',
+          elapsed_ms: elapsedMs, attempt_id: attemptId,
+          ...(phase === undefined ? {} : { phase }),
+          ...(detail?.status === undefined ? {} : { child_status: detail.status }),
+          ...(detail?.turn === undefined ? {} : { child_turn: detail.turn }),
+          ...(detail?.step === undefined ? {} : { child_step: detail.step }),
+          ...(detail?.reason_code === undefined ? {} : { reason_code: detail.reason_code }),
+        })
+        immediateDiagnostic(attemptId, phase ?? 'running', reasonCode, elapsedMs)
+    }
+    const subagentModel = installOptions.mode === 'v3'
+      ? createConsolidationSubagentModelV3(v3Agent, subagentFactory, undefined, onSubagentEvent)
+      : undefined
+    const consolidationRuntime = installOptions.mode === 'v3' && subagentModel
+      ? createConsolidationRuntimeV2({ model: (request, route) => {
+        const elapsedMs = Date.now() - startedAt
+        log(resolution.scope, { event: 'consolidation_subagent_diagnostic', timestamp: timestamp(), turn: evidence.turn, result: 'observed', phase: 'creating', stage: request.stage, elapsed_ms: elapsedMs, reason_code: 'model_callback_entered', attempt_id: attemptId })
+        immediateDiagnostic(attemptId, 'creating', 'model_callback_entered', elapsedMs)
+        let modelPromise: Promise<ReturnType<typeof subagentModel> extends Promise<infer T> ? T : never>
+        try {
+          log(resolution.scope, { event: 'consolidation_subagent_diagnostic', timestamp: timestamp(), turn: evidence.turn, result: 'observed', phase: 'creating', stage: request.stage, elapsed_ms: Date.now() - startedAt, reason_code: 'subagent_model_call_started', attempt_id: attemptId })
+          immediateDiagnostic(attemptId, 'creating', 'subagent_model_call_started', Date.now() - startedAt)
+          modelPromise = subagentModel(request, route)
+          log(resolution.scope, { event: 'consolidation_subagent_diagnostic', timestamp: timestamp(), turn: evidence.turn, result: 'observed', phase: 'creating', stage: request.stage, elapsed_ms: Date.now() - startedAt, reason_code: 'subagent_model_promise_returned', attempt_id: attemptId })
+          immediateDiagnostic(attemptId, 'creating', 'subagent_model_promise_returned', Date.now() - startedAt)
+        } catch (error) {
+          immediateDiagnostic(attemptId, 'creating', 'subagent_model_sync_failed', Date.now() - startedAt)
+          throw error
+        }
+        return modelPromise.finally(() => {
+          const settledElapsedMs = Date.now() - startedAt
+          log(resolution.scope, { event: 'consolidation_subagent_diagnostic', timestamp: timestamp(), turn: evidence.turn, result: 'observed', phase: 'running', stage: request.stage, elapsed_ms: settledElapsedMs, reason_code: 'subagent_model_promise_settled', attempt_id: attemptId })
+          immediateDiagnostic(attemptId, 'running', 'subagent_model_promise_settled', settledElapsedMs)
+        })
+      }, coordinator: consolidationCoordinator })
+      : consolidationRuntimeV2
+    const request = {
+      scope: resolution.scope,
+      evidence: { task: evidence.user_text, outcome: evidence.assistant_text },
+      used_memory_refs: used,
+      provider,
+      model,
+      now: evidence.turn_end_time,
+      signal,
+    }
+    // `parent.ctx.agents.create()` already carries the parent ownership
+    // context. Wrapping the whole operation in withInitiator would make the
+    // registry wait on the child creation it is itself trying to publish.
+    await consolidationRuntime.consolidate(request).then((result) => {
+      if (result.status === 'created') {
+        log(resolution.scope, { event: 'consolidation_created', timestamp: timestamp(), turn: evidence.turn, result: 'created', memory_refs: result.memory_id ? [result.memory_id] : [], elapsed_ms: Date.now() - startedAt, attempt_id: attemptId })
+        log(resolution.scope, { event: 'catalog_updated', timestamp: timestamp(), turn: evidence.turn, result: 'created', catalog_id: result.catalog_id, attempt_id: attemptId })
+        log(resolution.scope, { event: 'generation_published', timestamp: timestamp(), turn: evidence.turn, result: 'published', generation_id: result.generation_id, attempt_id: attemptId })
+      } else if (result.status === 'noop') log(resolution.scope, { event: 'consolidation_noop', timestamp: timestamp(), turn: evidence.turn, result: 'noop', reason_code: result.reason_code, memory_refs: result.memory_id ? [result.memory_id] : [], elapsed_ms: Date.now() - startedAt, attempt_id: attemptId })
+      else if (result.status === 'skipped') log(resolution.scope, { event: 'consolidation_skip', timestamp: timestamp(), turn: evidence.turn, result: 'skipped', reason_code: result.reason_code, elapsed_ms: Date.now() - startedAt, attempt_id: attemptId })
+      else log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn: evidence.turn, result: 'failed', reason_code: result.reason_code, elapsed_ms: Date.now() - startedAt, attempt_id: attemptId })
+    }).catch(() => log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn: evidence.turn, result: 'failed', reason_code: 'consolidation_failed', elapsed_ms: Date.now() - startedAt, attempt_id: attemptId }))
+  }
+
+  ctx.on('session/event', (session: Session, event: SessionEvent) => {
     if (!session) return
     const resolution = scopeRuntime.observeSession(session)
     onSessionEvent()
@@ -154,50 +272,74 @@ export function install(
       log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn, result: 'failed', reason_code: 'evidence_unavailable' })
       return
     }
-    const agent = sessionToAgent.get(String(session.id))
-    const agentOptions = (agent as { options?: { provider?: string; model?: string } } | undefined)?.options
-    const provider = agentOptions?.provider ?? evidence.route.provider
-    const model = agentOptions?.model ?? evidence.route.model
-    if (!provider || !model) {
-      log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn, result: 'failed', reason_code: 'model_route_unavailable' })
+    const resolutionStartedAt = Date.now()
+    if (installOptions.mode === 'v3') log(resolution.scope, { event: 'agent_resolution_started', timestamp: timestamp(), turn, result: 'started', elapsed_ms: 0 })
+    let registry: { get?: (id: string) => Agent | undefined; list?: () => Agent[] } | undefined
+    try {
+      registry = (ctx as unknown as { agents?: { get?: (id: string) => Agent | undefined; list?: () => Agent[] } }).agents
+        ?? (ctx.get?.('agents') as unknown as { get?: (id: string) => Agent | undefined; list?: () => Agent[] } | undefined)
+    } catch { registry = undefined }
+    let fallbackAgent: Agent | undefined
+    try {
+      fallbackAgent = (ctx as unknown as { agent?: Agent }).agent
+    } catch {
+      fallbackAgent = undefined
+    }
+    const agent = resolveParentAgentV3(String(session.id), sessionToAgent, registry, fallbackAgent)
+    const parentAgent = agent && agent.session?.header?.origin !== 'subagent' && String(agent.session.id) === String(session.id) ? agent : undefined
+    if (installOptions.mode === 'v3') {
+      if (!parentAgent || !parentAgent.ctx?.agents) {
+        log(resolution.scope, { event: 'agent_resolution_failed', timestamp: timestamp(), turn, result: 'failed', reason_code: 'consolidation_agent_unavailable', elapsed_ms: Date.now() - resolutionStartedAt })
+        log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn, result: 'failed', reason_code: 'consolidation_agent_unavailable' })
+        return
+      }
+      log(resolution.scope, { event: 'agent_resolution_succeeded', timestamp: timestamp(), turn, result: 'succeeded', elapsed_ms: Date.now() - resolutionStartedAt })
+    }
+    const key = `${session.id}:${turn}`
+    if (handledTurns.has(key)) return
+    handledTurns.add(key)
+    const attemptId = `a_${randomUUID().replaceAll('-', '')}`
+    const selectedAgent = parentAgent ?? agent
+    const parentTasks = installOptions.mode === 'v3' && selectedAgent ? subagentLifecycle.for(selectedAgent) : undefined
+    const operationSignal = parentTasks ? AbortSignal.any([runtimeAbort.signal, parentTasks.signal]) : runtimeAbort.signal
+    const used = selectedAgent && mapRecallToolRuntime ? mapRecallToolRuntime.consumeUsedRefs(selectedAgent, evidence.turn) : recalledByTurn.get(`${session.id}:${evidence.turn}`) ?? []
+    if (installOptions.mode !== 'v3') {
+      const operation = runConsolidation(session, resolution, evidence, used, selectedAgent, operationSignal, attemptId)
+      consolidationBarrier.track(resolution.scope.project_scope_id, operation)
       return
     }
-    const used = agent && mapRecallToolRuntime ? mapRecallToolRuntime.consumeUsedRefs(agent, turn) : recalledByTurn.get(`${session.id}:${turn}`) ?? []
-    recalledByTurn.delete(`${session.id}:${turn}`)
-    log(resolution.scope, { event: 'consolidation_start', timestamp: timestamp(), turn, result: 'started', memory_refs: used })
-    const startedAt = Date.now()
-    const consolidationRuntime = installOptions.mode === 'v3' && agent
-      ? createConsolidationRuntimeV2({ model: (request, route) => createConsolidationSubagentModelV3(agent, installOptions.subagentFactory, subagentLifecycle.for(agent))(request, route), coordinator: consolidationCoordinator })
-      : consolidationRuntimeV2
-    const request = {
-      scope: resolution.scope,
-      evidence: { task: evidence.user_text, outcome: evidence.assistant_text },
-      used_memory_refs: used,
-      provider,
-      model,
-      now: evidence.turn_end_time,
-      signal: runtimeAbort.signal,
-    }
-    const operationPromise = installOptions.mode === 'v3' && agent
-      ? agent.ctx.agents.withInitiator(agent, () => consolidationRuntime.consolidate(request))
-      : consolidationRuntime.consolidate(request)
-    const operation = operationPromise.then((result) => {
-      if (result.status === 'created') {
-        log(resolution.scope, { event: 'consolidation_created', timestamp: timestamp(), turn, result: 'created', memory_refs: result.memory_id ? [result.memory_id] : [], elapsed_ms: Date.now() - startedAt })
-        log(resolution.scope, { event: 'catalog_updated', timestamp: timestamp(), turn, result: 'created', catalog_id: result.catalog_id })
-        log(resolution.scope, { event: 'generation_published', timestamp: timestamp(), turn, result: 'published', generation_id: result.generation_id })
-      } else if (result.status === 'noop') {
-        log(resolution.scope, { event: 'consolidation_noop', timestamp: timestamp(), turn, result: 'noop', reason_code: result.reason_code, memory_refs: result.memory_id ? [result.memory_id] : [], elapsed_ms: Date.now() - startedAt })
-      } else if (result.status === 'skipped') {
-        log(resolution.scope, { event: 'consolidation_skip', timestamp: timestamp(), turn, result: 'skipped', reason_code: result.reason_code, elapsed_ms: Date.now() - startedAt })
-      } else {
-        log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn, result: 'failed', reason_code: result.reason_code, elapsed_ms: Date.now() - startedAt })
-      }
-    }).catch(() => {
-      log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn, result: 'failed', reason_code: 'consolidation_failed', elapsed_ms: Date.now() - startedAt })
-    })
-    if (installOptions.mode === 'v3' && agent) subagentLifecycle.for(agent).track(operation)
+    let settleOperation!: () => void
+    const operation = new Promise<void>((resolve) => { settleOperation = resolve })
+    if (parentTasks) void parentTasks.track(operation).catch(() => undefined)
     consolidationBarrier.track(resolution.scope.project_scope_id, operation)
+    log(resolution.scope, { event: 'consolidation_operation_registered', timestamp: timestamp(), turn, result: 'started', attempt_id: attemptId })
+    immediateDiagnostic(attemptId, 'scheduled', 'consolidation_operation_registered', 0)
+    log(resolution.scope, { event: 'consolidation_operation_scheduled', timestamp: timestamp(), turn, result: 'started', attempt_id: attemptId })
+    immediateDiagnostic(attemptId, 'scheduled', 'consolidation_operation_scheduled', 0)
+    setImmediate(() => {
+      log(resolution.scope, { event: 'consolidation_operation_started', timestamp: timestamp(), turn, result: 'started', attempt_id: attemptId })
+      immediateDiagnostic(attemptId, 'running', 'consolidation_operation_started', 0)
+      if (operationSignal.aborted) {
+        log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn, result: 'failed', reason_code: 'subagent_aborted', attempt_id: attemptId })
+        settleOperation()
+        return
+      }
+      void runConsolidation(session, resolution, evidence, used, selectedAgent, operationSignal, attemptId).then(settleOperation, () => {
+        log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn, result: 'failed', reason_code: 'consolidation_failed', attempt_id: attemptId })
+        settleOperation()
+      })
+    })
+  })
+
+  // DSH dispatches session/event asynchronously, but awaits session/flush
+  // before tearing down the session. Keep the parent-owned consolidation
+  // operation alive until its durable checkpoint has completed.
+  ctx.on('session/flush', async (session: Session) => {
+    // Child request checkpoints must not wait for the consolidation that owns
+    // the child. Other session/flush listeners still persist its event log.
+    if (!session || disposed || session.header.origin === 'subagent') return
+    const resolution = scopeRuntime.observeSession(session)
+    if (resolution.status === 'ready') await consolidationBarrier.wait(resolution.scope.project_scope_id)
   })
 
   ctx.on('session/disposed', (session: Session) => {
@@ -207,6 +349,7 @@ export function install(
     sessionToAgent.delete(id)
     if (agent && mapRecallToolRuntime) mapRecallToolRuntime.clearAgent(agent)
     for (const key of recalledByTurn.keys()) if (key.startsWith(`${id}:`)) recalledByTurn.delete(key)
+    for (const key of handledTurns) if (key.startsWith(`${id}:`)) handledTurns.delete(key)
     scopeRuntime.disposeSession(session)
   })
 }

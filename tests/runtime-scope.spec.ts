@@ -27,6 +27,7 @@ function mockSession(id: string, cwd?: string): Session {
     id: SessionId(id),
     createdAt: Date.now(),
     cwd,
+    isSeeded: false,
   }
   return {
     id: SessionId(id),

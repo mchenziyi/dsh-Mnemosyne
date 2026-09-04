@@ -78,7 +78,8 @@ export function createRememberTool(options: RememberRuntimeOptions): ReturnType<
       }
       const scope = scopeRes.scope
 
-      const events = exec.agent.session?.events
+      const session = exec.agent.session as (typeof exec.agent.session & { events?: readonly unknown[] }) | undefined
+      const events = session?.snapshotEvents?.() ?? session?.events ?? []
       if (!Array.isArray(events)) {
         throw new MemoryStoreError('memory_store_invalid_input')
       }

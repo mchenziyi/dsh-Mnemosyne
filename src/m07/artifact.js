@@ -15,6 +15,8 @@ export const REQUIRED_CANARY_TARBALL_FILES = Object.freeze([
   'package/cordis.patch.yml',
   'package/dist/index.mjs',
   'package/dist/index.d.mts',
+  'package/dist/index.cjs',
+  'package/dist/index.d.cts',
 ])
 
 const REQUIRED_CANARY_TARBALL_FILES_SET = new Set(REQUIRED_CANARY_TARBALL_FILES)
@@ -97,7 +99,7 @@ export async function verifyCanaryArtifact(tarballPath) {
   if (manifest.name !== '@cziyi/dsh-mnemosyne') {
     throw new Error('invalid_package_name_in_tarball')
   }
-  if (manifest.version !== '0.0.0-dev' && manifest.version !== '0.1.0' && manifest.version !== '0.2.0') {
+  if (manifest.version !== '0.0.0-dev' && manifest.version !== '0.1.0' && manifest.version !== '0.2.0' && manifest.version !== '0.2.1' && manifest.version !== '0.2.2' && manifest.version !== '0.2.3' && manifest.version !== '0.2.4' && manifest.version !== '0.2.5' && manifest.version !== '0.2.6' && manifest.version !== '0.2.7' && manifest.version !== '0.2.8' && manifest.version !== '0.2.9') {
     throw new Error('invalid_package_version_in_tarball')
   }
   if (manifest.dsh?.bundle?.patch !== './cordis.patch.yml') {

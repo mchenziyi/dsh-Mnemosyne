@@ -432,7 +432,7 @@ describe('MVP-06 Final Review: MutationCoordinator & Cross-Entry Deterministic B
         coordinator: recording.coordinator,
       })
 
-      const turnEndEvent = session.events[5]
+      const turnEndEvent = (session as any).events[5]
 
       // 1. Enqueue Auto Acquisition
       const enqueued = acqRuntime.enqueueTurn(session, turnEndEvent)

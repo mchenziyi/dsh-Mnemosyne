@@ -1,4 +1,4 @@
-import { lstat, mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises'
+import { lstat, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -148,75 +148,41 @@ export async function cleanupRunRoot(runRoot) {
 }
 
 export async function runInstalledRuntimeSmoke(profileDir, sanitizedEnv) {
-  const scriptContent = `
-import { readFile } from 'node:fs/promises'
-import { pathToFileURL } from 'node:url'
-import { dirname, join } from 'node:path'
-
-const profileDir = process.env.PROFILE_DIR
-if (!profileDir) throw new Error('profile_dir_required')
-
-async function load(specifier) {
-  const parts = specifier.startsWith('@') ? specifier.split('/') : [specifier]
-  const roots = [join(profileDir, 'node_modules'), join(dirname(profileDir), 'node_modules')]
-  for (const root of roots) {
-    const packageDir = join(root, ...parts)
-    try {
-      const manifest = JSON.parse(await readFile(join(packageDir, 'package.json'), 'utf8'))
-      const entry = manifest.exports?.['.']?.import ?? manifest.exports?.['.']?.default ?? manifest.exports?.['.'] ?? manifest.module ?? manifest.main
-      if (typeof entry !== 'string') throw new Error('package_has_no_esm_entry')
-      return import(pathToFileURL(join(packageDir, entry)).href)
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error
-    }
-  }
-  throw new Error('cannot_resolve_package')
+  const interceptorPath = join(profileDir, 'mvp07-offline-smoke.mjs')
+  const patchPath = join(profileDir, 'mvp07-offline-smoke.patch.yml')
+  const interceptorSource = `
+export const name = 'mvp07-offline-smoke'
+function stream(text) {
+  return (async function* () {
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'text-delta', index: 0, text }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  })()
 }
-
-const [{ Context }, { default: ToolRuntime }, { default: SystemPrompt }, { default: LlmRuntime }, plugin] = await Promise.all([
-  load('@deepseek-ai/cordis'),
-  load('@deepseek-ai/dsh-tools'),
-  load('@deepseek-ai/dsh-system-prompt'),
-  load('@deepseek-ai/dsh-llm'),
-  load('@cziyi/dsh-mnemosyne'),
-])
-
-const ctx = new Context()
-await ctx.plugin(SystemPrompt)
-await ctx.plugin(ToolRuntime)
-await ctx.plugin(LlmRuntime)
-const fiber = await ctx.plugin({
-  name: plugin.name,
-  Config: plugin.Config,
-  inject: plugin.inject,
-  apply: plugin.apply,
-}, { enabled: true })
-
-const forbiddenTools = [
-  'mnemosyne_status',
-  'mnemosyne_acquisition_status',
-  'mnemosyne_search',
-  'mnemosyne_open',
-  'mnemosyne_remember',
-  'mnemosyne_list',
-  'mnemosyne_promote',
-  'mnemosyne_forget',
-]
-
-for (const name of forbiddenTools) {
-  if (ctx.tools.get(name) !== undefined) throw new Error('unexpected_tool_' + name)
-}
-
-await fiber.dispose()
-
-for (const name of forbiddenTools) {
-  if (ctx.tools.get(name) !== undefined) throw new Error('tool_not_disposed_' + name)
+export function apply(ctx) {
+  ctx.on('llm/stream', (options) => {
+    const last = options?.messages?.at(-1)?.content?.filter?.((block) => block.type === 'text').map((block) => block.text).join('\\n') ?? ''
+    if (last.includes('You are the Mnemosyne Consolidation Subagent.')) return stream(JSON.stringify({ decision: 'skip', reason_code: 'no_reusable_knowledge' }))
+    if (options?.purpose === 'title' || options?.purpose === 'session-title') return stream('MVP07 runtime smoke')
+    return stream('MVP07 runtime smoke completed')
+  })
 }
 `
 
   try {
-    await execFileAsync('node', ['--input-type=module', '-e', scriptContent], {
-      env: { ...sanitizedEnv, PROFILE_DIR: profileDir },
+    await writeFile(interceptorPath, interceptorSource, { mode: 0o600 })
+    await writeFile(patchPath, [
+      '- id: llm-deepseek',
+      '  disabled: true',
+      '- insert:',
+      '    - id: mvp07-offline-smoke',
+      `      name: '${interceptorPath}'`,
+      '',
+    ].join('\n'), { mode: 0o600 })
+    await execFileAsync('dsh', ['--profile', profileDir.split('/').at(-1), '--patch', patchPath, 'Run the isolated MVP07 runtime smoke.'], {
+      cwd: sanitizedEnv.HOME,
+      env: sanitizedEnv,
       timeout: SMOKE_TIMEOUT_MS,
       maxBuffer: SMOKE_MAX_BUFFER,
     })

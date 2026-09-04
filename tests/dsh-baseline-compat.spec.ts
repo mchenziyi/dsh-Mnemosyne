@@ -19,7 +19,7 @@ import {
   type PublicSeamsAudit,
 } from '../src/protocol/dsh-baseline-audit.js'
 
-const TARGET_DSH_VERSION = '0.1.2-alpha.3'
+const TARGET_DSH_VERSION = '0.1.2-alpha.4'
 
 const VALID_PUBLIC_SEAMS: PublicSeamsAudit = {
   cordis_plugin: 'pass',
@@ -44,13 +44,13 @@ describe('DSH baseline upgrade compatibility suite', () => {
     expect(AUDIT_COMMIT).toBe('b150a551b8d465e31e418e1b2eaf5e79bbb7d28e')
   })
 
-  it('enforces that all direct @deepseek-ai/dsh-* dependencies in package.json are exact 0.1.1-rc.2', () => {
+  it('enforces that all direct @deepseek-ai/dsh-* dependencies in package.json are exact alpha.4', () => {
     const pkgJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'))
     const dshPeers = Object.entries(pkgJson.peerDependencies || {}).filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
     const dshDevs = Object.entries(pkgJson.devDependencies || {}).filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
 
     expect(dshPeers.length).toBe(2)
-    expect(dshDevs.length).toBe(24)
+    expect(dshDevs.length).toBe(28)
 
     for (const [name, version] of dshPeers) {
       expect(version, `peerDependency ${name} must be exact ${TARGET_DSH_VERSION}`).toBe(TARGET_DSH_VERSION)
@@ -62,6 +62,7 @@ describe('DSH baseline upgrade compatibility suite', () => {
 
     // Required DSH packages are explicitly declared as devDependencies
     expect(pkgJson.devDependencies['@deepseek-ai/dsh-session-persistence']).toBe(TARGET_DSH_VERSION)
+    expect(pkgJson.devDependencies['@deepseek-ai/dsh-session-checkpoint-policy']).toBe(TARGET_DSH_VERSION)
     expect(pkgJson.devDependencies['@deepseek-ai/dsh-settings']).toBe(TARGET_DSH_VERSION)
     expect(pkgJson.devDependencies['@deepseek-ai/dsh-credentials']).toBe(TARGET_DSH_VERSION)
   })
@@ -176,7 +177,7 @@ describe('DSH baseline upgrade compatibility suite', () => {
     ).toThrow(ProtocolValidationError)
 
     // 2. Lockfile with only rc.8 produces status: 'blocked' and never ready
-    const rc8Lockfile = readFileSync(resolve(process.cwd(), 'pnpm-lock.yaml'), 'utf8').replace(/0\.1\.2-alpha\.3/g, '0.1.0-rc.8')
+    const rc8Lockfile = readFileSync(resolve(process.cwd(), 'pnpm-lock.yaml'), 'utf8').replace(/0\.1\.2-alpha\.4/g, '0.1.0-rc.8')
     const auditRc8 = createDshBaselineAudit({
       npm_next_version: TARGET_DSH_VERSION,
       package_json_content: pkgContent,
@@ -398,7 +399,7 @@ describe('DSH baseline upgrade compatibility suite', () => {
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       await agent.whenIdle()
 
-      expect(agent.session.events.some((e: { type: string }) => e.type === 'assistant/message')).toBe(true)
+      expect(agent.session.snapshotEvents().some((e: { type: string }) => e.type === 'assistant/message')).toBe(true)
     } finally {
       if (unregister) {
         unregister()

@@ -34,7 +34,7 @@ npm view @cziyi/dsh-mnemosyne version
 要求：
 
 - Node.js 满足包声明的 `>=22.19.0`；
-- 当前开发与验证基线为 DSH `0.1.2-alpha.3`；若用户环境不同，不宣称兼容，先报告差异；
+- 当前开发与验证基线为 DSH `0.1.2-alpha.4`；若用户环境不同，不宣称兼容，先报告差异；
 - registry 可访问并能解析目标包版本。
 
 ### 2.2 确认目标 Profile
@@ -62,10 +62,12 @@ dsh --profile <profile> --dump-config
 对已经确认的单个 Profile 执行：
 
 ```bash
-dsh plugin --profile <profile> add @cziyi/dsh-mnemosyne@0.2.0
+dsh plugin --profile <profile> add @cziyi/dsh-mnemosyne@<target-version>
 ```
 
 若用户要求当前 `0.2.x` 最新版，可先解析 registry 版本，再将命令中的版本替换为已确认的精确版本；最终报告不得只写 `latest`。
+
+`0.2.9` 当前为本地验收包，不代表已经发布 npm。验收时使用已核对的 tarball 绝对路径替代包名，并核对 tarball 内与安装后的 ESM/CJS bundle SHA-256 一致。
 
 安装后执行第六章的统一验证。不要为了“全局可用”盲目写入 `default`、`demo`、`headless` 和 `web` 全部 Profile；DSH 的插件依赖按 Profile 管理。
 
@@ -106,7 +108,7 @@ dsh plugin --profile <profile> remove @cziyi/dsh-mnemosyne
 1. `dsh --profile <profile> --dump-config` 中 `dsh-mnemosyne` 恰好启用一次；
 2. 目标 Profile 的依赖解析到请求的精确包版本；
 3. DSH 启动无插件装配错误；
-4. v0.2 会话工具列表中不存在 `mnemosyne_*`，这是预期产品行为，不是安装失败。
+4. 当前 v3 路径允许主 Agent 使用内部 `mnemosyne_recall`；旧 Status/Search/Open/Remember/List/Promote/Forget 用户管理工具仍不应注册。用户无须手动调用任何记忆工具。
 
 ### 6.2 零操作功能 Smoke
 
@@ -127,6 +129,7 @@ Smoke 不得把日志或 Memory Content 原文复制到公开报告；只报告�
 - 安装/更新失败：恢复备份，或通过公开 `plugin add` 重装升级前的精确版本；
 - 配置重复、插件无法加载：不要手改 DSH 私有状态，优先移除后按精确版本重新安装；
 - 功能 Smoke 失败：保留项目数据，读取 `.dsh-mnemosyne/debug/runtime.jsonl` 的稳定 reason code 诊断；
+- `consolidation_judgment_missing_related_memory_refs`：模型选择 `create` 却遗漏必填关联数组，未发布记忆；不要自动补 `[]` 或重复触发任务。当前输出契约由子代理系统指令传递并由程序严格校验，不等同于 Provider 强制 Schema，离线通过仍需真实线路验收。
 - 任何失败都不得读取 Credential 内容、删除 Memory 数据或改动其他 Profile。
 
 ## 八、向用户报告
@@ -146,3 +149,16 @@ Mnemosyne：<before-version> → <after-version>
 ```
 
 不得把“命令退出码为 0”单独当作成功。安装/更新至少需要配置装配验证；执行了功能 Smoke 时，还需要 JSONL 与 v2 CURRENT 证据闭合。
+
+## 八、v0.2.9 本地验收记录（2026-09-04）
+
+- 定位：本地验收包，未发布 npm。v3 是内部运行路径，不代表产品版本为 v0.3。
+- 本地门禁：83 个测试文件、829 项测试通过；typecheck、build、pack、pack-check（8 个文件）、peers check、git diff --check 通过。全量测试串行执行，避免打包测试共享 dist 的写入竞争。
+- 安装验证：Web profile 解析到 0.2.9，组合配置仅装配一次；安装后 ESM/CJS 与 tarball 的 SHA-256 一致。
+- tarball SHA-256：`76cd86cd9da34a1a56dcd8687f3099b3169d0bd4940252a1fcb9998a5ac717da`。该哈希对应本次已安装验收制品；后续修改 README 并重新打包会生成不同哈希，不应混用。
+- 相关任务：mnemosyne-v027-check 新会话按 root_titles → node_summary → node_titles → memory_summaries 完成召回，选中 2 条 Memory，用时 8.122 秒。随后 Consolidation 用时 8.720 秒，新增 Memory 并完成 Catalog 更新与 Generation 发布；子代理均 completed/disposed，用户确认停止转圈。
+- 对应沉淀 attempt：`a_41767a1dd4e246939b75cb3a0661b51b`；新增 Memory：`mem_17dc26228cbae7f4b339e2f47cd3293db392aadb98e8a8f59046c2d3f9c6a6f2`。
+- 无关任务：同项目新会话执行普通翻译，仅提供地图，页面未出现召回工具调用并直接输出译文。该截图不证明后台沉淀的最终状态，不将其记为 skip 验收。
+- 补充样本：tf-web-platform 页面显示 Recall 工具 completed、选中 3 条记忆并注入 Recall v3 正文；该截图本身不证明后续沉淀或三条记忆全部准确相关。
+- 环境边界：本地开发基线为 alpha.4；用户 Web 环境 CLI 报 alpha.4，但宿主 LLM/Session 包实际为 alpha.5。本次真实行为通过不等于完整 alpha.5 兼容验收，也不等于所有场景无缺陷。
+- 使用结论：本次未触发召回、子代理创建卡住及会话无法收尾问题在上述样本中未复现。继续正常使用观察，不要求重复同一测试；不自动升级 DSH、不删除记忆。

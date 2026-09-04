@@ -4,6 +4,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import { apply, Config } from '../src/index.js'
+import { install as installObserver } from '../src/observer.js'
 import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -98,7 +99,7 @@ describe('M0 lifecycle', () => {
     }
     await ctx.plugin(MockSlowLlm)
 
-    const plugin = { name: 'dsh-mnemosyne', Config, inject: ['tools', 'llm'], apply }
+    const plugin = { name: 'dsh-mnemosyne', Config, inject: ['tools', 'llm'], apply: (context: Context, config: Config) => installObserver(context, config, undefined, { mode: 'v2' }) }
     const fiber = await ctx.plugin(plugin, { enabled: true })
 
     const session: any = {
@@ -147,7 +148,7 @@ describe('M0 lifecycle', () => {
         }
       }
       await ctx.plugin(MockLlm)
-      const fiber = await ctx.plugin({ name: 'dsh-mnemosyne', Config, inject: ['llm'], apply }, { enabled: true })
+      const fiber = await ctx.plugin({ name: 'dsh-mnemosyne', Config, inject: ['llm'], apply: (context: Context, config: Config) => installObserver(context, config, undefined, { mode: 'v2' }) }, { enabled: true })
       const events: any[] = [
         { seq: 0, time: '2026-08-28T08:00:00.000Z', type: 'request/header', turn: 1, data: { header: { config: { provider: 'p', model: 'm' } } } },
         { seq: 1, time: '2026-08-28T08:00:01.000Z', type: 'user/message', turn: 1, data: { source: { kind: 'user' }, content: [{ type: 'text', text: '修复构建输入问题' }] } },

@@ -359,21 +359,21 @@ describe('MVP-05 mnemosyne_remember tool', () => {
 
     // 1. Tool name mismatch (e.g. call was for "fs_read")
     const { exec: execWrongName, session: sWrongName } = createMockExecContext('s_wrong_name', env.root, 'call_wrong')
-    const toolCallEvent = sWrongName.events.find((e) => e.type === 'tool/call') as any
+    const toolCallEvent = (sWrongName as any).events.find((e: any) => e.type === 'tool/call') as any
     toolCallEvent.data.name = 'fs_read'
     env.scopeRuntime.observeSession(sWrongName)
 
     // 2. Duplicate tool/call with identical callId and name
     const { exec: execDup, session: sDup } = createMockExecContext('s_dup_callid', env.root, 'call_dup')
-    const validToolCall = sDup.events.find((e) => e.type === 'tool/call') as any
-    ;(sDup.events as any[]).push({ ...validToolCall, seq: 4 })
+    const validToolCall = (sDup as any).events.find((e: any) => e.type === 'tool/call') as any
+    ;((sDup as any).events as any[]).push({ ...validToolCall, seq: 4 })
     env.scopeRuntime.observeSession(sDup)
 
     await expect((rememberTool.execute as any)({ title: 'T', summary: 'S', body: 'B' }, execDup)).rejects.toThrow()
 
     // 3. Another tool with same callId
     const { exec: execAnother, session: sAnother } = createMockExecContext('s_another_callid', env.root, 'call_shared')
-    ;(sAnother.events as any[]).push({
+    ;((sAnother as any).events as any[]).push({
       seq: 4,
       time: '2026-08-25T08:00:01.000Z',
       type: 'tool/call',
@@ -399,8 +399,8 @@ describe('MVP-05 mnemosyne_remember tool', () => {
     const { exec: exec1, session: s1 } = createMockExecContext('session_race_1', env.root, 'call_race_1')
     const { exec: exec2, session: s2 } = createMockExecContext('session_race_1', env.root, 'call_race_2', '2026-08-25T08:00:01.000Z')
     // S2 has the tool call for call_race_2 in its event list
-    const toolCall2 = ((exec2.agent?.session.events ?? []) as any[]).find((e) => e.data?.callId === 'call_race_2')
-    ;(s1.events as any[]).push(toolCall2)
+    const toolCall2 = ((((exec2.agent?.session as any).events) ?? []) as any[]).find((e: any) => e.data?.callId === 'call_race_2')
+    ;((s1 as any).events as any[]).push(toolCall2)
 
     env.scopeRuntime.observeSession(s1)
 

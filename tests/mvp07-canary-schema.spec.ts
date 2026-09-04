@@ -53,6 +53,8 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
       'package/cordis.patch.yml': '# cordis patch\n',
       'package/dist/index.mjs': 'export default {}\n',
       'package/dist/index.d.mts': 'export default {}\n',
+      'package/dist/index.cjs': 'module.exports = {}\n',
+      'package/dist/index.d.cts': 'export default {}\n',
     })
   })
 
@@ -245,7 +247,7 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
     expect(result.status).toBe('awaiting_user_approval')
     expect(result.package_name).toBe('@cziyi/dsh-mnemosyne')
     expect(result.package_version).toBe('0.0.0-dev')
-    expect(result.dsh_version).toBe('0.1.1-rc.2')
+    expect(result.dsh_version).toBe('0.1.2-alpha.4')
     expect(result.package_sha256).toMatch(/^sha256_[0-9a-f]{64}$/)
     expect(result.plan_id).toMatch(/^plan_[0-9a-f]{32}$/)
     expect(result.plan_sha256).toMatch(/^sha256_[0-9a-f]{64}$/)
@@ -261,7 +263,7 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
     expect(info.packageVersion).toBe('0.0.0-dev')
     expect(info.packageSha256).toMatch(/^sha256_[0-9a-f]{64}$/)
     expect(info.realTarballPath).toBe(sharedTarballPath)
-    expect(REQUIRED_CANARY_TARBALL_FILES.length).toBe(6)
+    expect(REQUIRED_CANARY_TARBALL_FILES.length).toBe(8)
 
     const base = await realpath(tmpdir())
     const tempBadDir = await mkdtemp(join(base, 'dsh-bad-tarball-'))
@@ -274,6 +276,8 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
         'package/cordis.patch.yml': '# patch',
         'package/dist/index.mjs': 'export default {}',
         'package/dist/index.d.mts': 'export default {}',
+        'package/dist/index.cjs': 'module.exports = {}',
+        'package/dist/index.d.cts': 'export default {}',
       })
       await expect(verifyCanaryArtifact(tgzMissing)).rejects.toThrow('tarball_file_count_invalid')
 
@@ -285,6 +289,8 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
         'package/cordis.patch.yml': '# patch',
         'package/dist/index.mjs': 'export default {}',
         'package/dist/index.d.mts': 'export default {}',
+        'package/dist/index.cjs': 'module.exports = {}',
+        'package/dist/index.d.cts': 'export default {}',
         'package/malicious.js': 'console.log(1)',
       })
       await expect(verifyCanaryArtifact(tgzExtra)).rejects.toThrow('tarball_file_count_invalid')
@@ -297,6 +303,8 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
       await writeFile(join(dupDir, 'package', 'cordis.patch.yml'), '# patch', 'utf8')
       await writeFile(join(dupDir, 'package', 'dist', 'index.mjs'), 'export default {}', 'utf8')
       await writeFile(join(dupDir, 'package', 'dist', 'index.d.mts'), 'export default {}', 'utf8')
+      await writeFile(join(dupDir, 'package', 'dist', 'index.cjs'), 'module.exports = {}', 'utf8')
+      await writeFile(join(dupDir, 'package', 'dist', 'index.d.cts'), 'export default {}', 'utf8')
       const tgzDup = join(tempBadDir, 'duplicate-entry.tgz')
       await execFileAsync('tar', [
         '-czf',
@@ -309,6 +317,8 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
         'package/cordis.patch.yml',
         'package/dist/index.mjs',
         'package/dist/index.d.mts',
+        'package/dist/index.cjs',
+        'package/dist/index.d.cts',
       ])
       await expect(verifyCanaryArtifact(tgzDup)).rejects.toThrow('tarball_contains_duplicate_entries')
 
@@ -324,6 +334,8 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
         'package/cordis.patch.yml': '# patch',
         'package/dist/index.mjs': 'export default {}',
         'package/dist/index.d.mts': 'export default {}',
+        'package/dist/index.cjs': 'module.exports = {}',
+        'package/dist/index.d.cts': 'export default {}',
       })
       await expect(verifyCanaryArtifact(tgzBadName)).rejects.toThrow('invalid_package_name_in_tarball')
 
@@ -339,6 +351,8 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
         'package/cordis.patch.yml': '# patch',
         'package/dist/index.mjs': 'export default {}',
         'package/dist/index.d.mts': 'export default {}',
+        'package/dist/index.cjs': 'module.exports = {}',
+        'package/dist/index.d.cts': 'export default {}',
       })
       await expect(verifyCanaryArtifact(tgzBadVersion)).rejects.toThrow('invalid_package_version_in_tarball')
 
@@ -353,6 +367,8 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
         'package/cordis.patch.yml': '# patch',
         'package/dist/index.mjs': 'export default {}',
         'package/dist/index.d.mts': 'export default {}',
+        'package/dist/index.cjs': 'module.exports = {}',
+        'package/dist/index.d.cts': 'export default {}',
       })
       await expect(verifyCanaryArtifact(tgzMissingPatch)).rejects.toThrow('missing_dsh_bundle_patch_in_tarball')
     } finally {

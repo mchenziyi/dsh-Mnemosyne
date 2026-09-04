@@ -10,11 +10,16 @@ import { ToolRuntime } from '@deepseek-ai/dsh-tools'
 import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import * as MnemosynePlugin from '../src/index.js'
+import { install } from '../src/observer.js'
 import { computeProjectScopeId } from '../src/runtime-scope.js'
 import { openOKFMemoryV2Store } from '../src/v2/okf-memory-store.js'
 
 const roots: string[] = []
+const V2_PLUGIN = {
+  name: 'mnemosyne-v2-compat-test',
+  inject: ['llm', 'agents'] as const,
+  apply: (ctx: Context) => install(ctx, {}, undefined, { mode: 'v2' }),
+}
 
 function textStream(text: string): AsyncIterable<StreamChunk> {
   return (async function* () {
@@ -73,7 +78,7 @@ describe('v0.2 real AgentLoop acceptance', () => {
       fibers.push(await ctx.plugin(ToolRuntime))
       fibers.push(await ctx.plugin(SessionProjection)); fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       unregister = ctx.llm.registerAdapter(['project-isolation'], new ProjectIsolationAdapter())
-      pluginFiber = await ctx.plugin(MnemosynePlugin, { enabled: true })
+      pluginFiber = await ctx.plugin(V2_PLUGIN)
 
       const agentA = ctx.agentLoop.create(SessionId('session_project_a'), { provider: 'project-isolation', model: 'offline' }, { cwd: projectA })
       agentA.followup(createUserMessage({
@@ -89,7 +94,7 @@ describe('v0.2 real AgentLoop acceptance', () => {
       const storeA = openOKFMemoryV2Store({ project_root: projectA, project_scope_id: scopeA })
       expect((await storeA.listMemories()).map((memory) => memory.title)).toEqual(['Project A 的认证刷新陷阱'])
 
-      pluginFiber = await ctx.plugin(MnemosynePlugin, { enabled: true })
+      pluginFiber = await ctx.plugin(V2_PLUGIN)
       const agentB = ctx.agentLoop.create(SessionId('session_project_b'), { provider: 'project-isolation', model: 'offline' }, { cwd: projectB })
       agentB.followup(createUserMessage({
         content: [{ type: 'text', text: '认证刷新时并发请求中断，应该怎样处理？' }], source: { kind: 'user' },
@@ -98,7 +103,7 @@ describe('v0.2 real AgentLoop acceptance', () => {
       await pluginFiber.dispose()
       pluginFiber = undefined
 
-      const recallEvents = agentB.session.events.filter((event) => {
+      const recallEvents = agentB.session.snapshotEvents().filter((event) => {
         if (event.type !== 'user/message') return false
         const source = (event.data as { source?: { kind?: string; plugin?: string; form?: string } }).source
         return source?.kind === 'plugin' && source.plugin === 'dsh-mnemosyne' && source.form === 'recall'
@@ -165,7 +170,7 @@ describe('v0.2 real AgentLoop acceptance', () => {
       fibers.push(await ctx.plugin(ToolRuntime))
       fibers.push(await ctx.plugin(SessionProjection)); fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       unregister = ctx.llm.registerAdapter(['acceptance'], new AcceptanceAdapter())
-      pluginFiber = await ctx.plugin(MnemosynePlugin, { enabled: true })
+      pluginFiber = await ctx.plugin(V2_PLUGIN)
 
       const agentA = ctx.agentLoop.create(
         SessionId('session_accept_a'),
@@ -183,7 +188,7 @@ describe('v0.2 real AgentLoop acceptance', () => {
       const store = openOKFMemoryV2Store({ project_root: root, project_scope_id: computeProjectScopeId(root) })
       expect((await store.listMemories()).map((memory) => memory.title)).toEqual(['删除锁文件前先定位失败来源'])
 
-      pluginFiber = await ctx.plugin(MnemosynePlugin, { enabled: true })
+      pluginFiber = await ctx.plugin(V2_PLUGIN)
 
       const agent = ctx.agentLoop.create(
         SessionId('session_accept_b'),
@@ -196,7 +201,7 @@ describe('v0.2 real AgentLoop acceptance', () => {
       }))
       await agent.whenIdle()
 
-      const recallEvents = agent.session.events.filter((event) => {
+      const recallEvents = agent.session.snapshotEvents().filter((event) => {
         if (event.type !== 'user/message') return false
         const message = event.data as { source?: { kind?: string; plugin?: string; form?: string } }
         return message.source?.kind === 'plugin' && message.source.plugin === 'dsh-mnemosyne' && message.source.form === 'recall'

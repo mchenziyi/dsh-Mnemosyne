@@ -126,6 +126,9 @@ function validateJudgment(raw: ConsolidationModelDecisionV2, offeredRefs: string
     }
     return raw
   }
+  if (raw.decision === 'create' && !Object.hasOwn(raw, 'related_memory_refs')) {
+    throw Object.assign(new Error('invalid_model_output'), { code: 'missing_related_memory_refs' })
+  }
   if (raw.decision !== 'create' || Object.keys(raw).sort().join('|') !== 'content|decision|related_memory_refs|summary|title') {
     throw new Error('invalid_model_output')
   }
@@ -254,8 +257,8 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
             return { status: 'failed', reason_code: code ? `consolidation_judgment_model_${code}` : 'consolidation_judgment_model_failed' }
           }
           let judgment: Extract<ConsolidationModelDecisionV2, { decision: 'skip' | 'create' }>
-          try { judgment = validateJudgment(rawJudgment, request.used_memory_refs) } catch {
-            return { status: 'failed', reason_code: 'consolidation_judgment_invalid' }
+          try { judgment = validateJudgment(rawJudgment, request.used_memory_refs) } catch (error: unknown) {
+            return { status: 'failed', reason_code: (error as { code?: unknown })?.code === 'missing_related_memory_refs' ? 'consolidation_judgment_missing_related_memory_refs' : 'consolidation_judgment_invalid' }
           }
           if (judgment.decision === 'skip') return { status: 'skipped', reason_code: judgment.reason_code }
 
@@ -407,15 +410,19 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
   }
 }
 
+export function buildConsolidationSystemPromptV2(stage: ConsolidationModelRequestV2['stage']): string {
+    return stage === 'judgment'
+      ? 'Judge whether the completed turn produced reusable project knowledge. Your final response MUST be exactly one JSON object: no Markdown fences, no prose, no explanations, and no extra fields. Return exactly one of these shapes: {"decision":"skip","reason_code":"no_reusable_knowledge"} or {"decision":"create","title":"...","summary":"...","content":"...","related_memory_refs":[]}. For skip, reason_code must be one of no_reusable_knowledge, insufficient_evidence, task_incomplete. For create, all five keys are required. related_memory_refs is mandatory even when there are no related memories; emit [] in that case. Missing, null, or extra fields are invalid. title, summary, and content must be non-empty strings, and related_memory_refs must contain unique IDs from used_memory_refs only.'
+      : stage === 'category_titles'
+        ? 'Using only the offered direct child category titles, choose one plausible category to inspect. Your final response MUST be exactly one JSON object with no Markdown, prose, explanations, or extra fields. Return either {"decision":"candidate","node_ref":"<one offered ref>"} or exactly {"decision":"no_candidate"} when no offered title could contain the memory. Never invent a ref and never create a category in this stage.'
+        : stage === 'category_new'
+          ? 'No offered direct child category title fits this memory. Create one broad reusable direct child category, not a restatement of the memory title. Your final response MUST be exactly one JSON object with no Markdown, prose, explanations, or extra fields: {"decision":"new","title":"<non-empty category title>","summary":"<non-empty category scope summary>"}.'
+          : `After reading only the selected category summary, decide whether the memory belongs here. Your final response MUST be exactly one JSON object with no Markdown, prose, explanations, or extra fields. Return exactly {"decision":"attach"} only when this category is already the narrowest reusable home for the memory. Return {"decision":"expand"} when the memory belongs here but a meaningfully narrower reusable subject should contain it. Return {"decision":"reject"} when the summary proves this category does not fit. Do not expand merely to restate one memory title. When current_depth >= ${OKF_CATALOG_MAX_DEPTH}, never return expand.`
+}
+
 export function createLlmConsolidationModelV2(llm: LlmRuntime): ConsolidationModelV2 {
   return async (request, route): Promise<ConsolidationModelDecisionV2> => {
-    const system = request.stage === 'judgment'
-      ? 'Judge whether the completed turn produced reusable project knowledge. Your final response MUST be exactly one JSON object: no Markdown fences, no prose, no explanations, and no extra fields. Return exactly one of these shapes: {"decision":"skip","reason_code":"no_reusable_knowledge"} or {"decision":"create","title":"...","summary":"...","content":"...","related_memory_refs":[]}. For skip, reason_code must be one of no_reusable_knowledge, insufficient_evidence, task_incomplete. For create, title, summary, and content must be non-empty strings, and related_memory_refs must contain only IDs from used_memory_refs.'
-      : request.stage === 'category_titles'
-        ? 'Using only the offered direct child category titles, choose one plausible category to inspect. Your final response MUST be exactly one JSON object with no Markdown, prose, explanations, or extra fields. Return either {"decision":"candidate","node_ref":"<one offered ref>"} or exactly {"decision":"no_candidate"} when no offered title could contain the memory. Never invent a ref and never create a category in this stage.'
-        : request.stage === 'category_new'
-          ? 'No offered direct child category title fits this memory. Create one broad reusable direct child category, not a restatement of the memory title. Your final response MUST be exactly one JSON object with no Markdown, prose, explanations, or extra fields: {"decision":"new","title":"<non-empty category title>","summary":"<non-empty category scope summary>"}.'
-          : 'After reading only the selected category summary, decide whether the memory belongs here. Your final response MUST be exactly one JSON object with no Markdown, prose, explanations, or extra fields. Return exactly {"decision":"attach"} only when this category is already the narrowest reusable home for the memory. Return {"decision":"expand"} when the memory belongs here but a meaningfully narrower reusable subject should contain it. Return {"decision":"reject"} when the summary proves this category does not fit. Do not expand merely to restate one memory title. At the maximum depth, never return expand.'
+    const system = buildConsolidationSystemPromptV2(request.stage)
     let stream: AsyncIterable<import('@deepseek-ai/dsh-llm').StreamChunk>
     try {
       stream = llm.stream({

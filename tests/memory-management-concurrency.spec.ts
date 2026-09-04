@@ -302,7 +302,7 @@ describe('MVP-06E: Memory Management Concurrency and CAS Replays', () => {
       coordinator,
     })
 
-    const turnEndEvent = session.events[5]
+    const turnEndEvent = (session as any).events[5]
     // Concurrently trigger auto acquisition and promote
     const autoPromise = (async () => {
       const enqueued = acqRuntime.enqueueTurn(session, turnEndEvent)

@@ -43,7 +43,9 @@ export function extractAcquisitionEvidence(
     return null
   }
 
-  const events = session?.events
+  const events = session && typeof (session as any).snapshotEvents === 'function'
+    ? session.snapshotEvents()
+    : (session as any)?.events
   if (!Array.isArray(events) || events.length === 0) {
     return null
   }
@@ -202,6 +204,87 @@ export function extractAcquisitionEvidence(
       route: lastRoute,
       user_text: boundedUserText,
       assistant_text: boundedAssistantText,
+    })
+  } catch {
+    return null
+  }
+}
+
+/** Extracts the completed turn while `agent/turn-stopping` is still awaited. */
+export function extractPendingAcquisitionEvidence(
+  session: Session,
+  targetTurn: number,
+  scope: ResolvedScope,
+  turnEndTime: string,
+  fallbackRoute?: { provider: string; model: string },
+): AcquisitionEvidence | null {
+  const events = session && typeof (session as any).snapshotEvents === 'function'
+    ? session.snapshotEvents()
+    : (session as any)?.events
+  if (!Array.isArray(events) || events.length === 0 || !Number.isInteger(targetTurn) || targetTurn < 1 || !isValidIsoUtc(turnEndTime)) return null
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i]
+    if (!event || typeof event.seq !== 'number' || typeof event.type !== 'string' || !event.time) return null
+    if (i > 0 && event.seq <= events[i - 1].seq) return null
+  }
+  let lastUserText: string | null = null
+  let lastAssistantText: string | null = null
+  let isAssistantInterrupted = false
+  let lastRoute: { provider: string; model: string } | null = null
+  let currentTurn: number | null = null
+  for (const event of events) {
+    if (event.type === 'turn/start') {
+      const data = event.data as { turn?: number } | undefined
+      currentTurn = (typeof (event as { turn?: number }).turn === 'number' ? (event as { turn?: number }).turn : data?.turn) ?? null
+    }
+    const eventTurn = typeof (event as { turn?: number }).turn === 'number'
+      ? (event as { turn?: number }).turn
+      : (event.data as { turn?: number } | undefined)?.turn
+    const effectiveTurn = eventTurn ?? currentTurn
+    if (event.type === 'request/header') {
+      const data = event.data as any
+      const cfg = data?.header?.config || data?.config || data?.header
+      const provider = cfg?.provider || data?.provider
+      const model = cfg?.model || data?.model
+      if (typeof provider === 'string' && provider.length > 0 && typeof model === 'string' && model.length > 0) lastRoute = { provider, model }
+    }
+    if (effectiveTurn !== null && effectiveTurn !== targetTurn) continue
+    if (event.type === 'user/message') {
+      const data = event.data as any
+      const message = data?.message || data
+      if (message?.source?.kind !== 'user') continue
+      const content = message?.content
+      if (Array.isArray(content)) {
+        const text = content.filter((block: any) => block?.type === 'text' && typeof block.text === 'string').map((block: any) => block.text).join('\n')
+        if (text) lastUserText = text
+      }
+    }
+    if (event.type === 'assistant/message') {
+      const data = event.data as any
+      const message = data?.message || data
+      if (data?.interrupted === true || message?.interrupted === true) isAssistantInterrupted = true
+      else if (Array.isArray(message?.content)) {
+        isAssistantInterrupted = false
+        const text = message.content.filter((block: any) => block?.type === 'text' && typeof block.text === 'string').map((block: any) => block.text).join('\n')
+        if (text) lastAssistantText = text
+      }
+    }
+  }
+  lastRoute ??= fallbackRoute ?? null
+  if (!lastRoute || !lastUserText || !lastAssistantText || isAssistantInterrupted || hasControlChars(lastUserText) || hasControlChars(lastAssistantText)) return null
+  const userText = truncateByCodePoints(lastUserText, 4000, 2000, 2000)
+  const assistantText = truncateByCodePoints(lastAssistantText, 6000, 3000, 3000)
+  try {
+    return createAcquisitionEvidence({
+      schema_version: 1,
+      project_scope_id: scope.project_scope_id,
+      session_scope_id: scope.session_scope_id,
+      turn: targetTurn,
+      turn_end_seq: events.at(-1)!.seq,
+      turn_end_time: turnEndTime,
+      route: lastRoute,
+      user_text: userText,
+      assistant_text: assistantText,
     })
   } catch {
     return null

@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { createSubagentLifecycleV3 } from '../src/v3/subagent-lifecycle.js'
 
 describe('v3 parent subagent lifecycle', () => {
+  it('aborts the parent task set when cancelled', () => {
+    const lifecycle = createSubagentLifecycleV3()
+    const parent = {} as any
+    const tasks = lifecycle.for(parent)
+    expect(tasks.signal.aborted).toBe(false)
+    tasks.cancel()
+    expect(tasks.signal.aborted).toBe(true)
+  })
+
   it('waits for tracked work and isolates parents', async () => {
     const lifecycle = createSubagentLifecycleV3()
     const parentA = {} as any
@@ -31,6 +40,6 @@ describe('v3 parent subagent lifecycle', () => {
     expect(lifecycle.for(parent).size()).toBe(1)
     release()
     await disposing
-    expect(lifecycle.wait(parent)).resolves.toBeUndefined()
+    await expect(lifecycle.wait(parent)).resolves.toBeUndefined()
   })
 })

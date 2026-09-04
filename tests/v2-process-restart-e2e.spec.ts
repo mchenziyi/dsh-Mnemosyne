@@ -24,33 +24,61 @@ function stream(text) {
   })()
 }
 
+function toolStream(mapRef) {
+  return (async function* () {
+    yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+    yield { type: 'tool-call-delta', index: 0, id: 'call_mnemosyne_recall', name: 'mnemosyne_recall', argumentsDelta: JSON.stringify({ map_ref: mapRef }) }
+    yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'call_mnemosyne_recall', name: 'mnemosyne_recall', arguments: JSON.stringify({ map_ref: mapRef }) } }
+    yield { type: 'finish', reason: { kind: 'tool-calls' } }
+  })()
+}
+
+function lastText(options) {
+  const content = options?.messages?.at(-1)?.content
+  return Array.isArray(content) ? content.filter((block) => block.type === 'text').map((block) => block.text).join('\\n') : ''
+}
+
 export function apply(ctx) {
+  let mapRequested = false
   ctx.on('llm/stream', (options) => {
     const system = typeof options?.system === 'string' ? options.system : ''
     const messages = JSON.stringify(options?.messages ?? [])
+    const last = lastText(options)
     if (options?.purpose === 'title' || options?.purpose === 'session-title' || system.toLowerCase().includes('session title')) {
       return stream('v0.2 restart acceptance')
     }
-    if (system.startsWith('You navigate project memory.')) {
-      const request = JSON.parse(options.messages.at(-1).content.find((block) => block.type === 'text').text)
+    if (last.includes('You are the Mnemosyne Recall Subagent.')) {
+      const request = JSON.parse(last.split('\\n').at(-1))
       return stream(JSON.stringify({ selected_refs: request.items.length === 0 ? [] : [request.items[0].ref] }))
     }
-    if (system.startsWith('Judge whether the completed turn')) {
-      const request = JSON.parse(options.messages.at(-1).content.find((block) => block.type === 'text').text)
-      return stream(JSON.stringify(request.evidence.task.includes('Process A') ? {
+    if (last.includes('You are the Mnemosyne Consolidation Subagent.')) {
+      const request = JSON.parse(last.split('\\n').at(-1))
+      if (request.stage === 'judgment') return stream(JSON.stringify(request.evidence.task.includes('Process A') ? {
         decision: 'create',
         title: '进程重启后恢复认证窗口经验',
         summary: '认证状态切换时保留旧状态窗口，进程重启后仍需复用。',
         content: '## 已知踩坑\\n\\n进程重启后仍应恢复的完整经验：立即撤销旧认证状态会中断并发请求。',
         related_memory_refs: [],
       } : { decision: 'skip', reason_code: 'no_reusable_knowledge' }))
+      if (request.stage === 'category_titles') return stream(JSON.stringify({ decision: 'no_candidate' }))
+      if (request.stage === 'category_new') return stream(JSON.stringify({ decision: 'new', title: 'Authentication', summary: '认证与状态切换。' }))
+      return stream(JSON.stringify({ decision: 'attach' }))
     }
-    if (system.startsWith('No offered direct child category title fits')) {
-      return stream(JSON.stringify({ decision: 'new', title: 'Authentication', summary: '认证与状态切换。' }))
-    }
-    if (system.startsWith('After reading only the selected category summary')) return stream(JSON.stringify({ decision: 'attach' }))
+    if (system.startsWith('You navigate project memory.')) return stream(JSON.stringify({ selected_refs: [] }))
 
-    const sawRecall = messages.includes('[Mnemosyne Recall v2') && messages.includes('进程重启后仍应恢复的完整经验')
+    const sawMap = messages.includes('[Mnemosyne Map v3')
+    const hasRecallTool = JSON.stringify(options?.tools ?? []).includes('mnemosyne_recall')
+    if (!mapRequested && sawMap && hasRecallTool) {
+      const mapText = Array.isArray(options?.messages)
+        ? options.messages.flatMap((message) => Array.isArray(message.content) ? message.content : []).find((block) => block.type === 'text' && block.text.startsWith('[Mnemosyne Map v3'))
+        : undefined
+      if (mapText?.type === 'text') {
+        const map = JSON.parse(mapText.text.slice(mapText.text.indexOf('\\n') + 1))
+        if (typeof map.map_ref === 'string') { mapRequested = true; return toolStream(map.map_ref) }
+      }
+    }
+
+    const sawRecall = messages.includes('[Mnemosyne Recall v3') && messages.includes('进程重启后仍应恢复的完整经验')
     const receipt = process.env.V2_RESTART_RECEIPT
     if (receipt) writeFileSync(receipt, JSON.stringify({ pid: process.pid, saw_recall: sawRecall, messages }), { mode: 0o600 })
     return stream(messages.includes('Process A')

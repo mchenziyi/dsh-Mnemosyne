@@ -1,6 +1,6 @@
 # dsh-Mnemosyne v0.3 子代理生命周期与父 Agent 等待设计
 
-状态：🟡 部分实现；父 Agent 生命周期屏障已接入，真实双进程重启验收仍阻断
+状态：设计与本地回归完成；2026-09-04 v0.2.9 真实 Web 样本确认子代理完成/清理、记忆发布及停止转圈。宿主版本差异与验收边界见 [Runbook](DSH_MNEMOSYNE_DSH_AGENT_RUNBOOK.zh-CN.md#八v029-本地验收记录2026-09-04)，不宣称所有场景已验证。
 
 ## 1. 目标
 
@@ -67,7 +67,9 @@ agent/created
 
 - 父 Agent Task Set、子代理取消传播入口和退出等待屏障：已实现并通过单元/装配测试；
 - v3 生产入口默认装配：已切换；
-- 真实 DSH 子代理完成 Consolidation 并跨进程恢复 Memory：未通过，当前失败为 `subagent_unavailable`，需继续定位 alpha3 运行时装配原因。
+- 真实 DSH 双进程重启验收已通过：Process A 完成 Consolidation，Process B 从磁盘恢复并收到 Map；子代理模型选择绑定与父级生命周期等待已接入。
+- 真实 Recall 链路已验证按 `root_titles → node_summary → node_titles → memory_summaries` 完成，且 Recall 子代理 Session 与父 Session 隔离，完整 Memory Content 最终进入父 Agent。
+- 全仓 alpha.4 门禁已通过：`82` 个测试文件、`806` 项测试，以及 typecheck/build/pack/pack-check/peers/diff 检查全部通过。
 
 ## 8. 验收标准
 
