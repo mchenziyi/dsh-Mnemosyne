@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { installModelSelection, type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
-import { SessionId, SessionLogOffset, type UserMessage } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionLogOffset, type UserMessage } from '@deepseek-ai/dsh-session'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { appendDelegatedPolicyOverrides, applyChildComposition, captureDelegatedPolicyOverrides, childSessionMeta, resolveChildAgentOptions, resolveChildDepth, snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import { SubagentUnavailableError } from './map-first-recall.js'
@@ -69,7 +69,7 @@ export function createDshSubagentFactoryV3(): DshSubagentFactoryV3 {
       const create = () => parent.ctx.agents.create({
         sessionId: childId,
         meta: childSessionMeta(parent, childDepth, false),
-        inheritedEventCount: SessionLogOffset(0),
+        inheritedEventCount: 0 as SessionLogOffset,
         agentOptions: resolveChildAgentOptions(parent, { provider: request.provider, model: request.model, maxTokens: 512 }, childDepth),
         signal: request.signal,
         setup: (agentCtx) => {
