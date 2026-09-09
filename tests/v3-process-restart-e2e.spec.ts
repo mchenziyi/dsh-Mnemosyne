@@ -161,6 +161,10 @@ describe('v0.3 real DSH process restart acceptance', () => {
     const log = await readFile(join(projectRoot, '.dsh-mnemosyne', 'debug', 'runtime.jsonl'), 'utf8')
     expect(log).toContain('"route":"map"')
     expect(log).toContain('"event":"recall_completed"')
+    expect(log).toContain('"event":"consolidation_subagent_created"')
+    expect(log).toContain('"event":"consolidation_subagent_completed"')
+    expect(log).toContain('"event":"consolidation_subagent_disposed"')
+    expect(log).toContain('"event":"consolidation_created"')
 
   }, 90000)
 })

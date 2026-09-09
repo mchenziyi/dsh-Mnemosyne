@@ -62,6 +62,7 @@ export function install(
   const sessionToAgent = new Map<string, Agent>()
   const recalledByTurn = new Map<string, string[]>()
   const handledTurns = new Set<string>()
+  const visibleStatusSessions = new Set<string>()
   const consolidationBarrier = createProjectConsolidationBarrierV2()
   const consolidationCoordinator = createMutationCoordinator()
   const subagentLifecycle = createSubagentLifecycleV3()
@@ -82,8 +83,18 @@ export function install(
   const setVisibleStatus = (session: Session, status: ConsolidationStatus, turn: number): void => {
     try {
       const service = ctx.get?.('mnemosyneStatus') as unknown as ConsolidationStatusService | undefined
-      service?.set(String(session.id), status, turn)
+      const id = String(session.id)
+      service?.set(id, status, turn)
+      visibleStatusSessions.add(id)
     } catch { /* status is advisory and must never affect memory work */ }
+  }
+  const clearVisibleStatus = (session: Session): void => {
+    try {
+      const service = ctx.get?.('mnemosyneStatus') as unknown as ConsolidationStatusService | undefined
+      const id = String(session.id)
+      service?.clear(id)
+      visibleStatusSessions.delete(id)
+    } catch { /* status cleanup is advisory and must never affect lifecycle */ }
   }
 
   const immediateDiagnostic = (attemptId: string, phase: string, reasonCode: string, elapsedMs: number): void => {
@@ -157,9 +168,18 @@ export function install(
     await subagentLifecycle.waitAll()
     await consolidationBarrier.waitAll()
     await logger.dispose()
+    // Release process-local status snapshots even when their sessions never
+    // emit a final disposal event.
+    for (const id of visibleStatusSessions) {
+      try {
+        const service = ctx.get?.('mnemosyneStatus') as unknown as ConsolidationStatusService | undefined
+        service?.clear(id)
+      } catch { /* best-effort cleanup */ }
+    }
     scopeRuntime.clear()
     sessionToAgent.clear()
     recalledByTurn.clear()
+    visibleStatusSessions.clear()
   }, 'mnemosyne v2 runtime cleanup')
 
   ctx.on('agent/created', (payload: { agent: Agent }) => {
@@ -357,6 +377,7 @@ export function install(
   ctx.on('session/disposed', (session: Session) => {
     if (!session) return
     const id = String(session.id)
+    clearVisibleStatus(session)
     const agent = sessionToAgent.get(id)
     sessionToAgent.delete(id)
     if (agent && mapRecallToolRuntime) mapRecallToolRuntime.clearAgent(agent)
