@@ -8,6 +8,7 @@
 
 当前发布架构：**默认 Runtime 为 V3（Map-first + Recall/Consolidation Subagent）**。安装插件后无需参数或隐藏配置即可使用；V2 仅保留为内部兼容 fallback，不是生产默认路径。当前包版本以 `package.json` 为准。
 
+- `v0.2.6`：新增父任务、Recall 与 Consolidation 的模型 Token 用量归因诊断，区分未缓存输入和缓存读取，并计入失败/重试调用。
 - `v0.2.5`：修复整理状态节点与内置 turn-tail 的渲染位置冲突，确保状态显示在回答之后。
 
 - `v0.1.0`：技术预览，验证了 DSH 插件装配、存储、Generation 与工具式记忆流程；不代表当前产品体验。

@@ -26,6 +26,21 @@ describe('v3 dsh subagent adapter', () => {
     expect(diagnostics.every((event) => Number.isInteger(event.elapsed_ms) && event.elapsed_ms >= 0)).toBe(true)
     expect(JSON.stringify(diagnostics)).not.toContain('secret task')
   })
+  it('reports aggregate child usage once before disposal, including failed attempts', async () => {
+    const usage: any[] = []
+    let disposed = false
+    const child = { followup: () => undefined, whenIdle: async () => undefined, session: { events: [
+      { type: 'assistant/attempt', data: { stream: [{ type: 'usage', usage: { inputTokens: 5, outputTokens: 1, cacheReadTokens: 8 } }] } },
+      { type: 'assistant/message', data: { usage: { inputTokens: 3, outputTokens: 2, cacheReadTokens: 92 }, message: { content: [{ type: 'text', text: '{"decision":"skip"}' }] } } },
+    ] } }
+    const factory: DshSubagentFactoryV3 = async () => ({ agent: child as any, dispose: async () => { disposed = true } }) as any
+    await runDshSubagentV3({} as any, {
+      task: 'secret task', provider: 'p', model: 'm', signal: new AbortController().signal,
+      onUsage: (value) => { expect(disposed).toBe(false); usage.push(value) },
+    }, factory)
+    expect(usage).toEqual([{ uncached_input_tokens: 8, output_tokens: 3, cache_read_tokens: 100, model_calls: 2, failed_attempts: 1 }])
+    expect(JSON.stringify(usage)).not.toContain('secret task')
+  })
   it('uses the requested session event form for consolidation work', async () => {
     let source: any
     const child = { followup: (message: any) => { source = message.source }, whenIdle: async () => undefined, session: { events: [{ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '{"decision":"skip"}' }] } } }] } }
@@ -97,10 +112,32 @@ describe('v3 dsh subagent adapter', () => {
       })).rejects.toMatchObject({ code: 'subagent_unavailable' })
       expect(diagnostics).toContainEqual(expect.objectContaining({
         event: 'error',
-        reason_code: phase === 'setup' ? 'subagent_setup_failed' : 'subagent_publish_failed',
+        reason_code: phase === 'setup' ? 'subagent_setup_child_composition_failed' : 'subagent_publish_failed',
       }))
       expect(JSON.stringify(diagnostics)).not.toContain('secret')
     }
+  })
+  it('classifies a rejection after setup and before publication as create rejected', async () => {
+    const diagnostics: any[] = []
+    const services: Record<string, unknown> = { agentPresets: { composeFrom: () => undefined }, sandboxPolicy: { overrideOf: () => undefined }, approval: {} }
+    const parent = { ctx: { get: (name: string) => services[name], agents: { create: async (options: any) => {
+      await options.setup({
+        get: (name: string) => services[name],
+        agent: { session: { append: () => undefined } },
+        on: () => () => undefined,
+        systemPrompt: { context: () => undefined, getContextOrder: () => 0, getSectionOrder: () => 0, section: () => undefined },
+        tools: { restrict: () => undefined, guard: () => undefined },
+      })
+      throw new Error('secret pre-publication failure')
+    } } }, options: {}, session: { id: 'parent', header: { id: 'parent', cwd: '/tmp/project' }, requestHeader: () => undefined } } as any
+    await expect(createDshSubagentFactoryV3()(parent, {
+      task: 'secret task', provider: 'p', model: 'm', signal: new AbortController().signal,
+      onEvent: (event, detail) => diagnostics.push({ event, ...detail }),
+    })).rejects.toMatchObject({ code: 'subagent_unavailable' })
+    expect(diagnostics.filter((event) => event.event === 'error')).toEqual([
+      expect.objectContaining({ reason_code: 'subagent_create_rejected' }),
+    ])
+    expect(JSON.stringify(diagnostics)).not.toContain('secret')
   })
   it('cancels and disposes an active child when the parent signal aborts', async () => {
     let disposed = false

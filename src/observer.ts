@@ -22,6 +22,7 @@ import { createConsolidationSubagentModelV3 } from './v3/consolidation-subagent.
 import { createMapRecallToolRuntimeV3 } from './v3/map-recall-tool.js'
 import { withRecallPolicyV3 } from './v3/recall-policy.js'
 import { createDshSubagentFactoryV3, type DshSubagentFactoryV3 } from './v3/dsh-subagent.js'
+import { modelUsageFromSessionEventV3, type AggregateModelUsageV3, type ModelUsageV3 } from './v3/model-usage.js'
 import type { CompiledOKFGenerationV2 } from './v2/okf-compiler.js'
 import { createSubagentLifecycleV3 } from './v3/subagent-lifecycle.js'
 import type { ConsolidationStatusService, ConsolidationStatus } from './consolidation-status.js'
@@ -80,6 +81,17 @@ export function install(
   const log = (scope: ResolvedScope, record: RuntimeLogRecordV2): void => {
     void logger.log(scope, record).catch(() => undefined)
   }
+  const logModelUsage = (scope: ResolvedScope, modelRole: 'parent' | 'recall' | 'consolidation', usageSource: 'message' | 'attempt' | 'aggregate', usage: ModelUsageV3 | AggregateModelUsageV3, extra: Pick<RuntimeLogRecordV2, 'turn' | 'stage' | 'attempt_id' | 'event_seq'> = {}): void => {
+    log(scope, {
+      event: 'model_usage', timestamp: timestamp(), model_role: modelRole, usage_source: usageSource,
+      uncached_input_tokens: usage.uncached_input_tokens, output_tokens: usage.output_tokens,
+      ...('cache_read_tokens' in usage && usage.cache_read_tokens !== undefined ? { cache_read_tokens: usage.cache_read_tokens } : {}),
+      ...('cache_write_tokens' in usage && usage.cache_write_tokens !== undefined ? { cache_write_tokens: usage.cache_write_tokens } : {}),
+      ...('reasoning_tokens' in usage && usage.reasoning_tokens !== undefined ? { reasoning_tokens: usage.reasoning_tokens } : {}),
+      ...('model_calls' in usage ? { model_calls: usage.model_calls, failed_attempts: usage.failed_attempts } : {}),
+      ...extra,
+    })
+  }
   const setVisibleStatus = (session: Session, status: ConsolidationStatus, turn: number): void => {
     try {
       const service = ctx.get?.('mnemosyneStatus') as unknown as ConsolidationStatusService | undefined
@@ -125,7 +137,9 @@ export function install(
     },
   })
 
-  const mapRecallToolRuntime = installOptions.mode === 'v3' ? createMapRecallToolRuntimeV3({ scopeRuntime, legacyRuntime: recallRuntime, subagentFactory: subagentFactory ?? installOptions.subagentFactory, parentTasks: (agent) => subagentLifecycle.for(agent), onEvent: (scope, event) => {
+  const mapRecallToolRuntime = installOptions.mode === 'v3' ? createMapRecallToolRuntimeV3({ scopeRuntime, legacyRuntime: recallRuntime, subagentFactory: subagentFactory ?? installOptions.subagentFactory, parentTasks: (agent) => subagentLifecycle.for(agent), onUsage: (scope, stage, usage) => {
+    logModelUsage(scope, 'recall', 'aggregate', usage, { stage })
+  }, onEvent: (scope, event) => {
     if (event.event === 'recall_start') log(scope, { event: 'recall_start', timestamp: timestamp(), result: 'started', route: 'map' })
     else if (event.event === 'recall_layer') log(scope, { event: 'recall_layer', timestamp: timestamp(), result: 'selected', route: 'map', stage: event.stage, disclosed_count: event.disclosed_count ?? 0, selected_count: event.selected_count ?? 0 })
     else if (event.event === 'recall_completed') log(scope, { event: 'recall_completed', timestamp: timestamp(), result: 'completed', route: 'map', selected_count: event.selected_count ?? 0 })
@@ -239,7 +253,9 @@ export function install(
         immediateDiagnostic(attemptId, phase ?? 'running', reasonCode, elapsedMs)
     }
     const subagentModel = installOptions.mode === 'v3'
-      ? createConsolidationSubagentModelV3(v3Agent, subagentFactory, undefined, onSubagentEvent)
+      ? createConsolidationSubagentModelV3(v3Agent, subagentFactory, undefined, onSubagentEvent, false, (stage, usage) => {
+        logModelUsage(resolution.scope, 'consolidation', 'aggregate', usage, { turn: evidence.turn, stage, attempt_id: attemptId })
+      })
       : undefined
     const consolidationRuntime = installOptions.mode === 'v3' && subagentModel
       ? createConsolidationRuntimeV2({ model: (request, route) => {
@@ -292,6 +308,16 @@ export function install(
     if (!session) return
     const resolution = scopeRuntime.observeSession(session)
     onSessionEvent()
+    if (!disposed && installOptions.mode === 'v3' && resolution.status === 'ready' && session.header.origin !== 'subagent') {
+      const usage = modelUsageFromSessionEventV3(event)
+      if (usage) {
+        const seq = (event as { seq?: unknown }).seq
+        logModelUsage(resolution.scope, 'parent', event.type === 'assistant/attempt' ? 'attempt' : 'message', usage, {
+          ...(turnOf(event) === null ? {} : { turn: turnOf(event)! }),
+          ...(typeof seq === 'number' && Number.isSafeInteger(seq) && seq >= 0 ? { event_seq: seq } : {}),
+        })
+      }
+    }
     if (disposed || resolution.status !== 'ready' || session.header.origin === 'subagent' || event?.type !== 'turn/end') return
     const reason = (event.data as { reason?: { kind?: string } | string } | undefined)?.reason
     const reasonKind = typeof reason === 'string' ? reason : reason?.kind

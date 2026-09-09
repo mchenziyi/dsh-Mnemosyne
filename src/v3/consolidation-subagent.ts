@@ -2,6 +2,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { buildConsolidationSystemPromptV2, type ConsolidationModelDecisionV2, type ConsolidationModelRequestV2 } from '../v2/consolidation-runtime.js'
 import { createDshSubagentFactoryV3, runDshSubagentV3, type DshSubagentFactoryV3, type DshSubagentLifecycleEventV3, type DshSubagentLifecycleDetailV3 } from './dsh-subagent.js'
 import type { ParentTaskSetV3 } from './subagent-lifecycle.js'
+import type { AggregateModelUsageV3 } from './model-usage.js'
 
 export class SubagentProtocolError extends Error { readonly code = 'subagent_protocol_invalid' }
 export interface ConsolidationJudgmentV3 { decision: 'skip' | 'create'; title?: string; summary?: string; content?: string; related_memory_refs?: string[]; reason_code?: string }
@@ -30,12 +31,16 @@ export async function runConsolidationSubagentV3(parent: Agent, input: { task: s
   return parseJudgment(output)
 }
 
-export function createConsolidationSubagentModelV3(parent: Agent, factory: DshSubagentFactoryV3 = createDshSubagentFactoryV3(), parentTasks?: ParentTaskSetV3, onEvent?: (event: DshSubagentLifecycleEventV3, detail?: DshSubagentLifecycleDetailV3) => void, deferCreation = false) {
+export function createConsolidationSubagentModelV3(parent: Agent, factory: DshSubagentFactoryV3 = createDshSubagentFactoryV3(), parentTasks?: ParentTaskSetV3, onEvent?: (event: DshSubagentLifecycleEventV3, detail?: DshSubagentLifecycleDetailV3) => void, deferCreation = false, onUsage?: (stage: string, usage: AggregateModelUsageV3) => void) {
   return async (request: ConsolidationModelRequestV2, route: { provider: string; model: string; signal: AbortSignal }): Promise<ConsolidationModelDecisionV2> => {
     try { onEvent?.('running', { phase: 'creating', reason_code: 'subagent_model_adapter_entered', elapsed_ms: 0 }) } catch { /* diagnostics must not affect execution */ }
     const prompt = ['You are the Mnemosyne Consolidation Subagent.', JSON.stringify(request)].join('\n')
     try { onEvent?.('running', { phase: 'creating', reason_code: 'subagent_model_runner_call_started', elapsed_ms: 0 }) } catch { /* diagnostics must not affect execution */ }
-    const output = await runDshSubagentV3(parent, { task: prompt, outputContract: buildConsolidationSystemPromptV2(request.stage), provider: route.provider, model: route.model, signal: route.signal, form: 'consolidation', parentTasks, onEvent, deferCreation }, factory)
+    const output = await runDshSubagentV3(parent, {
+      task: prompt, outputContract: buildConsolidationSystemPromptV2(request.stage), provider: route.provider, model: route.model,
+      signal: route.signal, form: 'consolidation', parentTasks, onEvent, deferCreation,
+      onUsage: (usage) => onUsage?.(request.stage, usage),
+    }, factory)
     let value: unknown
     try { value = JSON.parse(output) } catch { throw new SubagentProtocolError() }
     if (!value || typeof value !== 'object' || Array.isArray(value) || typeof (value as { decision?: unknown }).decision !== 'string') throw new SubagentProtocolError()

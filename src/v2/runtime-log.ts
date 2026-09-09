@@ -12,6 +12,7 @@ export type RuntimeLogEventV2 =
   | 'consolidation_subagent_diagnostic'
   | 'consolidation_operation_registered' | 'consolidation_operation_scheduled' | 'consolidation_operation_started'
   | 'agent_resolution_started' | 'agent_resolution_succeeded' | 'agent_resolution_failed'
+  | 'model_usage'
   | 'catalog_updated' | 'generation_published' | 'generation_failed'
 
 export interface RuntimeLogRecordV2 {
@@ -36,6 +37,16 @@ export interface RuntimeLogRecordV2 {
   child_status?: 'idle' | 'running'
   child_turn?: number
   child_step?: number
+  model_role?: 'parent' | 'recall' | 'consolidation'
+  usage_source?: 'message' | 'attempt' | 'aggregate'
+  event_seq?: number
+  uncached_input_tokens?: number
+  cache_read_tokens?: number
+  cache_write_tokens?: number
+  output_tokens?: number
+  reasoning_tokens?: number
+  model_calls?: number
+  failed_attempts?: number
 }
 
 export interface RuntimeLoggerV2 {
@@ -51,11 +62,13 @@ const EVENTS = new Set<RuntimeLogEventV2>([
     'consolidation_subagent_diagnostic',
     'consolidation_operation_registered', 'consolidation_operation_scheduled', 'consolidation_operation_started',
   'agent_resolution_started', 'agent_resolution_succeeded', 'agent_resolution_failed',
+  'model_usage',
   'catalog_updated', 'generation_published', 'generation_failed',
 ])
 const FIELDS = new Set([
   'event', 'timestamp', 'turn', 'result', 'reason_code', 'generation_id', 'catalog_id', 'memory_refs', 'index_refs',
   'stage', 'expansion_step', 'disclosed_count', 'selected_count', 'elapsed_ms', 'route', 'attempt_id', 'fallback_reason', 'phase', 'child_status', 'child_turn', 'child_step',
+  'model_role', 'usage_source', 'event_seq', 'uncached_input_tokens', 'cache_read_tokens', 'cache_write_tokens', 'output_tokens', 'reasoning_tokens', 'model_calls', 'failed_attempts',
 ])
 const REASON = /^[a-z][a-z0-9_]{0,63}$/
 const REF = /^(?:sha256|gen|catalog|mem|node)_[a-z0-9._-]{1,64}$/
@@ -67,6 +80,17 @@ function validateRecord(record: RuntimeLogRecordV2): RuntimeLogRecordV2 {
   if (record.route !== undefined && record.route !== 'map' && record.route !== 'legacy_fallback') throw new Error('runtime_log_invalid')
   if (record.attempt_id !== undefined && !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(record.attempt_id)) throw new Error('runtime_log_invalid')
   if (record.fallback_reason !== undefined && !REASON.test(record.fallback_reason)) throw new Error('runtime_log_invalid')
+  if (record.model_role !== undefined && record.model_role !== 'parent' && record.model_role !== 'recall' && record.model_role !== 'consolidation') throw new Error('runtime_log_invalid')
+  if (record.usage_source !== undefined && record.usage_source !== 'message' && record.usage_source !== 'attempt' && record.usage_source !== 'aggregate') throw new Error('runtime_log_invalid')
+  for (const value of [record.event_seq, record.uncached_input_tokens, record.cache_read_tokens, record.cache_write_tokens, record.output_tokens, record.reasoning_tokens, record.model_calls, record.failed_attempts]) {
+    if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) throw new Error('runtime_log_invalid')
+  }
+  if (record.event === 'model_usage') {
+    if (record.model_role === undefined || record.usage_source === undefined || record.uncached_input_tokens === undefined || record.output_tokens === undefined) throw new Error('runtime_log_invalid')
+    if (record.model_role === 'parent' && record.usage_source === 'aggregate') throw new Error('runtime_log_invalid')
+    if (record.model_role !== 'parent' && (record.usage_source !== 'aggregate' || record.stage === undefined)) throw new Error('runtime_log_invalid')
+    if (record.usage_source === 'aggregate' && (record.model_calls === undefined || record.failed_attempts === undefined || record.failed_attempts > record.model_calls)) throw new Error('runtime_log_invalid')
+  }
   for (const value of [record.generation_id, record.catalog_id, ...(record.memory_refs ?? []), ...(record.index_refs ?? [])]) {
     if (value !== undefined && !REF.test(value)) throw new Error('runtime_log_invalid')
   }

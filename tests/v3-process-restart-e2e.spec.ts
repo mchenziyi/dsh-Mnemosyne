@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, mkdir, readFile, realpath, readdir, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { cp, mkdtemp, mkdir, readFile, realpath, readdir, rm, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -9,6 +9,16 @@ import { openOKFMemoryV2Store } from '../src/v2/okf-memory-store.js'
 
 const execFileAsync = promisify(execFile)
 const roots: string[] = []
+
+function parseRuntimeRows(text: string): Array<{ event?: string; reason_code?: string; result?: string; model_role?: string; stage?: string; uncached_input_tokens?: number; cache_read_tokens?: number }> {
+  return text.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line) as { event?: string; reason_code?: string; result?: string; model_role?: string; stage?: string; uncached_input_tokens?: number; cache_read_tokens?: number })
+}
+
+function lifecycleFailures(rows: Array<{ event?: string; reason_code?: string; result?: string }>): string[] {
+  return rows
+    .filter((row) => row.result === 'failed' || row.event === 'consolidation_failed' || row.reason_code?.endsWith('_failed') || row.reason_code === 'subagent_create_rejected')
+    .map((row) => row.reason_code ?? row.event ?? 'unknown_failure')
+}
 
 const interceptorSource = `
 import { writeFileSync } from 'node:fs'
@@ -20,6 +30,7 @@ function stream(text) {
     yield { type: 'block-start', index: 0, blockType: 'text' }
     yield { type: 'text-delta', index: 0, text }
     yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+    yield { type: 'usage', usage: { inputTokens: 3, outputTokens: 2, cacheReadTokens: 30 } }
     yield { type: 'finish', reason: { kind: 'stop' } }
   })()
 }
@@ -29,6 +40,7 @@ function toolStream(mapRef) {
     yield { type: 'block-start', index: 0, blockType: 'tool-call' }
     yield { type: 'tool-call-delta', index: 0, id: 'call_mnemosyne_recall', name: 'mnemosyne_recall', argumentsDelta: JSON.stringify({ map_ref: mapRef }) }
     yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'call_mnemosyne_recall', name: 'mnemosyne_recall', arguments: JSON.stringify({ map_ref: mapRef }) } }
+    yield { type: 'usage', usage: { inputTokens: 3, outputTokens: 2, cacheReadTokens: 30 } }
     yield { type: 'finish', reason: { kind: 'tool-calls' } }
   })()
 }
@@ -105,6 +117,16 @@ describe('v0.3 real DSH process restart acceptance', () => {
     await mkdir(packRoot, { recursive: true, mode: 0o700 })
 
     const repoRoot = new URL('../', import.meta.url).pathname
+    const manifest = JSON.parse(await readFile(join(repoRoot, 'package.json'), 'utf8')) as { packageManager?: string }
+    const pnpmVersion = manifest.packageManager?.match(/^pnpm@(.+)$/)?.[1]
+    expect(pnpmVersion).toBe('11.7.0')
+    const binRoot = join(root, 'bin')
+    await mkdir(binRoot, { recursive: true, mode: 0o700 })
+    await writeFile(join(binRoot, 'pnpm'), `#!/bin/sh\nexec corepack pnpm@${pnpmVersion} "$@"\n`, { mode: 0o700 })
+    const hostCorepackHome = process.env.COREPACK_HOME ?? join(homedir(), '.cache', 'node', 'corepack')
+    const isolatedCorepackHome = join(root, 'corepack-home')
+    await mkdir(join(isolatedCorepackHome, 'v1', 'pnpm'), { recursive: true, mode: 0o700 })
+    await cp(join(hostCorepackHome, 'v1', 'pnpm', pnpmVersion!), join(isolatedCorepackHome, 'v1', 'pnpm', pnpmVersion!), { recursive: true })
     await execFileAsync('npm', ['run', 'build'], { cwd: repoRoot })
     await execFileAsync('npm', ['pack', '--ignore-scripts', '--pack-destination', packRoot], { cwd: repoRoot })
     const tarballs = (await readdir(packRoot)).filter((name) => name.endsWith('.tgz'))
@@ -124,15 +146,19 @@ describe('v0.3 real DSH process restart acceptance', () => {
     ].join('\n'), { mode: 0o600 })
 
     const env = {
-      PATH: process.env.PATH!,
+      PATH: `${binRoot}:${process.env.PATH!}`,
       HOME: join(root, 'home'),
       DSH_HOME: dshHome,
       TMPDIR: join(root, 'tmp'),
       NO_UPDATE_NOTIFIER: '1',
-      npm_config_prefer_offline: 'true',
+      npm_config_offline: 'true',
+      COREPACK_ENABLE_NETWORK: '0',
+      COREPACK_HOME: isolatedCorepackHome,
     }
     await mkdir(env.HOME, { recursive: true, mode: 0o700 })
     await mkdir(env.TMPDIR, { recursive: true, mode: 0o700 })
+    const pinnedPnpm = await execFileAsync('pnpm', ['--version'], { cwd: projectRoot, env, timeout: 10000 })
+    expect(pinnedPnpm.stdout.trim()).toBe(pnpmVersion)
     await execFileAsync('dsh', ['plugin', '--profile', 'headless', 'add', tarball], { env, timeout: 60000 })
 
     const receiptA = join(root, 'process-a.json')
@@ -143,6 +169,9 @@ describe('v0.3 real DSH process restart acceptance', () => {
     expect(first.recall_tool_available).toBe(false)
     const scope = computeProjectScopeId(await realpath(projectRoot))
     const store = openOKFMemoryV2Store({ project_root: projectRoot, project_scope_id: scope })
+    const processALog = await readFile(join(projectRoot, '.dsh-mnemosyne', 'debug', 'runtime.jsonl'), 'utf8')
+    const processARows = parseRuntimeRows(processALog)
+    expect(lifecycleFailures(processARows), `Process A lifecycle failures: ${lifecycleFailures(processARows).join(', ')}`).toEqual([])
     expect((await store.listMemories()).map((memory) => memory.title)).toEqual(['进程重启后恢复认证窗口经验'])
 
     const receiptB = join(root, 'process-b.json')
@@ -159,12 +188,18 @@ describe('v0.3 real DSH process restart acceptance', () => {
     expect(second.messages).toContain('进程重启后仍应恢复的完整经验')
 
     const log = await readFile(join(projectRoot, '.dsh-mnemosyne', 'debug', 'runtime.jsonl'), 'utf8')
+    const finalRows = parseRuntimeRows(log)
+    expect(lifecycleFailures(finalRows), `Final lifecycle failures: ${lifecycleFailures(finalRows).join(', ')}`).toEqual([])
     expect(log).toContain('"route":"map"')
     expect(log).toContain('"event":"recall_completed"')
     expect(log).toContain('"event":"consolidation_subagent_created"')
     expect(log).toContain('"event":"consolidation_subagent_completed"')
     expect(log).toContain('"event":"consolidation_subagent_disposed"')
     expect(log).toContain('"event":"consolidation_created"')
+    const usageRows = finalRows.filter((row) => row.event === 'model_usage')
+    expect(new Set(usageRows.map((row) => row.model_role))).toEqual(new Set(['parent', 'recall', 'consolidation']))
+    expect(usageRows.filter((row) => row.model_role === 'recall').map((row) => row.stage)).toEqual(expect.arrayContaining(['root_titles', 'node_summary', 'node_titles', 'memory_summaries']))
+    expect(usageRows.every((row) => row.uncached_input_tokens === 3 && row.cache_read_tokens === 30)).toBe(true)
 
   }, 90000)
 })

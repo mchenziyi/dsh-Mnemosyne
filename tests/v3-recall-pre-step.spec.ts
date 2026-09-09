@@ -15,11 +15,12 @@ describe('v3 recall pre-step', () => {
     const factory = async (_parent: any, request: any) => {
       const packet = JSON.parse(request.task.split('\n').at(-1)!)
       const selected = packet.items.length ? [packet.items[0].ref] : []
-      child.session.events = [{ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: JSON.stringify({ selected_refs: selected }) }] } } }]
+      child.session.events = [{ type: 'assistant/message', data: { usage: { inputTokens: 2, outputTokens: 1, cacheReadTokens: 20 }, message: { content: [{ type: 'text', text: JSON.stringify({ selected_refs: selected }) }] } } }]
       return { agent: child, dispose: async () => undefined } as any
     }
     const events: string[] = []
-    const handler = createRecallPreStepHandlerV3({ scopeRuntime: { observeSession: () => ({ status: 'ready', scope }) } as any, legacyRuntime: { recall: async () => ({ status: 'empty', reason_code: 'memory_empty', selected_memory_refs: [], expansion_steps: 0 }) } as any, loadWorld: async () => world, subagentFactory: factory, onEvent: (_scope, event) => events.push(event.event) })
+    const usage: any[] = []
+    const handler = createRecallPreStepHandlerV3({ scopeRuntime: { observeSession: () => ({ status: 'ready', scope }) } as any, legacyRuntime: { recall: async () => ({ status: 'empty', reason_code: 'memory_empty', selected_memory_refs: [], expansion_steps: 0 }) } as any, loadWorld: async () => world, subagentFactory: factory, onEvent: (_scope, event) => events.push(event.event), onUsage: (_scope, stage, value) => usage.push({ stage, ...value }) })
     const user = { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '认证刷新问题' }] } as any
     const result = await handler({ agent: { options: { provider: 'p', model: 'm' }, session: { id: 's', header: {} } } as any, messages: [user], turn: 1, step: 1, signal: new AbortController().signal }, async () => ({ kind: 'enter', messages: [user] }))
     expect(result.kind).toBe('enter')
@@ -28,6 +29,9 @@ describe('v3 recall pre-step', () => {
     expect(JSON.stringify((result as any).messages[0])).not.toContain('认证经验')
     expect(JSON.stringify((result as any).messages[1])).toContain('完整经验正文')
     expect(events).toEqual(['recall_start', 'recall_layer', 'recall_layer', 'recall_layer', 'recall_layer', 'recall_completed'])
+    expect(usage).toHaveLength(4)
+    expect(usage.map((item) => item.stage)).toEqual(['root_titles', 'node_summary', 'node_titles', 'memory_summaries'])
+    expect(usage.every((item) => item.uncached_input_tokens === 2 && item.cache_read_tokens === 20)).toBe(true)
   })
 
   it('does not recurse for subagent-origin sessions', async () => {

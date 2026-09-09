@@ -34,6 +34,42 @@ describe('v2 runtime JSONL diagnostics', () => {
     }
   })
 
+  it('persists only validated model usage counters and attribution labels', async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'mnemosyne-v2-log-usage-')))
+    try {
+      const project = computeProjectScopeId(root)
+      const scope: ResolvedScope = {
+        schema_version: 1, session_id: 'session_log', project_root: root, source: 'session_header',
+        project_scope_id: project, session_scope_id: computeSessionScopeId(project, 'session_log'),
+      }
+      const logger = createRuntimeLoggerV2()
+      await logger.log(scope, {
+        event: 'model_usage', timestamp: '2026-08-28T05:00:00.000Z', turn: 3,
+        model_role: 'recall', stage: 'memory_summaries', usage_source: 'aggregate',
+        uncached_input_tokens: 11, cache_read_tokens: 97, output_tokens: 3,
+        model_calls: 2, failed_attempts: 1,
+      })
+      await expect(logger.log(scope, {
+        event: 'model_usage', timestamp: '2026-08-28T05:00:01.000Z',
+        model_role: 'parent', usage_source: 'message', uncached_input_tokens: -1, output_tokens: 3,
+      })).rejects.toThrow()
+      await expect(logger.log(scope, {
+        event: 'model_usage', timestamp: '2026-08-28T05:00:01.000Z',
+        model_role: 'recall', usage_source: 'aggregate', uncached_input_tokens: 1, output_tokens: 1,
+      })).rejects.toThrow()
+      await logger.dispose()
+      const text = await readFile(join(root, '.dsh-mnemosyne', 'debug', 'runtime.jsonl'), 'utf8')
+      expect(JSON.parse(text.trim())).toMatchObject({
+        event: 'model_usage', model_role: 'recall', stage: 'memory_summaries',
+        uncached_input_tokens: 11, cache_read_tokens: 97, output_tokens: 3,
+      })
+      expect(text).not.toContain('provider')
+      expect(text).not.toContain('model_name')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('rejects a symlinked log file without writing to its target', async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'mnemosyne-v2-log-link-')))
     const external = join(root, 'external.txt')

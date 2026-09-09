@@ -4,11 +4,12 @@ import { SessionId, type SessionLogOffset, type UserMessage } from '@deepseek-ai
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { appendDelegatedPolicyOverrides, applyChildComposition, captureDelegatedPolicyOverrides, childSessionMeta, resolveChildAgentOptions, resolveChildDepth, snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import { SubagentUnavailableError } from './map-first-recall.js'
+import { aggregateModelUsageV3, type AggregateModelUsageV3 } from './model-usage.js'
 import type { ParentTaskSetV3 } from './subagent-lifecycle.js'
 
 export type DshSubagentLifecycleEventV3 = 'created' | 'followup_sent' | 'running' | 'error' | 'completed' | 'timeout' | 'disposed'
 export interface DshSubagentLifecycleDetailV3 { elapsed_ms: number; phase?: 'creating' | 'followup' | 'running' | 'disposing'; status?: 'idle' | 'running'; turn?: number; step?: number; reason_code?: string }
-export interface DshSubagentRequestV3 { task: string; outputContract?: string; provider: string; model: string; signal: AbortSignal; form?: 'recall' | 'consolidation'; parentTasks?: ParentTaskSetV3; onEvent?: (event: DshSubagentLifecycleEventV3, detail?: DshSubagentLifecycleDetailV3) => void; deferCreation?: boolean }
+export interface DshSubagentRequestV3 { task: string; outputContract?: string; provider: string; model: string; signal: AbortSignal; form?: 'recall' | 'consolidation'; parentTasks?: ParentTaskSetV3; onEvent?: (event: DshSubagentLifecycleEventV3, detail?: DshSubagentLifecycleDetailV3) => void; onUsage?: (usage: AggregateModelUsageV3) => void; deferCreation?: boolean }
 export type DshSubagentFactoryV3 = (parent: Agent, request: DshSubagentRequestV3) => Promise<AgentHandle>
 export class SubagentAbortedError extends Error { readonly code = 'subagent_aborted' }
 export class SubagentCreateTimeoutError extends Error { readonly code = 'subagent_create_timeout' }
@@ -52,7 +53,7 @@ export function createDshSubagentFactoryV3(): DshSubagentFactoryV3 {
   return async (parent, request) => {
     try { request.onEvent?.('running', { phase: 'creating', reason_code: 'subagent_factory_entered', elapsed_ms: 0 }) } catch { /* diagnostics must not affect execution */ }
     if (!request.provider || !request.model || request.signal.aborted) throw new SubagentUnavailableError()
-    const createState: { phase: 'creating' | 'setup' | 'publishing' } = { phase: 'creating' }
+    const createState: { phase: 'creating' | 'setup' | 'publishing'; setupStep?: 'agent_context' | 'policy_overrides' | 'child_composition' | 'descriptor' | 'model_selection' | 'persona' | 'tool_guard' } = { phase: 'creating' }
     try {
       const childId = SessionId(`mnemosyne-${randomUUID()}`)
       const childDepth = resolveChildDepth(parent, undefined)
@@ -74,14 +75,20 @@ export function createDshSubagentFactoryV3(): DshSubagentFactoryV3 {
         signal: request.signal,
         setup: (agentCtx) => {
           createState.phase = 'setup'
+          createState.setupStep = 'agent_context'
           try { request.onEvent?.('running', { phase: 'creating', reason_code: 'subagent_setup_started', elapsed_ms: 0 }) } catch { /* diagnostics must not affect execution */ }
           if (agentCtx.agent === undefined) throw new SubagentUnavailableError()
+          createState.setupStep = 'policy_overrides'
           appendDelegatedPolicyOverrides(agentCtx.agent.session, policyOverrides)
+          createState.setupStep = 'child_composition'
           applyChildComposition(agentCtx, parent, { toolFilter: { allow: [] } })
           // Match alpha.2's public SubagentRuntime materialization path: persist
           // the one-shot identity inside the unpublished setup window.
+          createState.setupStep = 'descriptor'
           agentCtx.agent.session.append('subagent/descriptor', descriptor)
+          createState.setupStep = 'model_selection'
           installModelSelection(agentCtx, { current: { provider: request.provider, model: request.model }, assembled: undefined })
+          createState.setupStep = 'persona'
           agentCtx.systemPrompt.section({
             name: 'deployment:persona-prefix',
             order: agentCtx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
@@ -97,8 +104,11 @@ export function createDshSubagentFactoryV3(): DshSubagentFactoryV3 {
               try { request.onEvent?.('error', { phase: 'running', turn: payload.turn, step: payload.step, reason_code: 'subagent_agent_error', elapsed_ms: 0 }) } catch { /* diagnostics must not affect execution */ }
             })
           } catch { /* status diagnostics are best effort */ }
+          createState.setupStep = 'tool_guard'
           agentCtx.tools.guard(() => 'mnemosyne_subagent_tools_disabled')
           try { request.onEvent?.('running', { phase: 'creating', reason_code: 'subagent_setup_completed', elapsed_ms: 0 }) } catch { /* diagnostics must not affect execution */ }
+          createState.phase = 'creating'
+          createState.setupStep = undefined
           return {
             commit: () => {
               createState.phase = 'publishing'
@@ -116,7 +126,7 @@ export function createDshSubagentFactoryV3(): DshSubagentFactoryV3 {
       return handle
     } catch {
       if (request.signal.aborted) throw new SubagentAbortedError()
-      const reasonCode = createState.phase === 'setup' ? 'subagent_setup_failed' : createState.phase === 'publishing' ? 'subagent_publish_failed' : 'subagent_create_rejected'
+      const reasonCode = createState.phase === 'setup' ? `subagent_setup_${createState.setupStep ?? 'unknown'}_failed` : createState.phase === 'publishing' ? 'subagent_publish_failed' : 'subagent_create_rejected'
       try { request.onEvent?.('error', { phase: 'creating', reason_code: reasonCode, elapsed_ms: 0 }) } catch { /* diagnostics must not affect execution */ }
       throw new SubagentUnavailableError()
     }
@@ -264,6 +274,12 @@ export async function runDshSubagentV3(parent: Agent, request: DshSubagentReques
       return output
     } finally {
       request.signal.removeEventListener('abort', onAbort)
+      try {
+        const session = handle.agent.session as typeof handle.agent.session & { events?: readonly unknown[] }
+        const events = (typeof session.snapshotEvents === 'function' ? session.snapshotEvents() : session.events ?? []) as readonly unknown[]
+        const usage = aggregateModelUsageV3(events)
+        if (usage) request.onUsage?.(usage)
+      } catch { /* usage diagnostics must not affect execution */ }
       const disposed = await disposeWithTimeout(handle)
       if (disposed === 'disposed') emit('disposed', { phase: 'disposing' })
       else emit('error', { phase: 'disposing', reason_code: disposed })

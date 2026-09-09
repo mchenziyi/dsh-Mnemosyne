@@ -50,7 +50,7 @@ describe('DSH baseline upgrade compatibility suite', () => {
     const dshDevs = Object.entries(pkgJson.devDependencies || {}).filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
 
     expect(dshPeers.length).toBe(3)
-    expect(dshDevs.length).toBe(35)
+    expect(dshDevs.length).toBe(36)
 
     for (const [name, version] of dshPeers) {
       expect(version, `peerDependency ${name} must be exact ${TARGET_DSH_VERSION}`).toBe(TARGET_DSH_VERSION)
@@ -82,8 +82,7 @@ describe('DSH baseline upgrade compatibility suite', () => {
       }
       packageVersions.get(pkgName)!.add(version)
 
-      // alpha.2's published dsh-subagent package still pins util-time rc.1.
-      const expectedVersion = pkgName === '@deepseek-ai/dsh-util-time' ? '0.1.2-rc.1' : TARGET_DSH_VERSION
+      const expectedVersion = TARGET_DSH_VERSION
       expect(version, `Package ${pkgName} snapshot version in lockfile must be ${expectedVersion}`).toBe(expectedVersion)
       expect(version).not.toMatch(/0\.1\.0-rc\.[0-8]/)
       expect(version).not.toMatch(/0\.1\.1-rc\.[01]/)
@@ -93,7 +92,7 @@ describe('DSH baseline upgrade compatibility suite', () => {
     // Verify each package has exactly one unique resolved version (no cross-RC mix)
     for (const [pkgName, versions] of packageVersions) {
       expect(versions.size, `Package ${pkgName} must not have multiple resolved versions`).toBe(1)
-      expect([...versions][0]).toBe(pkgName === '@deepseek-ai/dsh-util-time' ? '0.1.2-rc.1' : TARGET_DSH_VERSION)
+      expect([...versions][0]).toBe(TARGET_DSH_VERSION)
     }
 
     // Verify transitive packages are resolved in lockfile

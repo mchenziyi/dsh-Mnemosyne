@@ -66,7 +66,7 @@ describe('v3 observer wiring', () => {
         status: 'idle',
         followup: () => undefined,
         whenIdle: () => childDone,
-        session: { events: [{ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '{"decision":"skip","reason_code":"no_reusable_knowledge"}' }] } } }] },
+        session: { events: [{ type: 'assistant/message', data: { usage: { inputTokens: 4, outputTokens: 2, cacheReadTokens: 40 }, message: { content: [{ type: 'text', text: '{"decision":"skip","reason_code":"no_reusable_knowledge"}' }] } } }] },
       }
       const subagentFactory = async () => {
         factoryCalls++
@@ -77,14 +77,17 @@ describe('v3 observer wiring', () => {
       const events = [
         { seq: 0, time: '2026-09-03T01:00:00.000Z', type: 'request/header', turn: 1, data: { header: { config: { provider: 'p', model: 'm' } } } },
         { seq: 1, time: '2026-09-03T01:00:01.000Z', type: 'user/message', turn: 1, data: { source: { kind: 'user' }, content: [{ type: 'text', text: '完成普通任务' }] } },
-        { seq: 2, time: '2026-09-03T01:00:02.000Z', type: 'assistant/message', turn: 1, data: { message: { provider: 'p', model: 'm', content: [{ type: 'text', text: '任务已完成' }] } } },
-        { seq: 3, time: '2026-09-03T01:00:03.000Z', type: 'turn/end', turn: 1, data: { turn: 1, reason: { kind: 'completed' } } },
+        { seq: 2, time: '2026-09-03T01:00:02.000Z', type: 'assistant/attempt', turn: 1, data: { stream: [{ type: 'usage', usage: { inputTokens: 6, outputTokens: 1, cacheReadTokens: 60 } }] } },
+        { seq: 3, time: '2026-09-03T01:00:03.000Z', type: 'assistant/message', turn: 1, data: { usage: { inputTokens: 9, outputTokens: 3, cacheReadTokens: 90 }, message: { provider: 'p', model: 'm', content: [{ type: 'text', text: '任务已完成' }] } } },
+        { seq: 4, time: '2026-09-03T01:00:04.000Z', type: 'turn/end', turn: 1, data: { turn: 1, reason: { kind: 'completed' } } },
       ]
       const session = { id: 'session_v3_deferred', header: { cwd: root }, events } as any
       const parent = { session, options: { provider: 'p', model: 'm' }, ctx: { agents: {} } } as any
       listeners.get('agent/created')!({ agent: parent })
 
+      expect(listeners.get('session/event')!(session, events[2])).toBeUndefined()
       expect(listeners.get('session/event')!(session, events[3])).toBeUndefined()
+      expect(listeners.get('session/event')!(session, events[4])).toBeUndefined()
       expect(factoryCalls).toBe(0)
       await Promise.resolve()
       expect(factoryCalls).toBe(0)
@@ -127,6 +130,11 @@ describe('v3 observer wiring', () => {
         'consolidation_operation_scheduled',
         'consolidation_operation_started',
         'consolidation_skip',
+      ]))
+      expect(rows.filter((row) => row.event === 'model_usage')).toEqual(expect.arrayContaining([
+        expect.objectContaining({ model_role: 'parent', usage_source: 'attempt', event_seq: 2, uncached_input_tokens: 6, cache_read_tokens: 60 }),
+        expect.objectContaining({ model_role: 'parent', usage_source: 'message', event_seq: 3, uncached_input_tokens: 9, cache_read_tokens: 90 }),
+        expect.objectContaining({ model_role: 'consolidation', usage_source: 'aggregate', stage: 'judgment', uncached_input_tokens: 4, cache_read_tokens: 40 }),
       ]))
       expect(immediateDiagnostics.some((message) => message.includes('consolidation_operation_started'))).toBe(true)
     } finally {

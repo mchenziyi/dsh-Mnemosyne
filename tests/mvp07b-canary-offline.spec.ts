@@ -18,7 +18,7 @@ import {
 } from '../src/m07b/canary-protocol.js'
 import { MAX_MODEL_REQUESTS } from '../src/m07b/budget-ledger.js'
 
-const PACKAGE_VERSION = '0.2.2'
+const PACKAGE_VERSION = '0.2.6'
 const realTarballPath = (root: string): string => join(root, `cziyi-dsh-mnemosyne-${PACKAGE_VERSION}.tgz`)
 const CLIENT_ARTIFACT_FIXTURES = {
   'client.mjs': 'export default {}\n',
