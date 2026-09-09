@@ -1280,7 +1280,7 @@ async function runRealCanarySingleRun(
 
     registrations.push(ctx.llm.registerAdapter(['deepseek-official'], new ClaimingTaskAdapter()))
 
-    const agent = (ctx as Context & { agentLoop: AgentLoop }).agentLoop.create(
+    const agent = await (ctx as Context & { agentLoop: AgentLoop }).agentLoop.create(
       SessionId(`d2-${options.group}-${options.task.task_id}`),
       { provider: 'deepseek-official', model: options.modelName }
     )

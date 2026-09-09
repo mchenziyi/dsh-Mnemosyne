@@ -17,6 +17,15 @@ export const REQUIRED_CANARY_TARBALL_FILES = Object.freeze([
   'package/dist/index.d.mts',
   'package/dist/index.cjs',
   'package/dist/index.d.cts',
+  'package/dist/client.mjs',
+  'package/dist/client.d.mts',
+  'package/dist/client.cjs',
+  'package/dist/client.d.cts',
+  'package/dist/typert.remote-client.mjs',
+  'package/dist/typert.remote-client.d.mts',
+  'package/dist/typert.remote-client.cjs',
+  'package/dist/typert.remote-client.d.cts',
+  'package/dist/rolldown-runtime.cjs',
 ])
 
 const REQUIRED_CANARY_TARBALL_FILES_SET = new Set(REQUIRED_CANARY_TARBALL_FILES)
@@ -99,7 +108,7 @@ export async function verifyCanaryArtifact(tarballPath) {
   if (manifest.name !== '@cziyi/dsh-mnemosyne') {
     throw new Error('invalid_package_name_in_tarball')
   }
-  if (manifest.version !== '0.0.0-dev' && manifest.version !== '0.1.0' && manifest.version !== '0.2.0' && manifest.version !== '0.2.1' && manifest.version !== '0.2.2' && manifest.version !== '0.2.3' && manifest.version !== '0.2.4' && manifest.version !== '0.2.5' && manifest.version !== '0.2.6' && manifest.version !== '0.2.7' && manifest.version !== '0.2.8' && manifest.version !== '0.2.9') {
+  if (manifest.version !== '0.0.0-dev' && manifest.version !== '0.1.0' && manifest.version !== '0.2.0' && manifest.version !== '0.2.1' && manifest.version !== '0.2.2' && manifest.version !== '0.2.3' && manifest.version !== '0.2.4' && manifest.version !== '0.2.5' && manifest.version !== '0.2.6' && manifest.version !== '0.2.7' && manifest.version !== '0.2.8' && manifest.version !== '0.2.9' && manifest.version !== '0.2.10' && manifest.version !== '0.2.11' && manifest.version !== '0.2.12' && manifest.version !== '0.2.13' && manifest.version !== '0.2.14' && manifest.version !== '0.2.15' && manifest.version !== '0.2.16' && manifest.version !== '0.2.17' && manifest.version !== '0.2.18' && manifest.version !== '0.2.19' && manifest.version !== '0.2.20') {
     throw new Error('invalid_package_version_in_tarball')
   }
   if (manifest.dsh?.bundle?.patch !== './cordis.patch.yml') {

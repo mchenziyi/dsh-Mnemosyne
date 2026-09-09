@@ -18,6 +18,17 @@ import { verifyCanaryArtifact, REQUIRED_CANARY_TARBALL_FILES } from '../src/m07/
 import { executeCanaryPreflight } from '../src/m07/preflight.js'
 
 const execFileAsync = promisify(execFile)
+const clientArtifactFiles = {
+  'package/dist/client.mjs': 'export default {}\n',
+  'package/dist/client.d.mts': 'export default {}\n',
+  'package/dist/client.cjs': 'module.exports = {}\n',
+  'package/dist/client.d.cts': 'export default {}\n',
+  'package/dist/typert.remote-client.mjs': 'export default {}\n',
+  'package/dist/typert.remote-client.d.mts': 'export default {}\n',
+  'package/dist/typert.remote-client.cjs': 'module.exports = {}\n',
+  'package/dist/typert.remote-client.d.cts': 'export default {}\n',
+  'package/dist/rolldown-runtime.cjs': 'module.exports = {}\n',
+}
 
 describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Preflight', () => {
   const preflightScriptPath = join(new URL('../scripts/mvp07-canary-preflight.mjs', import.meta.url).pathname)
@@ -26,6 +37,7 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
   let sharedTarballPath: string
 
   async function makeTestTarball(targetDir: string, name: string, files: Record<string, string>): Promise<string> {
+    files = { ...clientArtifactFiles, ...files }
     const buildDir = join(targetDir, name)
     await mkdir(join(buildDir, 'package', 'dist'), { recursive: true })
     for (const [relPath, content] of Object.entries(files)) {
@@ -247,7 +259,7 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
     expect(result.status).toBe('awaiting_user_approval')
     expect(result.package_name).toBe('@cziyi/dsh-mnemosyne')
     expect(result.package_version).toBe('0.0.0-dev')
-    expect(result.dsh_version).toBe('0.1.2-alpha.4')
+    expect(result.dsh_version).toBe('0.1.3-alpha.2')
     expect(result.package_sha256).toMatch(/^sha256_[0-9a-f]{64}$/)
     expect(result.plan_id).toMatch(/^plan_[0-9a-f]{32}$/)
     expect(result.plan_sha256).toMatch(/^sha256_[0-9a-f]{64}$/)
@@ -263,7 +275,7 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
     expect(info.packageVersion).toBe('0.0.0-dev')
     expect(info.packageSha256).toMatch(/^sha256_[0-9a-f]{64}$/)
     expect(info.realTarballPath).toBe(sharedTarballPath)
-    expect(REQUIRED_CANARY_TARBALL_FILES.length).toBe(8)
+    expect(REQUIRED_CANARY_TARBALL_FILES.length).toBe(17)
 
     const base = await realpath(tmpdir())
     const tempBadDir = await mkdtemp(join(base, 'dsh-bad-tarball-'))
@@ -305,6 +317,9 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
       await writeFile(join(dupDir, 'package', 'dist', 'index.d.mts'), 'export default {}', 'utf8')
       await writeFile(join(dupDir, 'package', 'dist', 'index.cjs'), 'module.exports = {}', 'utf8')
       await writeFile(join(dupDir, 'package', 'dist', 'index.d.cts'), 'export default {}', 'utf8')
+      for (const [relPath, content] of Object.entries(clientArtifactFiles)) {
+        await writeFile(join(dupDir, relPath), content, 'utf8')
+      }
       const tgzDup = join(tempBadDir, 'duplicate-entry.tgz')
       await execFileAsync('tar', [
         '-czf',
@@ -319,6 +334,7 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
         'package/dist/index.d.mts',
         'package/dist/index.cjs',
         'package/dist/index.d.cts',
+        ...Object.keys(clientArtifactFiles),
       ])
       await expect(verifyCanaryArtifact(tgzDup)).rejects.toThrow('tarball_contains_duplicate_entries')
 

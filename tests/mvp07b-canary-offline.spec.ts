@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { join, resolve } from 'node:path'
+import { writeFile as writeFixtureFile } from 'node:fs/promises'
 import {
   validateRealCanaryPlan,
   validateApprovalReceipt,
@@ -17,8 +18,30 @@ import {
 } from '../src/m07b/canary-protocol.js'
 import { MAX_MODEL_REQUESTS } from '../src/m07b/budget-ledger.js'
 
-const PACKAGE_VERSION = '0.2.9'
+const PACKAGE_VERSION = '0.2.2'
 const realTarballPath = (root: string): string => join(root, `cziyi-dsh-mnemosyne-${PACKAGE_VERSION}.tgz`)
+const CLIENT_ARTIFACT_FIXTURES = {
+  'client.mjs': 'export default {}\n',
+  'client.d.mts': 'export default {}\n',
+  'client.cjs': 'module.exports = {}\n',
+  'client.d.cts': 'export default {}\n',
+  'typert.remote-client.mjs': 'export default {}\n',
+  'typert.remote-client.d.mts': 'export default {}\n',
+  'typert.remote-client.cjs': 'module.exports = {}\n',
+  'typert.remote-client.d.cts': 'export default {}\n',
+  'rolldown-runtime.cjs': 'module.exports = {}\n',
+}
+const CANARY_TARBALL_ENTRIES = [
+  'package/package.json', 'package/README.md', 'package/LICENSE', 'package/cordis.patch.yml',
+  'package/dist/index.mjs', 'package/dist/index.d.mts', 'package/dist/index.cjs', 'package/dist/index.d.cts',
+  ...Object.keys(CLIENT_ARTIFACT_FIXTURES).map((name) => `package/dist/${name}`),
+]
+
+async function writeClientArtifactFixture(buildDir: string): Promise<void> {
+  for (const [name, content] of Object.entries(CLIENT_ARTIFACT_FIXTURES)) {
+    await writeFixtureFile(join(buildDir, 'package', 'dist', name), content)
+  }
+}
 
 describe('MVP-07B-I TDD Item 2: Recursive Canonical JSON & Strict Formatting', () => {
   const samplePlan = createRealCanaryPlan({
@@ -1280,11 +1303,12 @@ describe('MVP-07B-I TDD Item 1 & 10: Real Six-Run State Machine Execution with F
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.mts'), 'export default {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.cjs'), 'module.exports = {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.cts'), 'export default {}\n')
+      await writeClientArtifactFixture(buildDir)
       const tarballPath = join(tempParent, 'fixture.tgz')
       const { execFile } = await import('node:child_process')
       const { promisify } = await import('node:util')
       const execFileAsync = promisify(execFile)
-      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/LICENSE', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts', 'package/dist/index.cjs', 'package/dist/index.d.cts'])
+      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, ...CANARY_TARBALL_ENTRIES])
 
       // Create crashing Fake DSH
       const crashDshPath = join(tempParent, 'crash-dsh.mjs')
@@ -1354,11 +1378,12 @@ process.exit(1)
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.mts'), 'export default {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.cjs'), 'module.exports = {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.cts'), 'export default {}\n')
+      await writeClientArtifactFixture(buildDir)
       const tarballPath = join(tempParent, 'fixture.tgz')
       const { execFile } = await import('node:child_process')
       const { promisify } = await import('node:util')
       const execFileAsync = promisify(execFile)
-      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/LICENSE', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts', 'package/dist/index.cjs', 'package/dist/index.d.cts'])
+      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, ...CANARY_TARBALL_ENTRIES])
 
       const prepRes = await executePrepare({ tarballPath, tempParent })
       await writeFile(prepRes.credential_target, 'DEEPSEEK_API_KEY: fake-offline-key\n', { mode: 0o600 })
@@ -1407,11 +1432,12 @@ process.exit(1)
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.mts'), 'export default {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.cjs'), 'module.exports = {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.cts'), 'export default {}\n')
+      await writeClientArtifactFixture(buildDir)
       const tarballPath = join(tempParent, 'fixture.tgz')
       const { execFile } = await import('node:child_process')
       const { promisify } = await import('node:util')
       const execFileAsync = promisify(execFile)
-      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/LICENSE', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts', 'package/dist/index.cjs', 'package/dist/index.d.cts'])
+      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, ...CANARY_TARBALL_ENTRIES])
 
       const prepRes = await executePrepare({ tarballPath, tempParent })
       await writeFile(prepRes.credential_target, 'DEEPSEEK_API_KEY: fake-offline-key\n', { mode: 0o600 })
@@ -1462,11 +1488,12 @@ process.exit(1)
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.mts'), 'export default {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.cjs'), 'module.exports = {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.cts'), 'export default {}\n')
+      await writeClientArtifactFixture(buildDir)
       const tarballPath = join(tempParent, 'fixture.tgz')
       const { execFile } = await import('node:child_process')
       const { promisify } = await import('node:util')
       const execFileAsync = promisify(execFile)
-      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/LICENSE', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts', 'package/dist/index.cjs', 'package/dist/index.d.cts'])
+      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, ...CANARY_TARBALL_ENTRIES])
 
       const prepRes = await executePrepare({ tarballPath, tempParent })
       await writeFile(prepRes.credential_target, 'DEEPSEEK_API_KEY: fake-offline-key\n', { mode: 0o600 })
@@ -1515,11 +1542,12 @@ process.exit(1)
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.mts'), 'export default {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.cjs'), 'module.exports = {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.cts'), 'export default {}\n')
+      await writeClientArtifactFixture(buildDir)
       const tarballPath = join(tempParent, 'fixture.tgz')
       const { execFile } = await import('node:child_process')
       const { promisify } = await import('node:util')
       const execFileAsync = promisify(execFile)
-      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/LICENSE', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts', 'package/dist/index.cjs', 'package/dist/index.d.cts'])
+      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, ...CANARY_TARBALL_ENTRIES])
 
       const prepRes = await executePrepare({ tarballPath, tempParent })
       await writeFile(prepRes.credential_target, 'DEEPSEEK_API_KEY: fake-offline-key\n', { mode: 0o600 })
@@ -1567,11 +1595,12 @@ process.exit(1)
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.mts'), 'export default {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.cjs'), 'module.exports = {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.cts'), 'export default {}\n')
+      await writeClientArtifactFixture(buildDir)
       const tarballPath = join(tempParent, 'fixture.tgz')
       const { execFile } = await import('node:child_process')
       const { promisify } = await import('node:util')
       const execFileAsync = promisify(execFile)
-      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/LICENSE', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts', 'package/dist/index.cjs', 'package/dist/index.d.cts'])
+      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, ...CANARY_TARBALL_ENTRIES])
 
       const prepRes = await executePrepare({ tarballPath, tempParent })
       await writeFile(prepRes.credential_target, 'DEEPSEEK_API_KEY: fake-offline-key\n', { mode: 0o600 })
@@ -1624,8 +1653,9 @@ process.exit(1)
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.mts'), 'export default {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.cjs'), 'module.exports = {}\n')
       await writeFile(join(buildDir, 'package', 'dist', 'index.d.cts'), 'export default {}\n')
+      await writeClientArtifactFixture(buildDir)
       const tarballPath = join(tempParent, 'fixture.tgz')
-      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, 'package/package.json', 'package/README.md', 'package/LICENSE', 'package/cordis.patch.yml', 'package/dist/index.mjs', 'package/dist/index.d.mts', 'package/dist/index.cjs', 'package/dist/index.d.cts'])
+      await execFileAsync('tar', ['-czf', tarballPath, '-C', buildDir, ...CANARY_TARBALL_ENTRIES])
 
       const scriptPath = join(new URL('../scripts/mvp07b-real-canary.mjs', import.meta.url).pathname)
 
@@ -3640,8 +3670,8 @@ try {
     const tempParent = await mkdtemp(join(base, 'dsh-business-canary-'))
 
     try {
-      await execFileAsync('corepack', ['pnpm', 'build'])
-      await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', tempParent])
+      await execFileAsync('npm', ['run', 'build'])
+      await execFileAsync('npm', ['pack', '--ignore-scripts', '--pack-destination', tempParent])
       const tarballPath = realTarballPath(tempParent)
 
       const mockBusinessInterceptorCode = `
@@ -4133,7 +4163,9 @@ export function apply(ctx) {
       expect(report.model_request_count).toBeGreaterThan(0)
       expect(report.model_request_count).toBeLessThanOrEqual(18)
       expect(report.checks.execution_wiring).toBe('fail')
-      expect(report.checks.automatic_capture).toBe('fail')
+      // The removed tool-driven wiring fails first, so downstream business
+      // checks are intentionally not evaluated.
+      expect(report.checks.automatic_capture).toBe('not_run')
       expect(report.cleanup_clean).toBe(true)
       expect(report.reason_code).toBe('product_invariant_failed')
 

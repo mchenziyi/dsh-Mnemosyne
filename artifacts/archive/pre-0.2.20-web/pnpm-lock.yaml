@@ -1,0 +1,38 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: false
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@cziyi/dsh-mnemosyne':
+        specifier: file:/Users/czy/Desktop/demo/dsh-Mnemosyne/cziyi-dsh-mnemosyne-0.2.18.tgz
+        version: file:../../../Desktop/demo/dsh-Mnemosyne/cziyi-dsh-mnemosyne-0.2.18.tgz
+      galgame-dsh-plugin:
+        specifier: github:mchenziyi/galgame-dsh-plugin
+        version: https://codeload.github.com/mchenziyi/galgame-dsh-plugin/tar.gz/f1f6687271e2e0f64c9b80527fcc20bd0d9f748e
+
+packages:
+
+  '@cziyi/dsh-mnemosyne@file:../../../Desktop/demo/dsh-Mnemosyne/cziyi-dsh-mnemosyne-0.2.18.tgz':
+    resolution: {integrity: sha512-p8XJjsFi3fvWt4s7kj6bJeOVv5+zz8ShPFSSyr/zdUliYwUMFeHAaOrxXRcbyzJZEgXIAZhtOQdFWJz8mEpOAQ==, tarball: file:../../../Desktop/demo/dsh-Mnemosyne/cziyi-dsh-mnemosyne-0.2.18.tgz}
+    version: 0.2.18
+    engines: {node: '>=22.19.0'}
+    peerDependencies:
+      '@deepseek-ai/cordis': 4.0.2
+      '@deepseek-ai/dsh-llm': 0.1.2-rc.1
+      '@deepseek-ai/dsh-session': 0.1.2-rc.1
+      '@deepseek-ai/schemastery': 3.18.2
+
+  galgame-dsh-plugin@https://codeload.github.com/mchenziyi/galgame-dsh-plugin/tar.gz/f1f6687271e2e0f64c9b80527fcc20bd0d9f748e:
+    resolution: {gitHosted: true, tarball: https://codeload.github.com/mchenziyi/galgame-dsh-plugin/tar.gz/f1f6687271e2e0f64c9b80527fcc20bd0d9f748e}
+    version: 0.1.1
+
+snapshots:
+
+  '@cziyi/dsh-mnemosyne@file:../../../Desktop/demo/dsh-Mnemosyne/cziyi-dsh-mnemosyne-0.2.18.tgz': {}
+
+  galgame-dsh-plugin@https://codeload.github.com/mchenziyi/galgame-dsh-plugin/tar.gz/f1f6687271e2e0f64c9b80527fcc20bd0d9f748e: {}

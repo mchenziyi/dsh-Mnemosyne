@@ -31,7 +31,7 @@ export async function executeCanaryPreflight(options) {
     throw new Error('dsh_cli_unavailable')
   }
 
-  if (dsh_version !== '0.1.1-rc.2' && dsh_version !== '0.1.2-alpha.3' && dsh_version !== '0.1.2-alpha.4') {
+  if (dsh_version !== '0.1.1-rc.2' && dsh_version !== '0.1.2-alpha.3' && dsh_version !== '0.1.3-alpha.2') {
     throw new Error('unsupported_dsh_version')
   }
 

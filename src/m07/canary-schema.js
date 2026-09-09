@@ -215,7 +215,7 @@ export function validateCanaryReport(val) {
 
   if (val.schema_version !== 1) throw new Error('invalid_schema_version')
   if (val.dsh_version !== '0.1.1-rc.2') throw new Error('invalid_dsh_version')
-  if (val.package_version !== '0.0.0-dev' && val.package_version !== '0.1.0' && val.package_version !== '0.2.0' && val.package_version !== '0.2.1' && val.package_version !== '0.2.2' && val.package_version !== '0.2.3' && val.package_version !== '0.2.4' && val.package_version !== '0.2.5' && val.package_version !== '0.2.6' && val.package_version !== '0.2.7' && val.package_version !== '0.2.8' && val.package_version !== '0.2.9') {
+  if (val.package_version !== '0.0.0-dev' && val.package_version !== '0.1.0' && val.package_version !== '0.2.0' && val.package_version !== '0.2.1' && val.package_version !== '0.2.2' && val.package_version !== '0.2.3' && val.package_version !== '0.2.4' && val.package_version !== '0.2.5' && val.package_version !== '0.2.6' && val.package_version !== '0.2.7' && val.package_version !== '0.2.8' && val.package_version !== '0.2.9' && val.package_version !== '0.2.10' && val.package_version !== '0.2.11' && val.package_version !== '0.2.12' && val.package_version !== '0.2.13' && val.package_version !== '0.2.14' && val.package_version !== '0.2.15' && val.package_version !== '0.2.16' && val.package_version !== '0.2.17' && val.package_version !== '0.2.18' && val.package_version !== '0.2.19' && val.package_version !== '0.2.20') {
     throw new Error('invalid_package_version')
   }
   if (typeof val.package_sha256 !== 'string' || !/^sha256_[0-9a-f]{64}$/.test(val.package_sha256)) {

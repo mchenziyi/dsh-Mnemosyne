@@ -14,8 +14,9 @@ describe('M0 bundle manifest', () => {
     expect(manifest.dependencies).toBeUndefined()
     expect(manifest.peerDependencies).toEqual({
       '@deepseek-ai/cordis': '4.0.2',
-      '@deepseek-ai/dsh-llm': '0.1.2-alpha.4',
-      '@deepseek-ai/dsh-session': '0.1.2-alpha.4',
+      '@deepseek-ai/dsh-llm': '0.1.3-alpha.2',
+      '@deepseek-ai/dsh-session': '0.1.3-alpha.2',
+      '@deepseek-ai/dsh-subagent': '0.1.3-alpha.2',
       '@deepseek-ai/schemastery': '3.18.2',
     })
   })

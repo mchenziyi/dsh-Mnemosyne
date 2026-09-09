@@ -39,18 +39,34 @@ describe('v3 dsh subagent adapter', () => {
     const sections: any[] = []
     let createOptions: any
     const handle = { agent: {} as any, dispose: async () => undefined }
-    const parent = { ctx: { agents: { create: async (options: any) => {
+    const composed = vi.fn()
+    const appended = vi.fn()
+    const contexts: any[] = []
+    const services: Record<string, unknown> = { agentPresets: { composedPreset: () => 'parent-preset', composeFrom: composed }, sandboxPolicy: { overrideOf: () => 'read-only' }, approval: {} }
+    const parent = { ctx: { get: (name: string) => services[name], agents: { create: async (options: any) => {
       createOptions = options
-      await options.setup({ on: () => () => undefined, systemPrompt: { section: (value: any) => sections.push(value) }, tools: { restrict: (value: unknown) => restrictions.push(value), guard: (value: any) => guards.push(value) } })
+      await options.setup({ get: (name: string) => services[name], agent: { session: { append: appended } }, on: () => () => undefined, systemPrompt: { context: (value: any) => contexts.push(value), getContextOrder: () => 0, getSectionOrder: () => 0, section: (value: any) => sections.push(value) }, tools: { restrict: (value: unknown) => restrictions.push(value), guard: (value: any) => guards.push(value) } })
       return handle
-    } } }, session: { id: 'parent', header: { cwd: '/tmp/project' } } } as any
+    } } }, options: {}, session: { id: 'parent', header: { id: 'parent', cwd: '/tmp/project' }, requestHeader: () => undefined } } as any
     const controller = new AbortController()
     const result = await createDshSubagentFactoryV3()(parent, { task: 'UNTRUSTED_TASK_EVIDENCE', outputContract: 'TRUSTED_STAGE_CONTRACT', provider: 'p', model: 'm', signal: controller.signal })
     expect(result).toBe(handle)
     expect(createOptions.signal).toBe(controller.signal)
     expect(createOptions.agentOptions).toMatchObject({ provider: 'p', model: 'm' })
+    expect(createOptions.agentOptions.subagentDepth).toBe(1)
+    expect(createOptions.meta).toMatchObject({ cwd: '/tmp/project', parentSession: 'parent', origin: 'subagent', delegationDepth: 1, isSeeded: false })
+    expect(createOptions.inheritedEventCount).toBe(0)
+    expect(composed).toHaveBeenCalledWith(expect.anything(), parent.ctx)
+    expect(contexts).toEqual([expect.objectContaining({ name: 'subagent:delegation' })])
+    expect(appended.mock.calls).toEqual([
+      ['sandbox/mode', { mode: 'read-only', source: 'delegation' }],
+      ['approval/policy', { policy: 'never', source: 'delegation' }],
+      ['subagent/descriptor', expect.objectContaining({ mode: 'one-shot', provider: 'dsh-mnemosyne' })],
+    ])
+    expect(createOptions.seed).toBeUndefined()
+    expect(appended.mock.calls.filter(([type]) => type === 'subagent/descriptor')).toHaveLength(1)
     expect(sections).toHaveLength(1)
-    expect(sections[0]).toMatchObject({ name: 'deployment:persona', complete: true })
+    expect(sections[0]).toMatchObject({ name: 'deployment:persona-prefix', complete: true })
     expect(sections[0].text).toContain('TRUSTED_STAGE_CONTRACT')
     expect(sections[0].text).not.toContain('UNTRUSTED_TASK_EVIDENCE')
     expect(restrictions).toEqual([{ allow: [] }])
@@ -60,10 +76,12 @@ describe('v3 dsh subagent adapter', () => {
   it('classifies alpha4 setup and publication failures without leaking the raw error', async () => {
     for (const phase of ['setup', 'publish'] as const) {
       const diagnostics: any[] = []
-      const parent = { ctx: { agents: { create: async (options: any) => {
+      const parent = { ctx: { get: () => undefined, agents: { create: async (options: any) => {
         const commit = await options.setup({
+          get: () => undefined,
+          agent: { session: { append: () => undefined } },
           on: () => () => undefined,
-          systemPrompt: { section: () => undefined },
+          systemPrompt: { context: () => undefined, getContextOrder: () => 0, getSectionOrder: () => 0, section: () => undefined },
           tools: {
             restrict: () => { if (phase === 'setup') throw new Error('secret setup failure') },
             guard: () => undefined,
@@ -72,7 +90,7 @@ describe('v3 dsh subagent adapter', () => {
         commit?.commit()
         if (phase === 'publish') throw new Error('secret publish failure')
         return { agent: {}, dispose: async () => undefined }
-      } } }, session: { id: 'parent', header: { cwd: '/tmp/project' } } } as any
+      } } }, options: {}, session: { id: 'parent', header: { id: 'parent', cwd: '/tmp/project' }, requestHeader: () => undefined } } as any
       await expect(createDshSubagentFactoryV3()(parent, {
         task: 'secret task', provider: 'p', model: 'm', signal: new AbortController().signal,
         onEvent: (event, detail) => diagnostics.push({ event, ...detail }),
@@ -146,6 +164,22 @@ describe('v3 dsh subagent adapter', () => {
     const assertion = expect(running).rejects.toMatchObject({ code: 'subagent_unavailable' })
     await vi.advanceTimersByTimeAsync(5_000)
     await assertion
+  })
+  it.each(['throw', 'reject', 'timeout'] as const)('classifies disposal %s without replacing the original failure', async (failure) => {
+    vi.useFakeTimers()
+    const diagnostics: any[] = []
+    const child = { followup: () => undefined, whenIdle: async () => undefined, session: { events: [] } }
+    const dispose = () => {
+      if (failure === 'throw') throw new Error('secret disposal')
+      if (failure === 'reject') return Promise.reject(new Error('secret disposal'))
+      return new Promise<void>(() => undefined)
+    }
+    const running = runDshSubagentV3({} as any, { task: 'map', provider: 'p', model: 'm', signal: new AbortController().signal, onEvent: (event, detail) => diagnostics.push({ event, ...detail }) }, async () => ({ agent: child, dispose }) as any)
+    const assertion = expect(running).rejects.toMatchObject({ code: 'subagent_unavailable' })
+    await vi.advanceTimersByTimeAsync(5_000)
+    await assertion
+    expect(diagnostics).toContainEqual(expect.objectContaining({ event: 'error', phase: 'disposing', reason_code: failure === 'timeout' ? 'subagent_dispose_timeout' : 'subagent_dispose_failed' }))
+    expect(JSON.stringify(diagnostics)).not.toContain('secret')
   })
   it('preserves cancellation when dispose throws synchronously', async () => {
     const controller = new AbortController()

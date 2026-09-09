@@ -568,7 +568,7 @@ export async function runAgentLoopEvidence(task: M05DTask, group: M05DGroup, cat
     }
     const taskAdapter = options.adapterFactory && options.claim ? new ClaimingAdapter(options.adapterFactory, claimTask, 'task', runId, task.task_id, requestedSeed, callTimeoutMs, taskCallCounter, options.provider, options.model, options.onTransportFinished, options.onComplete, (seq, err) => { if (err instanceof M05DBatchTimeoutError) timeoutState.batchTimedOut = true; if (err instanceof M05DAgentTimeoutError) timeoutState.callTimedOut = true; if (err instanceof ProtocolValidationError) timeoutState.protocolError = err; options.onFail?.(seq, err) }, timeoutState, options.getBatchRemaining) : fakeProvider
     registrations.push(ctx.llm.registerAdapter(['m05d-fake'], taskAdapter))
-    const agent = (ctx as Context & { agentLoop: AgentLoop }).agentLoop.create(SessionId(`m05d-${group}-${task.task_id}`), { provider: 'm05d-fake', model: 'offline' })
+    const agent = await (ctx as Context & { agentLoop: AgentLoop }).agentLoop.create(SessionId(`m05d-${group}-${task.task_id}`), { provider: 'm05d-fake', model: 'offline' })
     if (group === 'auto_inject' && task.task_kind === 'memory_dependent') {
       if (runtime === undefined) throw new ProtocolValidationError()
       const search = runtime.search({ query: task.prompt, top_k: 5 }); const opens = search.items.slice(0, 2).filter((item) => item.score_fixed > 0).map((item) => runtime.open({ retrieval_id: search.retrieval_ref, search_disclosure_sha256: search.content_sha256, memory_id: item.memory_id }))

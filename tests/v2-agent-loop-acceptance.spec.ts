@@ -80,7 +80,7 @@ describe('v0.2 real AgentLoop acceptance', () => {
       unregister = ctx.llm.registerAdapter(['project-isolation'], new ProjectIsolationAdapter())
       pluginFiber = await ctx.plugin(V2_PLUGIN)
 
-      const agentA = ctx.agentLoop.create(SessionId('session_project_a'), { provider: 'project-isolation', model: 'offline' }, { cwd: projectA })
+      const agentA = await ctx.agentLoop.create(SessionId('session_project_a'), { provider: 'project-isolation', model: 'offline' }, { cwd: projectA })
       agentA.followup(createUserMessage({
         content: [{ type: 'text', text: 'Project A 独有认证故障已通过保留旧状态窗口解决。' }], source: { kind: 'user' },
       }))
@@ -95,7 +95,7 @@ describe('v0.2 real AgentLoop acceptance', () => {
       expect((await storeA.listMemories()).map((memory) => memory.title)).toEqual(['Project A 的认证刷新陷阱'])
 
       pluginFiber = await ctx.plugin(V2_PLUGIN)
-      const agentB = ctx.agentLoop.create(SessionId('session_project_b'), { provider: 'project-isolation', model: 'offline' }, { cwd: projectB })
+      const agentB = await ctx.agentLoop.create(SessionId('session_project_b'), { provider: 'project-isolation', model: 'offline' }, { cwd: projectB })
       agentB.followup(createUserMessage({
         content: [{ type: 'text', text: '认证刷新时并发请求中断，应该怎样处理？' }], source: { kind: 'user' },
       }))
@@ -172,7 +172,7 @@ describe('v0.2 real AgentLoop acceptance', () => {
       unregister = ctx.llm.registerAdapter(['acceptance'], new AcceptanceAdapter())
       pluginFiber = await ctx.plugin(V2_PLUGIN)
 
-      const agentA = ctx.agentLoop.create(
+      const agentA = await ctx.agentLoop.create(
         SessionId('session_accept_a'),
         { provider: 'acceptance', model: 'offline' },
         { cwd: root },
@@ -190,7 +190,7 @@ describe('v0.2 real AgentLoop acceptance', () => {
 
       pluginFiber = await ctx.plugin(V2_PLUGIN)
 
-      const agent = ctx.agentLoop.create(
+      const agent = await ctx.agentLoop.create(
         SessionId('session_accept_b'),
         { provider: 'acceptance', model: 'offline' },
         { cwd: root },

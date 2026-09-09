@@ -1,8 +1,8 @@
 # dsh-Mnemosyne 当前架构
 
-> 状态：✅ v0.2.0 MVP Complete，当前有效架构
+> 状态：✅ v0.2.0 MVP Complete；生产入口默认使用 V3
 >
-> 更新日期：2026-08-31
+> 更新日期：2026-09-08
 
 ## 一、产品目标
 
@@ -71,6 +71,8 @@ v0.2.0 不实现：
 - 派生状态损坏时不得反向篡改规范对象。
 
 ## 三、DSH 生命周期装配
+
+生产入口 `src/index.ts` 固定装配 V3。V3 即 Map-first Recall 与 Recall/Consolidation Subagent 链路，安装后无需配置；V2 只作为内部兼容 fallback，不能由生产入口默认选择。
 
 插件只使用 DSH 公开扩展：
 
@@ -241,7 +243,8 @@ Node 文件系统 API 无法对同 UID 恶意进程提供内核级目录能力�
 ## 十、版本与文档事实源
 
 - v0.1.0：已发布的工具式技术预览，只作为历史；
-- v0.2.0：Zero-operation OKF Memory MVP 已完成，与 v0.1 数据不兼容；
+- v0.2.x：Zero-operation OKF Memory MVP 已完成；当前生产入口默认 V3，V2 仅内部 fallback，与 v0.1 数据不兼容；
+- DSH 兼容基线：`0.1.3-alpha.2`；alpha.2 的子代理 descriptor API 通过公开 Session 事件适配；
 - 当前具体 Schema、限制和验收以 DSH_MNEMOSYNE_V020_ZERO_OPERATION_OKF_MEMORY_PLAN.zh-CN.md 为准；
 - 本地使用评估以 DSH_MNEMOSYNE_LOCAL_OBSERVATION_EVALUATION.zh-CN.md 为准；
 - 被删除的 v0.1/M0.5 执行计划仍可从 Git 历史中的 v0.1 发布提交读取，但不再作为当前设计输入。

@@ -6,9 +6,13 @@
 
 ## 版本状态
 
+当前发布架构：**默认 Runtime 为 V3（Map-first + Recall/Consolidation Subagent）**。安装插件后无需参数或隐藏配置即可使用；V2 仅保留为内部兼容 fallback，不是生产默认路径。当前包版本以 `package.json` 为准。
+
+- `v0.2.5`：修复整理状态节点与内置 turn-tail 的渲染位置冲突，确保状态显示在回答之后。
+
 - `v0.1.0`：技术预览，验证了 DSH 插件装配、存储、Generation 与工具式记忆流程；不代表当前产品体验。
 - `v0.2.0`：**Zero-operation OKF Memory MVP（MVP Complete）**。用户只需正常对话，记忆的读取、组织与沉淀均由插件自动完成。
-- `v0.2.9`：本地验收版本，修复 Web 子代理生命周期、沉淀输出契约和主模型地图使用规则。2026-09-04 已通过相关任务召回、无关任务跳过及沉淀/会话收尾验收；尚未发布 npm，详见 [验收记录](docs/DSH_MNEMOSYNE_DSH_AGENT_RUNBOOK.zh-CN.md#八v029-本地验收记录2026-09-04)。
+- `v0.2.9`：历史本地验收编号（未发布 npm），其修复已合并进当前发布线；详见 [验收记录](docs/DSH_MNEMOSYNE_DSH_AGENT_RUNBOOK.zh-CN.md#八v029-本地验收记录2026-09-04)。
 
 v0.2.0 已闭环五项 MVP 能力：
 
@@ -41,7 +45,7 @@ v0.2.0 已闭环五项 MVP 能力：
 要求：
 
 - Node.js `>=22.19.0`
-- DeepSeek Harness / DSH 公开 SDK 基线 `0.1.2-alpha.4`
+- DeepSeek Harness / DSH 公开 SDK 基线 `0.1.3-alpha.2`（当前适配目标；历史验收环境见 Runbook）
 
 ```bash
 dsh plugin add @cziyi/dsh-mnemosyne

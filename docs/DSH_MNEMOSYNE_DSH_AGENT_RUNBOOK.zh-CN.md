@@ -34,7 +34,7 @@ npm view @cziyi/dsh-mnemosyne version
 要求：
 
 - Node.js 满足包声明的 `>=22.19.0`；
-- 当前开发与验证基线为 DSH `0.1.2-alpha.4`；若用户环境不同，不宣称兼容，先报告差异；
+- 当前开发基线为 DSH `0.1.3-alpha.2`；若用户环境不同，不宣称兼容，先报告差异；
 - registry 可访问并能解析目标包版本。
 
 ### 2.2 确认目标 Profile
@@ -67,7 +67,7 @@ dsh plugin --profile <profile> add @cziyi/dsh-mnemosyne@<target-version>
 
 若用户要求当前 `0.2.x` 最新版，可先解析 registry 版本，再将命令中的版本替换为已确认的精确版本；最终报告不得只写 `latest`。
 
-`0.2.9` 当前为本地验收包，不代表已经发布 npm。验收时使用已核对的 tarball 绝对路径替代包名，并核对 tarball 内与安装后的 ESM/CJS bundle SHA-256 一致。
+`0.2.10` 为 rc.1 适配本地版本，83 个测试文件、829 项离线测试通过；真实 Web 回归待完成，不代表已经发布 npm。`0.2.9` 的历史验收制品保留。验收时使用已核对的 tarball 绝对路径替代包名，并核对 tarball 内与安装后的 ESM/CJS bundle SHA-256 一致。
 
 安装后执行第六章的统一验证。不要为了“全局可用”盲目写入 `default`、`demo`、`headless` 和 `web` 全部 Profile；DSH 的插件依赖按 Profile 管理。
 

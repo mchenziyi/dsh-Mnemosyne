@@ -24,6 +24,7 @@ import { withRecallPolicyV3 } from './v3/recall-policy.js'
 import { createDshSubagentFactoryV3, type DshSubagentFactoryV3 } from './v3/dsh-subagent.js'
 import type { CompiledOKFGenerationV2 } from './v2/okf-compiler.js'
 import { createSubagentLifecycleV3 } from './v3/subagent-lifecycle.js'
+import type { ConsolidationStatusService, ConsolidationStatus } from './consolidation-status.js'
 
 export interface ObserverInstallOptions {
   readonly mode?: 'v2' | 'v3'
@@ -77,6 +78,12 @@ export function install(
 
   const log = (scope: ResolvedScope, record: RuntimeLogRecordV2): void => {
     void logger.log(scope, record).catch(() => undefined)
+  }
+  const setVisibleStatus = (session: Session, status: ConsolidationStatus, turn: number): void => {
+    try {
+      const service = ctx.get?.('mnemosyneStatus') as unknown as ConsolidationStatusService | undefined
+      service?.set(String(session.id), status, turn)
+    } catch { /* status is advisory and must never affect memory work */ }
   }
 
   const immediateDiagnostic = (attemptId: string, phase: string, reasonCode: string, elapsedMs: number): void => {
@@ -172,16 +179,19 @@ export function install(
     const provider = agentOptions?.provider ?? evidence.route.provider
     const model = agentOptions?.model ?? evidence.route.model
     if (!provider || !model) {
+      setVisibleStatus(session, 'failed', evidence.turn)
       log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn: evidence.turn, result: 'failed', reason_code: 'model_route_unavailable', attempt_id: attemptId })
       return
     }
     if (installOptions.mode === 'v3' && (!agent || !agent.ctx?.agents)) {
+      setVisibleStatus(session, 'failed', evidence.turn)
       log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn: evidence.turn, result: 'failed', reason_code: 'consolidation_agent_unavailable', attempt_id: attemptId })
       return
     }
     const v3Agent = agent as Agent
     recalledByTurn.delete(`${session.id}:${evidence.turn}`)
     log(resolution.scope, { event: 'consolidation_start', timestamp: timestamp(), turn: evidence.turn, result: 'started', memory_refs: used, attempt_id: attemptId })
+    setVisibleStatus(session, 'running', evidence.turn)
     const startedAt = Date.now()
     const onSubagentEvent = (event: Parameters<NonNullable<Parameters<typeof createConsolidationSubagentModelV3>[3]>>[0], detail?: Parameters<NonNullable<Parameters<typeof createConsolidationSubagentModelV3>[3]>>[1]): void => {
         const eventMap = {
@@ -248,13 +258,14 @@ export function install(
     // registry wait on the child creation it is itself trying to publish.
     await consolidationRuntime.consolidate(request).then((result) => {
       if (result.status === 'created') {
+        setVisibleStatus(session, 'created', evidence.turn)
         log(resolution.scope, { event: 'consolidation_created', timestamp: timestamp(), turn: evidence.turn, result: 'created', memory_refs: result.memory_id ? [result.memory_id] : [], elapsed_ms: Date.now() - startedAt, attempt_id: attemptId })
         log(resolution.scope, { event: 'catalog_updated', timestamp: timestamp(), turn: evidence.turn, result: 'created', catalog_id: result.catalog_id, attempt_id: attemptId })
         log(resolution.scope, { event: 'generation_published', timestamp: timestamp(), turn: evidence.turn, result: 'published', generation_id: result.generation_id, attempt_id: attemptId })
-      } else if (result.status === 'noop') log(resolution.scope, { event: 'consolidation_noop', timestamp: timestamp(), turn: evidence.turn, result: 'noop', reason_code: result.reason_code, memory_refs: result.memory_id ? [result.memory_id] : [], elapsed_ms: Date.now() - startedAt, attempt_id: attemptId })
-      else if (result.status === 'skipped') log(resolution.scope, { event: 'consolidation_skip', timestamp: timestamp(), turn: evidence.turn, result: 'skipped', reason_code: result.reason_code, elapsed_ms: Date.now() - startedAt, attempt_id: attemptId })
-      else log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn: evidence.turn, result: 'failed', reason_code: result.reason_code, elapsed_ms: Date.now() - startedAt, attempt_id: attemptId })
-    }).catch(() => log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn: evidence.turn, result: 'failed', reason_code: 'consolidation_failed', elapsed_ms: Date.now() - startedAt, attempt_id: attemptId }))
+      } else if (result.status === 'noop') { setVisibleStatus(session, 'skipped', evidence.turn); log(resolution.scope, { event: 'consolidation_noop', timestamp: timestamp(), turn: evidence.turn, result: 'noop', reason_code: result.reason_code, memory_refs: result.memory_id ? [result.memory_id] : [], elapsed_ms: Date.now() - startedAt, attempt_id: attemptId })
+      } else if (result.status === 'skipped') { setVisibleStatus(session, 'skipped', evidence.turn); log(resolution.scope, { event: 'consolidation_skip', timestamp: timestamp(), turn: evidence.turn, result: 'skipped', reason_code: result.reason_code, elapsed_ms: Date.now() - startedAt, attempt_id: attemptId })
+      } else { setVisibleStatus(session, 'failed', evidence.turn); log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn: evidence.turn, result: 'failed', reason_code: result.reason_code, elapsed_ms: Date.now() - startedAt, attempt_id: attemptId }) }
+    }).catch(() => { setVisibleStatus(session, 'failed', evidence.turn); log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn: evidence.turn, result: 'failed', reason_code: 'consolidation_failed', elapsed_ms: Date.now() - startedAt, attempt_id: attemptId }) })
   }
 
   ctx.on('session/event', (session: Session, event: SessionEvent) => {
@@ -320,6 +331,7 @@ export function install(
       log(resolution.scope, { event: 'consolidation_operation_started', timestamp: timestamp(), turn, result: 'started', attempt_id: attemptId })
       immediateDiagnostic(attemptId, 'running', 'consolidation_operation_started', 0)
       if (operationSignal.aborted) {
+        setVisibleStatus(session, 'failed', evidence.turn)
         log(resolution.scope, { event: 'consolidation_failed', timestamp: timestamp(), turn, result: 'failed', reason_code: 'subagent_aborted', attempt_id: attemptId })
         settleOperation()
         return

@@ -1,5 +1,5 @@
-export const AUDIT_COMMIT = 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e'
-export const DSH_VERSION = '0.1.2-alpha.4'
+export const AUDIT_COMMIT = '82a5fd61a7cf5c293cec4bdff68f455398d685e9'
+export const DSH_VERSION = '0.1.3-alpha.2'
 export const CORDIS_VERSION = '4.0.2'
 export const SCHEMASTERY_VERSION = '3.18.2'
 

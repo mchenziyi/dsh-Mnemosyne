@@ -105,8 +105,8 @@ describe('v0.3 real DSH process restart acceptance', () => {
     await mkdir(packRoot, { recursive: true, mode: 0o700 })
 
     const repoRoot = new URL('../', import.meta.url).pathname
-    await execFileAsync('corepack', ['pnpm', 'build'], { cwd: repoRoot })
-    await execFileAsync('corepack', ['pnpm', 'pack', '--pack-destination', packRoot], { cwd: repoRoot })
+    await execFileAsync('npm', ['run', 'build'], { cwd: repoRoot })
+    await execFileAsync('npm', ['pack', '--ignore-scripts', '--pack-destination', packRoot], { cwd: repoRoot })
     const tarballs = (await readdir(packRoot)).filter((name) => name.endsWith('.tgz'))
     expect(tarballs).toHaveLength(1)
     const tarball = join(packRoot, tarballs[0]!)

@@ -1,7 +1,11 @@
 {
   "name": "@cziyi/dsh-mnemosyne",
-  "version": "0.2.9",
+  "version": "0.2.5",
   "description": "Zero-operation OKF memory and progressive disclosure plugin for DeepSeek Harness",
+  "mnemosyne": {
+    "defaultRuntime": "v3",
+    "legacyFallback": "v2"
+  },
   "keywords": [
     "deepseek-harness",
     "memory",
@@ -30,6 +34,17 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
+    },
+    "./client": {
+      "types": "./dist/client.d.mts",
+      "default": "./dist/client.mjs",
+      "import": "./dist/client.mjs",
+      "require": "./dist/client.cjs"
+    },
+    "./remote": {
+      "types": "./dist/typert.remote-client.d.mts",
+      "import": "./dist/typert.remote-client.mjs",
+      "require": "./dist/typert.remote-client.cjs"
     }
   },
   "files": [
@@ -42,6 +57,16 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+      "client": {
+        "platform": "web",
+        "immediately": true,
+        "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-ui-chat",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-session"
+      ]
     }
   },
   "engines": {
@@ -50,49 +75,60 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "tsdown && node scripts/fix-cjs-dts.mjs",
+    "build": "tsdown && node scripts/fix-cjs-dts.mjs && node scripts/wrap-client-bundle.mjs",
     "prepare": "pnpm build",
     "pack": "pnpm build && pnpm exec npm pack",
     "pack:check": "node tests/pack-check.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.2",
-    "@deepseek-ai/dsh-llm": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-session": "0.1.2-alpha.4",
+    "@deepseek-ai/dsh-llm": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-session": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-subagent": "0.1.3-alpha.2",
     "@deepseek-ai/schemastery": "3.18.2"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.2",
-    "@deepseek-ai/dsh-agent": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-agent-loop": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-anonymous-user-id": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-atomic-write": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-attachment": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-brand": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-code-runtime": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-credentials": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-credentials-local": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-deepseek-llm-api-extensions": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-fs": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-home-paths": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-invariants": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-launch-environment": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-llm": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-llm-deepseek": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-sandbox": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-scope": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-session": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-session-checkpoint-policy": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-session-persistence": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-session-projection": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-settings": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-system-prompt": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-timeout": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-tools": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-typert-protocol": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-user-approval": "0.1.2-alpha.4",
+    "@deepseek-ai/dsh-agent": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-agent-loop": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-anonymous-user-id": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-api-remotes": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-atomic-write": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-attachment": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-brand": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-chat": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-session": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-code-runtime": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-credentials": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-credentials-local": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-deepseek-llm-api-extensions": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-fs": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-home-paths": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-invariants": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-launch-environment": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-llm": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-llm-deepseek": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-sandbox": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-scope": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-session": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-session-checkpoint-policy": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-session-persistence": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-session-projection": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-subagent": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-settings": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-system-prompt": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-timeout": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-tools": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-typert-protocol": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-user-approval": "0.1.3-alpha.2",
     "@deepseek-ai/schemastery": "3.18.2",
     "@types/node": "^22.15.0",
+    "@types/react": "18.3.18",
+    "react": "18.3.1",
+    "react-test-renderer": "18.3.1",
     "tsdown": "^0.22.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"

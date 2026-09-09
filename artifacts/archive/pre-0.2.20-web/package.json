@@ -1,0 +1,18 @@
+{
+  "name": "dsh-profile-web",
+  "private": true,
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "galgame-dsh-plugin",
+        "@cziyi/dsh-mnemosyne"
+      ]
+    }
+  },
+  "dependencies": {
+    "@cziyi/dsh-mnemosyne": "file:/Users/czy/Desktop/demo/dsh-Mnemosyne/cziyi-dsh-mnemosyne-0.2.18.tgz",
+    "galgame-dsh-plugin": "github:mchenziyi/galgame-dsh-plugin"
+  }
+}

@@ -19,7 +19,7 @@ import {
   type PublicSeamsAudit,
 } from '../src/protocol/dsh-baseline-audit.js'
 
-const TARGET_DSH_VERSION = '0.1.2-alpha.4'
+const TARGET_DSH_VERSION = '0.1.3-alpha.2'
 
 const VALID_PUBLIC_SEAMS: PublicSeamsAudit = {
   cordis_plugin: 'pass',
@@ -41,16 +41,16 @@ const VALID_COMPATIBILITY: CompatibilityAudit = {
 describe('DSH baseline upgrade compatibility suite', () => {
   it('binds compatibility metadata to the audited upstream DSH release', () => {
     expect(DSH_VERSION).toBe(TARGET_DSH_VERSION)
-    expect(AUDIT_COMMIT).toBe('b150a551b8d465e31e418e1b2eaf5e79bbb7d28e')
+    expect(AUDIT_COMMIT).toBe('82a5fd61a7cf5c293cec4bdff68f455398d685e9')
   })
 
-  it('enforces that all direct @deepseek-ai/dsh-* dependencies in package.json are exact alpha.4', () => {
+  it('enforces that all direct @deepseek-ai/dsh-* dependencies in package.json use the audited release', () => {
     const pkgJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'))
     const dshPeers = Object.entries(pkgJson.peerDependencies || {}).filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
     const dshDevs = Object.entries(pkgJson.devDependencies || {}).filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
 
-    expect(dshPeers.length).toBe(2)
-    expect(dshDevs.length).toBe(28)
+    expect(dshPeers.length).toBe(3)
+    expect(dshDevs.length).toBe(35)
 
     for (const [name, version] of dshPeers) {
       expect(version, `peerDependency ${name} must be exact ${TARGET_DSH_VERSION}`).toBe(TARGET_DSH_VERSION)
@@ -67,7 +67,7 @@ describe('DSH baseline upgrade compatibility suite', () => {
     expect(pkgJson.devDependencies['@deepseek-ai/dsh-credentials']).toBe(TARGET_DSH_VERSION)
   })
 
-  it('scans full pnpm-lock.yaml for all DSH snapshots and rejects rc.6, rc.7, rc.8, ranges, and cross-RC mix', () => {
+  it('scans the full lockfile and accepts only the audited alpha.2 graph', () => {
     const lockContent = readFileSync(resolve(process.cwd(), 'pnpm-lock.yaml'), 'utf8')
     const matches = [...lockContent.matchAll(/@deepseek-ai\/dsh-([a-z-]+)@([0-9a-z.-]+)/g)]
     expect(matches.length).toBeGreaterThan(0)
@@ -82,8 +82,9 @@ describe('DSH baseline upgrade compatibility suite', () => {
       }
       packageVersions.get(pkgName)!.add(version)
 
-      // Reject any non-rc.2 version
-      expect(version, `Package ${pkgName} snapshot version in lockfile must be ${TARGET_DSH_VERSION}`).toBe(TARGET_DSH_VERSION)
+      // alpha.2's published dsh-subagent package still pins util-time rc.1.
+      const expectedVersion = pkgName === '@deepseek-ai/dsh-util-time' ? '0.1.2-rc.1' : TARGET_DSH_VERSION
+      expect(version, `Package ${pkgName} snapshot version in lockfile must be ${expectedVersion}`).toBe(expectedVersion)
       expect(version).not.toMatch(/0\.1\.0-rc\.[0-8]/)
       expect(version).not.toMatch(/0\.1\.1-rc\.[01]/)
       expect(version).not.toMatch(/[\^~*>=]/)
@@ -92,7 +93,7 @@ describe('DSH baseline upgrade compatibility suite', () => {
     // Verify each package has exactly one unique resolved version (no cross-RC mix)
     for (const [pkgName, versions] of packageVersions) {
       expect(versions.size, `Package ${pkgName} must not have multiple resolved versions`).toBe(1)
-      expect([...versions][0]).toBe(TARGET_DSH_VERSION)
+      expect([...versions][0]).toBe(pkgName === '@deepseek-ai/dsh-util-time' ? '0.1.2-rc.1' : TARGET_DSH_VERSION)
     }
 
     // Verify transitive packages are resolved in lockfile
@@ -177,7 +178,7 @@ describe('DSH baseline upgrade compatibility suite', () => {
     ).toThrow(ProtocolValidationError)
 
     // 2. Lockfile with only rc.8 produces status: 'blocked' and never ready
-    const rc8Lockfile = readFileSync(resolve(process.cwd(), 'pnpm-lock.yaml'), 'utf8').replace(/0\.1\.2-alpha\.4/g, '0.1.0-rc.8')
+    const rc8Lockfile = readFileSync(resolve(process.cwd(), 'pnpm-lock.yaml'), 'utf8').replaceAll(TARGET_DSH_VERSION, '0.1.0-rc.8')
     const auditRc8 = createDshBaselineAudit({
       npm_next_version: TARGET_DSH_VERSION,
       package_json_content: pkgContent,
@@ -392,7 +393,7 @@ describe('DSH baseline upgrade compatibility suite', () => {
       unregister = (ctx as Context & { llm: LlmRuntime }).llm.registerAdapter(['smoke-provider'], new SmokeAdapter())
       expect(typeof unregister).toBe('function')
 
-      const agent = (ctx as Context & { agentLoop: AgentLoop }).agentLoop.create(SessionId('smoke-session-1'), { provider: 'smoke-provider', model: 'smoke-model' })
+      const agent = await (ctx as Context & { agentLoop: AgentLoop }).agentLoop.create(SessionId('smoke-session-1'), { provider: 'smoke-provider', model: 'smoke-model' })
       expect(agent).toBeDefined()
       expect(agent.session).toBeDefined()
 

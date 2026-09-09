@@ -3,15 +3,17 @@ import { Context } from '@deepseek-ai/cordis'
 import { AgentRegistry } from '@deepseek-ai/dsh-agent'
 import { AgentLoop } from '@deepseek-ai/dsh-agent-loop'
 import { ToolCallId, createUserMessage, LlmAdapter, LlmRuntime, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
-import { SessionId, SessionStore } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, SessionLogOffset, SessionStore } from '@deepseek-ai/dsh-session'
 import { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { ToolRuntime } from '@deepseek-ai/dsh-tools'
 import SessionProjection from '@deepseek-ai/dsh-session-projection'
 import * as SessionCheckpointPolicy from '@deepseek-ai/dsh-session-checkpoint-policy'
-import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
+import { foldSubagentDescriptor, SubagentRuntime } from '@deepseek-ai/dsh-subagent'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { install } from '../src/observer.js'
+import * as MnemosynePlugin from '../src/index.js'
 
 const roots: string[] = []
 function textStream(text: string): AsyncIterable<StreamChunk> {
@@ -46,6 +48,7 @@ describe('v3 real AgentLoop wiring', () => {
     let pluginFiber: { dispose(): Promise<void> } | undefined
     let childCalls = 0
     let childFlushes = 0
+    const childSessions: Session[] = []
     class Adapter extends LlmAdapter {
       providerInfo(provider: string) { return { id: provider, name: 'v3-alpha4-offline' } }
       stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -81,11 +84,15 @@ describe('v3 real AgentLoop wiring', () => {
     }
     let unregister: (() => void) | undefined
     try {
-      fibers.push(await ctx.plugin(SessionStore)); fibers.push(await ctx.plugin(AgentRegistry)); fibers.push(await ctx.plugin(LlmRuntime)); fibers.push(await ctx.plugin(SystemPrompt, { persona: 'Parent coding agent identity.' })); fibers.push(await ctx.plugin(ToolRuntime)); fibers.push(await ctx.plugin(SessionProjection)); fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
+      fibers.push(await ctx.plugin(SessionStore)); fibers.push(await ctx.plugin(AgentRegistry)); fibers.push(await ctx.plugin(LlmRuntime)); fibers.push(await ctx.plugin(SystemPrompt, { personaPrefix: 'Parent coding agent identity.' })); fibers.push(await ctx.plugin(ToolRuntime)); fibers.push(await ctx.plugin(SessionProjection)); fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
         const assembly = await next()
         return { ...assembly, sections: [...assembly.sections, { name: 'test-coding-policy', text: 'Injected coding instructions.' }] }
       })
+      ctx.on('session/created', (session) => {
+        if (session.header.origin !== 'subagent') return
+        childSessions.push(session)
+      }, { global: true })
       if (checkpoints) {
         // Run the public Web checkpoint policy; a separate durability listener
         // observes child flushes without requiring a storage backend here.
@@ -97,12 +104,8 @@ describe('v3 real AgentLoop wiring', () => {
         fibers.push(await ctx.plugin({ ...SessionCheckpointPolicy, inject: ['llm', 'sessions', 'tools'] }))
       }
       unregister = ctx.llm.registerAdapter(['v3-alpha4-offline'], new Adapter())
-      pluginFiber = await ctx.plugin({
-        name: 'mnemosyne-v3-alpha4-test',
-        inject: ['llm', 'agents'],
-        apply: (pluginCtx: Context) => install(pluginCtx, { projectRoot: root }, undefined, { mode: 'v3' }),
-      })
-      const agent = ctx.agentLoop.create(SessionId('v3_alpha4_parent'), { provider: 'v3-alpha4-offline', model: 'offline' }, { cwd: root })
+      pluginFiber = await ctx.plugin(MnemosynePlugin, { projectRoot: root })
+      const agent = await ctx.agentLoop.create(SessionId('v3_alpha4_parent'), { provider: 'v3-alpha4-offline', model: 'offline' }, { cwd: root })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: '完成普通任务' }], source: { kind: 'user' } }))
       await agent.whenIdle()
 
@@ -118,6 +121,41 @@ describe('v3 real AgentLoop wiring', () => {
       if (decision !== 'create') expect(childCalls).toBe(1)
       else expect(childCalls).toBeGreaterThan(1)
       if (checkpoints) expect(childFlushes).toBeGreaterThan(0)
+      const childDescriptors = childSessions.map((session) => foldSubagentDescriptor(session.snapshotEvents()))
+      expect(childDescriptors.length).toBeGreaterThan(0)
+      expect(childDescriptors.every((descriptor) => descriptor !== undefined && (descriptor as { mode?: string }).mode === 'one-shot')).toBe(true)
+      // Exercise DSH's cold catalog classifier with disk-roundtripped real
+      // AgentLoop logs in a fresh registry. Only the query storage seam is fake;
+      // session replay, projection folding and listChildren are the real APIs.
+      const historyPath = join(root, 'child-history.json')
+      await writeFile(historyPath, JSON.stringify(childSessions.map((session) => ({ header: session.header, events: session.snapshotEvents() }))))
+      const saved: Array<{ header: Session['header']; events: ReturnType<Session['snapshotEvents']> }> = JSON.parse(await readFile(historyPath, 'utf8'))
+      const cold = new Context()
+      const coldFibers: Array<{ dispose(): Promise<void> }> = []
+      try {
+        coldFibers.push(await cold.plugin(SessionStore))
+        coldFibers.push(await cold.plugin(SessionProjection))
+        coldFibers.push(await cold.plugin(SubagentRuntime))
+        let omitDescriptor = false
+        cold.provide('sessionQuery', {
+          listSessions: async () => saved.map(({ header }) => ({ header })),
+          observeSession: async (id: SessionId) => {
+            const record = saved.find(({ header }) => header.id === id)!
+            const replay = Session.create(id, omitDescriptor ? [] : record.events, record.header, SessionLogOffset(0))
+            return { header: record.header, inheritedEventCount: SessionLogOffset(0), projections: cold.get('sessionProjections')!.snapshot(replay, ['subagent']), [Symbol.dispose]: () => undefined }
+          },
+        } as any)
+        expect(saved.every(({ header }) => cold.get('sessions')!.get(header.id) === undefined)).toBe(true)
+        const listing = await cold.get('subagents')!.listChildren(agent.session.header.id)
+        expect(listing).toHaveLength(saved.length)
+        expect(listing.every((row) => row.kind === 'child' && row.mode === 'one-shot' && row.activity === 'inactive')).toBe(true)
+        // The same cold path must detect the original missing-identity defect.
+        omitDescriptor = true
+        const broken = await cold.get('subagents')!.listChildren(agent.session.header.id)
+        expect(broken.every((row) => row.kind === 'diagnostic' && row.reason === 'corrupt')).toBe(true)
+      } finally {
+        for (const fiber of coldFibers.reverse()) await fiber.dispose()
+      }
       const attemptRows = rows.filter((row) => row.attempt_id)
       expect(new Set(attemptRows.map((row) => row.attempt_id)).size).toBe(1)
       const reasons = attemptRows.map((row) => row.reason_code).filter(Boolean)
@@ -217,7 +255,7 @@ describe('v3 real AgentLoop wiring', () => {
         inject: ['llm', 'agents'],
         apply: (pluginCtx: Context) => install(pluginCtx, { projectRoot: root }, undefined, { mode: 'v3', loadWorld: async () => world, subagentFactory }),
       }))
-      const agent = ctx.agentLoop.create(SessionId('v3_parent'), { provider: 'v3-offline', model: 'offline' }, { cwd: root })
+      const agent = await ctx.agentLoop.create(SessionId('v3_parent'), { provider: 'v3-offline', model: 'offline' }, { cwd: root })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: '完成一个任务' }], source: { kind: 'user' } }))
       await agent.whenIdle()
       // Consolidation starts from the committed turn/end event and is joined

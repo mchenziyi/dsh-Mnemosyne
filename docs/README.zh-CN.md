@@ -16,6 +16,8 @@
    - 安装候选包后 3～7 天的监控指标、诊断顺序和告警阈值。
 6. [版本路线图](DSH_MNEMOSYNE_VERSION_ROADMAP.zh-CN.md)
    - v0.1 历史结论、v0.2 当前状态和后续版本方向。
+7. [Release Notes](RELEASE_NOTES.md)
+   - 当前 DSH alpha.2 适配和生产默认 V3 变更。
 
 ## 文档优先级
 
