@@ -28,14 +28,14 @@ export interface PublicContractsAudit {
 export interface OfficialReferenceAudit {
   repository: 'deepseek-ai/deepseek-harness'
   package: '@deepseek-ai/dsh-llm-deepseek'
-  package_version: '0.1.3-alpha.2'
-  source_ref: 'npm:@deepseek-ai/dsh-llm-deepseek@0.1.3-alpha.2'
+  package_version: '0.1.5-rc.1'
+  source_ref: 'npm:@deepseek-ai/dsh-llm-deepseek@0.1.5-rc.1'
 }
 
 export interface ProviderCompatibilityAudit {
   schema_version: 1
   audited_at: string
-  project_dsh_version: '0.1.3-alpha.2'
+  project_dsh_version: '0.1.5-rc.1'
   project_lock_sha256: string
   official_reference: OfficialReferenceAudit
   public_contracts: PublicContractsAudit
@@ -61,12 +61,12 @@ const OFFICIAL_REF_KEYS = [
   'source_ref',
 ] as const
 
-const TARGET_VERSION = '0.1.3-alpha.2' as const
+const TARGET_VERSION = '0.1.5-rc.1' as const
 const EXPECTED_PACKAGE = '@deepseek-ai/dsh-llm-deepseek' as const
 const EXPECTED_ROUTE = 'deepseek-official' as const
 const EXPECTED_MODEL = 'deepseek-v4-flash' as const
 const EXPECTED_REPO = 'deepseek-ai/deepseek-harness' as const
-const EXPECTED_SOURCE_REF = 'npm:@deepseek-ai/dsh-llm-deepseek@0.1.3-alpha.2' as const
+const EXPECTED_SOURCE_REF = 'npm:@deepseek-ai/dsh-llm-deepseek@0.1.5-rc.1' as const
 
 const ALLOWED_REASONS = [
   'adapter_options_invalid',

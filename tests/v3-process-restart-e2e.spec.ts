@@ -80,12 +80,12 @@ export function apply(ctx) {
     }
     if (system.startsWith('You navigate project memory.')) return stream(JSON.stringify({ selected_refs: [] }))
 
-    const sawMap = messages.includes('[Mnemosyne Map v3')
+    const mapText = Array.isArray(options?.messages)
+      ? options.messages.flatMap((message) => Array.isArray(message.content) ? message.content : []).find((block) => block.type === 'text' && block.text.startsWith('[Mnemosyne Map v3'))
+      : undefined
+    const sawMap = mapText?.type === 'text'
     const hasRecallTool = JSON.stringify(options?.tools ?? []).includes('mnemosyne_recall')
     if (!mapRequested && sawMap && hasRecallTool) {
-      const mapText = Array.isArray(options?.messages)
-        ? options.messages.flatMap((message) => Array.isArray(message.content) ? message.content : []).find((block) => block.type === 'text' && block.text.startsWith('[Mnemosyne Map v3'))
-        : undefined
       if (mapText?.type === 'text') {
         const map = JSON.parse(mapText.text.slice(mapText.text.indexOf('\\n') + 1))
         if (typeof map.map_ref === 'string') { mapRequested = true; return toolStream(map.map_ref) }

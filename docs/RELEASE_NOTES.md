@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.2.7（DSH 0.1.5-rc.1 兼容）
+
+- 子代理创建显式传入 `parentAgent`，保持父 Agent 对 child 的运行时所有权。
+- 使用新版 setup 回调传入的 child Agent，不再依赖已移除的 `Context.agent`。
+- 测试适配 Session V3 中持久化的 system message，并验证子代理完成、销毁与进程退出。
+- DSH 依赖与兼容审计基线统一升级为 `0.1.5-rc.1`。
+
 ## v0.2.6（模型用量归因诊断）
 
 - 在项目级安全运行日志中区分父任务、Recall 与 Consolidation 的模型 Token 用量。

@@ -28,7 +28,7 @@ import {
   type IsolatedDryRunResult,
 } from '../src/m05f/dry-run.js'
 
-const TARGET_DSH_VERSION = '0.1.3-alpha.2'
+const TARGET_DSH_VERSION = '0.1.5-rc.1'
 const OFFICIAL_PROVIDER_PKG = '@deepseek-ai/dsh-llm-deepseek'
 const OFFICIAL_ROUTE = 'deepseek-official'
 const OFFICIAL_MODEL = 'deepseek-v4-flash'

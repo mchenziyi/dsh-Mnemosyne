@@ -36,7 +36,7 @@ export interface DshBaselineAudit {
   schema_version: 1
   status: 'dsh_baseline_ready_for_cto_review' | 'blocked'
   source_version: '0.1.2-rc.1'
-  target_version: '0.1.3-alpha.2'
+  target_version: '0.1.5-rc.1'
   npm_next_version: string
   package_json_sha256: string
   lockfile_sha256: string
@@ -164,7 +164,7 @@ export function validateDshBaselineAudit(value: unknown): DshBaselineAudit {
 
   if (value.schema_version !== 1) throw new ProtocolValidationError()
   if (value.source_version !== '0.1.2-rc.1') throw new ProtocolValidationError()
-  if (value.target_version !== '0.1.3-alpha.2') throw new ProtocolValidationError()
+  if (value.target_version !== '0.1.5-rc.1') throw new ProtocolValidationError()
   if (
     typeof value.npm_next_version !== 'string' ||
     value.npm_next_version.length === 0 ||
@@ -262,7 +262,7 @@ export function createDshBaselineAudit(options: {
   compatibility: CompatibilityAudit
 }): DshBaselineAudit {
   const source_version = '0.1.2-rc.1' as const
-  const target_version = '0.1.3-alpha.2' as const
+  const target_version = '0.1.5-rc.1' as const
 
   const direct_dsh_packages = resolveDirectDshPackages(
     options.package_json_content,

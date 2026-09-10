@@ -8,6 +8,7 @@
 
 当前发布架构：**默认 Runtime 为 V3（Map-first + Recall/Consolidation Subagent）**。安装插件后无需参数或隐藏配置即可使用；V2 仅保留为内部兼容 fallback，不是生产默认路径。当前包版本以 `package.json` 为准。
 
+- `v0.2.7`：适配 DSH `0.1.5-rc.1` 的显式父子 Agent 所有权、双参数 setup 回调与 Session V3 模型消息历史。
 - `v0.2.6`：新增父任务、Recall 与 Consolidation 的模型 Token 用量归因诊断，区分未缓存输入和缓存读取，并计入失败/重试调用。
 - `v0.2.5`：修复整理状态节点与内置 turn-tail 的渲染位置冲突，确保状态显示在回答之后。
 
@@ -46,7 +47,7 @@ v0.2.0 已闭环五项 MVP 能力：
 要求：
 
 - Node.js `>=22.19.0`
-- DeepSeek Harness / DSH 公开 SDK 基线 `0.1.3-alpha.2`（当前适配目标；历史验收环境见 Runbook）
+- DeepSeek Harness / DSH 公开 SDK 基线 `0.1.5-rc.1`（当前适配目标；历史验收环境见 Runbook）
 
 ```bash
 dsh plugin add @cziyi/dsh-mnemosyne

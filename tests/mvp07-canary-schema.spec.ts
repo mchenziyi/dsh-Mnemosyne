@@ -259,7 +259,7 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
     expect(result.status).toBe('awaiting_user_approval')
     expect(result.package_name).toBe('@cziyi/dsh-mnemosyne')
     expect(result.package_version).toBe('0.0.0-dev')
-    expect(result.dsh_version).toBe('0.1.3-alpha.2')
+    expect(result.dsh_version).toBe('0.1.5-rc.1')
     expect(result.package_sha256).toMatch(/^sha256_[0-9a-f]{64}$/)
     expect(result.plan_id).toMatch(/^plan_[0-9a-f]{32}$/)
     expect(result.plan_sha256).toMatch(/^sha256_[0-9a-f]{64}$/)

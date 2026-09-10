@@ -56,17 +56,19 @@ describe('v3 dsh subagent adapter', () => {
     const handle = { agent: {} as any, dispose: async () => undefined }
     const composed = vi.fn()
     const appended = vi.fn()
+    const childAgent = { session: { append: appended } }
     const contexts: any[] = []
     const services: Record<string, unknown> = { agentPresets: { composedPreset: () => 'parent-preset', composeFrom: composed }, sandboxPolicy: { overrideOf: () => 'read-only' }, approval: {} }
     const parent = { ctx: { get: (name: string) => services[name], agents: { create: async (options: any) => {
       createOptions = options
-      await options.setup({ get: (name: string) => services[name], agent: { session: { append: appended } }, on: () => () => undefined, systemPrompt: { context: (value: any) => contexts.push(value), getContextOrder: () => 0, getSectionOrder: () => 0, section: (value: any) => sections.push(value) }, tools: { restrict: (value: unknown) => restrictions.push(value), guard: (value: any) => guards.push(value) } })
+      await options.setup({ get: (name: string) => services[name], on: () => () => undefined, systemPrompt: { context: (value: any) => contexts.push(value), getContextOrder: () => 0, getSectionOrder: () => 0, section: (value: any) => sections.push(value) }, tools: { restrict: (value: unknown) => restrictions.push(value), guard: (value: any) => guards.push(value) } }, childAgent)
       return handle
     } } }, options: {}, session: { id: 'parent', header: { id: 'parent', cwd: '/tmp/project' }, requestHeader: () => undefined } } as any
     const controller = new AbortController()
     const result = await createDshSubagentFactoryV3()(parent, { task: 'UNTRUSTED_TASK_EVIDENCE', outputContract: 'TRUSTED_STAGE_CONTRACT', provider: 'p', model: 'm', signal: controller.signal })
     expect(result).toBe(handle)
     expect(createOptions.signal).toBe(controller.signal)
+    expect(createOptions.parentAgent).toBe(parent)
     expect(createOptions.agentOptions).toMatchObject({ provider: 'p', model: 'm' })
     expect(createOptions.agentOptions.subagentDepth).toBe(1)
     expect(createOptions.meta).toMatchObject({ cwd: '/tmp/project', parentSession: 'parent', origin: 'subagent', delegationDepth: 1, isSeeded: false })
@@ -94,14 +96,13 @@ describe('v3 dsh subagent adapter', () => {
       const parent = { ctx: { get: () => undefined, agents: { create: async (options: any) => {
         const commit = await options.setup({
           get: () => undefined,
-          agent: { session: { append: () => undefined } },
           on: () => () => undefined,
           systemPrompt: { context: () => undefined, getContextOrder: () => 0, getSectionOrder: () => 0, section: () => undefined },
           tools: {
             restrict: () => { if (phase === 'setup') throw new Error('secret setup failure') },
             guard: () => undefined,
           },
-        })
+        }, { session: { append: () => undefined } })
         commit?.commit()
         if (phase === 'publish') throw new Error('secret publish failure')
         return { agent: {}, dispose: async () => undefined }
@@ -123,11 +124,10 @@ describe('v3 dsh subagent adapter', () => {
     const parent = { ctx: { get: (name: string) => services[name], agents: { create: async (options: any) => {
       await options.setup({
         get: (name: string) => services[name],
-        agent: { session: { append: () => undefined } },
         on: () => () => undefined,
         systemPrompt: { context: () => undefined, getContextOrder: () => 0, getSectionOrder: () => 0, section: () => undefined },
         tools: { restrict: () => undefined, guard: () => undefined },
-      })
+      }, { session: { append: () => undefined } })
       throw new Error('secret pre-publication failure')
     } } }, options: {}, session: { id: 'parent', header: { id: 'parent', cwd: '/tmp/project' }, requestHeader: () => undefined } } as any
     await expect(createDshSubagentFactoryV3()(parent, {

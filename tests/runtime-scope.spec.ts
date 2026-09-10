@@ -23,7 +23,7 @@ import { createStatusTool } from '../src/status.js'
 
 function mockSession(id: string, cwd?: string): Session {
   const header: SessionHeader = {
-    version: 2,
+    version: 3,
     id: SessionId(id),
     createdAt: Date.now(),
     cwd,

@@ -32,6 +32,14 @@ function toolCallStream(mapRef: string): AsyncIterable<StreamChunk> {
     yield { type: 'finish', reason: { kind: 'tool-calls' } }
   })()
 }
+function systemText(options: GenerateOptions): string {
+  const history = options.messages
+    .filter((message) => message.role === 'system')
+    .flatMap((message) => message.content)
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text)
+  return [options.system, ...history].filter((text): text is string => typeof text === 'string').join('\n')
+}
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))) })
 
 describe('v3 real AgentLoop wiring', () => {
@@ -49,25 +57,27 @@ describe('v3 real AgentLoop wiring', () => {
     let childCalls = 0
     let childFlushes = 0
     const childSessions: Session[] = []
+    const childOwnership: boolean[] = []
     class Adapter extends LlmAdapter {
       providerInfo(provider: string) { return { id: provider, name: 'v3-alpha4-offline' } }
       stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+        const system = systemText(options)
         if (JSON.stringify(options.messages).includes('Mnemosyne Consolidation Subagent')) {
-          expect(options.system).toContain('You are a memory-processing subagent, not a coding agent.')
-          expect(options.system).not.toContain('Parent coding agent identity.')
-          expect(options.system).not.toContain('Injected coding instructions.')
-          expect(options.system).toContain('Your final response MUST be exactly one JSON object')
-          expect(options.system).not.toContain('完成普通任务')
-          expect(options.system).not.toContain('parent complete')
+          expect(system).toContain('You are a memory-processing subagent, not a coding agent.')
+          expect(system).not.toContain('Parent coding agent identity.')
+          expect(system).not.toContain('Injected coding instructions.')
+          expect(system).toContain('Your final response MUST be exactly one JSON object')
+          expect(system).not.toContain('完成普通任务')
+          expect(system).not.toContain('parent complete')
           expect(options.tools ?? []).toEqual([])
           childCalls++
           if (checkpoints) expect(childFlushes).toBeGreaterThan(0)
           if (decision === 'create' || decision === 'missing_refs') {
             const prompt = options.messages.flatMap((message) => message.content).filter((block) => block.type === 'text').map((block) => block.text).find((text) => text.startsWith('You are the Mnemosyne Consolidation Subagent.'))!
             const request = JSON.parse(prompt.split('\n').at(-1)!)
-            if (request.stage !== 'judgment') expect(options.system).not.toContain('For create, all five keys are required')
+            if (request.stage !== 'judgment') expect(system).not.toContain('For create, all five keys are required')
             if (request.stage === 'judgment') {
-              expect(options.system).toContain('related_memory_refs is mandatory even when there are no related memories; emit []')
+              expect(system).toContain('related_memory_refs is mandatory even when there are no related memories; emit []')
               return textStream(JSON.stringify({ decision: 'create', title: 'JSONL 容错', summary: '逐行隔离解析错误。', content: '## 已知踩坑\n单行解析失败不能中断后续统计。', ...(decision === 'create' ? { related_memory_refs: [] } : {}) }))
             }
             if (request.stage === 'category_titles') return textStream('{"decision":"no_candidate"}')
@@ -76,9 +86,9 @@ describe('v3 real AgentLoop wiring', () => {
           }
           return textStream(JSON.stringify({ decision: 'skip', reason_code: 'no_reusable_knowledge' }))
         }
-        expect(options.system).toContain('Parent coding agent identity.')
-        expect(options.system).toContain('Injected coding instructions.')
-        expect(options.system).not.toContain('You are a memory-processing subagent')
+        expect(system).toContain('Parent coding agent identity.')
+        expect(system).toContain('Injected coding instructions.')
+        expect(system).not.toContain('You are a memory-processing subagent')
         return textStream('parent complete')
       }
     }
@@ -92,6 +102,7 @@ describe('v3 real AgentLoop wiring', () => {
       ctx.on('session/created', (session) => {
         if (session.header.origin !== 'subagent') return
         childSessions.push(session)
+        childOwnership.push(ctx.agents.isOwnedBy(session.id, agent))
       }, { global: true })
       if (checkpoints) {
         // Run the public Web checkpoint policy; a separate durability listener
@@ -124,6 +135,8 @@ describe('v3 real AgentLoop wiring', () => {
       const childDescriptors = childSessions.map((session) => foldSubagentDescriptor(session.snapshotEvents()))
       expect(childDescriptors.length).toBeGreaterThan(0)
       expect(childDescriptors.every((descriptor) => descriptor !== undefined && (descriptor as { mode?: string }).mode === 'one-shot')).toBe(true)
+      expect(childOwnership.every(Boolean)).toBe(true)
+      expect(childSessions.every((session) => ctx.agents.get(session.id) === undefined)).toBe(true)
       // Exercise DSH's cold catalog classifier with disk-roundtripped real
       // AgentLoop logs in a fresh registry. Only the query storage seam is fake;
       // session replay, projection folding and listChildren are the real APIs.
@@ -263,8 +276,8 @@ describe('v3 real AgentLoop wiring', () => {
       await new Promise((resolve) => setTimeout(resolve, 50))
       expect(consolidationSettled).toBe(true)
       // This is a request-contract test, not proof of real-model compliance.
-      if (completePersona) expect(requests[0].system).toBe('You are a helpful software engineer assistant.')
-      else expect(requests[0].system).toContain('must call mnemosyne_recall')
+      if (completePersona) expect(systemText(requests[0])).toBe('You are a helpful software engineer assistant.')
+      else expect(systemText(requests[0])).toContain('must call mnemosyne_recall')
       const visibleRules = JSON.stringify(requests[0].messages)
       expect(visibleRules).toContain('must call mnemosyne_recall')
       expect(visibleRules).toContain('titles are unrelated')

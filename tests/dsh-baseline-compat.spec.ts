@@ -19,7 +19,7 @@ import {
   type PublicSeamsAudit,
 } from '../src/protocol/dsh-baseline-audit.js'
 
-const TARGET_DSH_VERSION = '0.1.3-alpha.2'
+const TARGET_DSH_VERSION = '0.1.5-rc.1'
 
 const VALID_PUBLIC_SEAMS: PublicSeamsAudit = {
   cordis_plugin: 'pass',
@@ -41,7 +41,7 @@ const VALID_COMPATIBILITY: CompatibilityAudit = {
 describe('DSH baseline upgrade compatibility suite', () => {
   it('binds compatibility metadata to the audited upstream DSH release', () => {
     expect(DSH_VERSION).toBe(TARGET_DSH_VERSION)
-    expect(AUDIT_COMMIT).toBe('82a5fd61a7cf5c293cec4bdff68f455398d685e9')
+    expect(AUDIT_COMMIT).toBe('183f08e9c6dde7e36cd2318eaee70b0da08fb35e')
   })
 
   it('enforces that all direct @deepseek-ai/dsh-* dependencies in package.json use the audited release', () => {
@@ -67,7 +67,7 @@ describe('DSH baseline upgrade compatibility suite', () => {
     expect(pkgJson.devDependencies['@deepseek-ai/dsh-credentials']).toBe(TARGET_DSH_VERSION)
   })
 
-  it('scans the full lockfile and accepts only the audited alpha.2 graph', () => {
+  it('scans the full lockfile and accepts only the audited rc.1 graph', () => {
     const lockContent = readFileSync(resolve(process.cwd(), 'pnpm-lock.yaml'), 'utf8')
     const matches = [...lockContent.matchAll(/@deepseek-ai\/dsh-([a-z-]+)@([0-9a-z.-]+)/g)]
     expect(matches.length).toBeGreaterThan(0)

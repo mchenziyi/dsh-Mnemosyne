@@ -289,8 +289,8 @@ export function install(
       now: evidence.turn_end_time,
       signal,
     }
-    // `parent.ctx.agents.create()` already carries the parent ownership
-    // context. Wrapping the whole operation in withInitiator would make the
+    // The subagent factory passes `parentAgent` explicitly for runtime
+    // ownership. Wrapping the whole operation in withInitiator would make the
     // registry wait on the child creation it is itself trying to publish.
     await consolidationRuntime.consolidate(request).then((result) => {
       if (result.status === 'created') {

@@ -69,23 +69,23 @@ export function createDshSubagentFactoryV3(): DshSubagentFactoryV3 {
       ].filter(Boolean).join('\n')
       const create = () => parent.ctx.agents.create({
         sessionId: childId,
+        parentAgent: parent,
         meta: childSessionMeta(parent, childDepth, false),
         inheritedEventCount: 0 as SessionLogOffset,
         agentOptions: resolveChildAgentOptions(parent, { provider: request.provider, model: request.model, maxTokens: 512 }, childDepth),
         signal: request.signal,
-        setup: (agentCtx) => {
+        setup: (agentCtx, childAgent) => {
           createState.phase = 'setup'
           createState.setupStep = 'agent_context'
           try { request.onEvent?.('running', { phase: 'creating', reason_code: 'subagent_setup_started', elapsed_ms: 0 }) } catch { /* diagnostics must not affect execution */ }
-          if (agentCtx.agent === undefined) throw new SubagentUnavailableError()
           createState.setupStep = 'policy_overrides'
-          appendDelegatedPolicyOverrides(agentCtx.agent.session, policyOverrides)
+          appendDelegatedPolicyOverrides(childAgent.session, policyOverrides)
           createState.setupStep = 'child_composition'
           applyChildComposition(agentCtx, parent, { toolFilter: { allow: [] } })
-          // Match alpha.2's public SubagentRuntime materialization path: persist
+          // Match DSH's public SubagentRuntime materialization path: persist
           // the one-shot identity inside the unpublished setup window.
           createState.setupStep = 'descriptor'
-          agentCtx.agent.session.append('subagent/descriptor', descriptor)
+          childAgent.session.append('subagent/descriptor', descriptor)
           createState.setupStep = 'model_selection'
           installModelSelection(agentCtx, { current: { provider: request.provider, model: request.model }, assembled: undefined })
           createState.setupStep = 'persona'
