@@ -8,6 +8,7 @@ import { ConsolidationStatusService } from './consolidation-status.js'
 export { Config }
 export type { Config as PluginConfig }
 export { AUDIT_COMMIT, COMPATIBILITY, CORDIS_VERSION, DSH_VERSION, SCHEMASTERY_VERSION } from './compatibility.js'
+export * from './protocol/governance.js'
 export const name = 'dsh-mnemosyne'
 export const inject = ['llm', 'agents'] as const
 

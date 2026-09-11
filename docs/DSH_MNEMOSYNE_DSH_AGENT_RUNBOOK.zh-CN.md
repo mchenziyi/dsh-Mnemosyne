@@ -152,7 +152,7 @@ Mnemosyne：<before-version> → <after-version>
 
 ## 八、v0.2.9 本地验收记录（2026-09-04）
 
-- 定位：本地验收包，未发布 npm。v3 是内部运行路径，不代表产品版本为 v0.3。
+- 定位：发布前本地验收记录，对应修复已纳入 v0.2.9 npm 发布版。v3 是内部运行路径，不代表产品版本为 v0.3。
 - 本地门禁：83 个测试文件、829 项测试通过；typecheck、build、pack、pack-check（8 个文件）、peers check、git diff --check 通过。全量测试串行执行，避免打包测试共享 dist 的写入竞争。
 - 安装验证：Web profile 解析到 0.2.9，组合配置仅装配一次；安装后 ESM/CJS 与 tarball 的 SHA-256 一致。
 - tarball SHA-256：`76cd86cd9da34a1a56dcd8687f3099b3169d0bd4940252a1fcb9998a5ac717da`。该哈希对应本次已安装验收制品；后续修改 README 并重新打包会生成不同哈希，不应混用。

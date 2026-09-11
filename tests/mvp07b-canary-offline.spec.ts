@@ -18,7 +18,7 @@ import {
 } from '../src/m07b/canary-protocol.js'
 import { MAX_MODEL_REQUESTS } from '../src/m07b/budget-ledger.js'
 
-const PACKAGE_VERSION = '0.2.7'
+const PACKAGE_VERSION = '0.2.9'
 const realTarballPath = (root: string): string => join(root, `cziyi-dsh-mnemosyne-${PACKAGE_VERSION}.tgz`)
 const CLIENT_ARTIFACT_FIXTURES = {
   'client.mjs': 'export default {}\n',
@@ -29,7 +29,6 @@ const CLIENT_ARTIFACT_FIXTURES = {
   'typert.remote-client.d.mts': 'export default {}\n',
   'typert.remote-client.cjs': 'module.exports = {}\n',
   'typert.remote-client.d.cts': 'export default {}\n',
-  'rolldown-runtime.cjs': 'module.exports = {}\n',
 }
 const CANARY_TARBALL_ENTRIES = [
   'package/package.json', 'package/README.md', 'package/LICENSE', 'package/cordis.patch.yml',

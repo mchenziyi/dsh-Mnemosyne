@@ -2,6 +2,7 @@ import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { runInNewContext } from 'node:vm'
 
 const execFileAsync = promisify(execFile)
 
@@ -18,11 +19,33 @@ const forbidden = entries.filter((entry) => !allowed.test(entry))
 if (forbidden.length) throw new Error(`pack:check: unexpected files: ${forbidden.join(', ')}`)
 
 const { stdout: bundledJs } = await execFileAsync('tar', ['-xOzf', tarballPath, 'package/dist/index.mjs'])
+const { stdout: bundledClientJs } = await execFileAsync('tar', ['-xOzf', tarballPath, 'package/dist/client.mjs'])
 const { stdout: bundledDts } = await execFileAsync('tar', ['-xOzf', tarballPath, 'package/dist/index.d.mts'])
 const { stdout: packedManifestText } = await execFileAsync('tar', ['-xOzf', tarballPath, 'package/package.json'])
 const packedManifest = JSON.parse(packedManifestText)
 if (packedManifest.name !== packageJson.name || packedManifest.version !== packageJson.version) {
   throw new Error('pack:check: package identity mismatch')
+}
+if (JSON.stringify(packedManifest.dsh?.client?.inject) !== JSON.stringify(['@deepseek-ai/dsh-api-remotes'])) {
+  throw new Error('pack:check: unexpected client injection dependencies')
+}
+for (const forbidden of ['react', 'uiConversation', 'conversation.chat.node', 'mnemosyne-consolidation']) {
+  if (bundledClientJs.includes(forbidden)) throw new Error(`pack:check: client contains ${forbidden}`)
+}
+let clientPlugin
+let requiredModule
+runInNewContext(bundledClientJs, {
+  window: { __ModuleLoader__: { load: ({ factory }) => { clientPlugin = factory((name) => { requiredModule = name; throw new Error(`unexpected browser dependency: ${name}`) }) } } },
+})
+if (requiredModule !== undefined) throw new Error(`pack:check: client requires ${requiredModule}`)
+if (JSON.stringify(Array.from(clientPlugin.inject)) !== JSON.stringify(['remote'])) {
+  throw new Error('pack:check: unexpected runtime client injection dependencies')
+}
+let mountedContribution
+const disposer = async () => {}
+const returnedDisposer = await clientPlugin.apply({ remote: { $mount: async (contribution) => { mountedContribution = contribution; return disposer } } })
+if (mountedContribution?.package !== packageJson.name || returnedDisposer !== disposer) {
+  throw new Error('pack:check: client remote mount contract mismatch')
 }
 
 export const forbiddenExportSymbols = [

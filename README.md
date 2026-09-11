@@ -8,13 +8,14 @@
 
 当前发布架构：**默认 Runtime 为 V3（Map-first + Recall/Consolidation Subagent）**。安装插件后无需参数或隐藏配置即可使用；V2 仅保留为内部兼容 fallback，不是生产默认路径。当前包版本以 `package.json` 为准。
 
+- `v0.2.9`：修复 Mnemosyne 状态节点影响 DSH 消息分支按钮的问题；状态数据仍保留在插件内部，但不再插入可见 Chat Node 树。
 - `v0.2.7`：适配 DSH `0.1.5-rc.1` 的显式父子 Agent 所有权、双参数 setup 回调与 Session V3 模型消息历史。
 - `v0.2.6`：新增父任务、Recall 与 Consolidation 的模型 Token 用量归因诊断，区分未缓存输入和缓存读取，并计入失败/重试调用。
 - `v0.2.5`：修复整理状态节点与内置 turn-tail 的渲染位置冲突，确保状态显示在回答之后。
 
 - `v0.1.0`：技术预览，验证了 DSH 插件装配、存储、Generation 与工具式记忆流程；不代表当前产品体验。
 - `v0.2.0`：**Zero-operation OKF Memory MVP（MVP Complete）**。用户只需正常对话，记忆的读取、组织与沉淀均由插件自动完成。
-- `v0.2.9`：历史本地验收编号（未发布 npm），其修复已合并进当前发布线；详见 [验收记录](docs/DSH_MNEMOSYNE_DSH_AGENT_RUNBOOK.zh-CN.md#八v029-本地验收记录2026-09-04)。
+- `v0.2.9`：历史本地验收记录，其修复已纳入当前 npm 发布版；详见 [验收记录](docs/DSH_MNEMOSYNE_DSH_AGENT_RUNBOOK.zh-CN.md#八v029-本地验收记录2026-09-04)。
 
 v0.2.0 已闭环五项 MVP 能力：
 
@@ -23,6 +24,8 @@ v0.2.0 已闭环五项 MVP 能力：
 - **自动找**：新 Session 由模型沿 OKF 分类逐层找到相关记忆；
 - **按需读**：严格按 `Title → Summary → Content` 渐进披露；
 - **可靠隔离**：记忆跨 Session 和进程重启持久存在，不同 Project 严格隔离。
+
+后续路线保持为 `Memory Governance → Pattern Layer → Plugin Evolution`，目前尚未开始实施。v0.3 将先建立 Governance 基础模型，再依次开放 `Recall 可用性治理 → 去重/合并 → Revision/Supersede/Conflict → 过时治理 → Catalog 治理`。治理过程不物理删除 Memory，不对不确定冲突自动选边，将模型建议与状态变更分离，并保证操作可审计、可回滚、Catalog 调整不改变 Memory 身份且可增量执行。v0.4 与 v0.5+ 分别基于治理后的可信 Memory 构建 Pattern 和 Plugin Evolution。
 
 ## v0.2.0 的工作方式
 

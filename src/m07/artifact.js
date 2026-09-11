@@ -25,7 +25,6 @@ export const REQUIRED_CANARY_TARBALL_FILES = Object.freeze([
   'package/dist/typert.remote-client.d.mts',
   'package/dist/typert.remote-client.cjs',
   'package/dist/typert.remote-client.d.cts',
-  'package/dist/rolldown-runtime.cjs',
 ])
 
 const REQUIRED_CANARY_TARBALL_FILES_SET = new Set(REQUIRED_CANARY_TARBALL_FILES)

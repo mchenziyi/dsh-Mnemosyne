@@ -27,7 +27,6 @@ const clientArtifactFiles = {
   'package/dist/typert.remote-client.d.mts': 'export default {}\n',
   'package/dist/typert.remote-client.cjs': 'module.exports = {}\n',
   'package/dist/typert.remote-client.d.cts': 'export default {}\n',
-  'package/dist/rolldown-runtime.cjs': 'module.exports = {}\n',
 }
 
 describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Preflight', () => {
@@ -275,7 +274,7 @@ describe('MVP-07A Final CTO Review: Canary Plan/Report Schema & Dry-run Prefligh
     expect(info.packageVersion).toBe('0.0.0-dev')
     expect(info.packageSha256).toMatch(/^sha256_[0-9a-f]{64}$/)
     expect(info.realTarballPath).toBe(sharedTarballPath)
-    expect(REQUIRED_CANARY_TARBALL_FILES.length).toBe(17)
+    expect(REQUIRED_CANARY_TARBALL_FILES.length).toBe(16)
 
     const base = await realpath(tmpdir())
     const tempBadDir = await mkdtemp(join(base, 'dsh-bad-tarball-'))

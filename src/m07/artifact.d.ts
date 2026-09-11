@@ -15,7 +15,6 @@ export const REQUIRED_CANARY_TARBALL_FILES: readonly [
   'package/dist/typert.remote-client.d.mts',
   'package/dist/typert.remote-client.cjs',
   'package/dist/typert.remote-client.d.cts',
-  'package/dist/rolldown-runtime.cjs',
 ]
 
 export interface VerifiedCanaryArtifact {

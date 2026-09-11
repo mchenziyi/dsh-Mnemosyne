@@ -2,7 +2,7 @@
 
 > 状态：✅ v0.2.0 MVP Complete；生产入口默认使用 V3
 >
-> 更新日期：2026-09-08
+> 更新日期：2026-09-10
 
 ## 一、产品目标
 
@@ -251,12 +251,17 @@ Node 文件系统 API 无法对同 UID 恶意进程提供内核级目录能力�
 
 ## 十一、后续方向
 
-只有 v0.2 经本地连续观察证明基本闭环有效后，才讨论：
+长期路线保持为 `Experience → Memory → Memory Governance → Pattern → Plugin Evolution`。
 
-1. Web 记忆管理；
-2. Catalog 重组、重复治理与容量管理；
-3. 跨项目显式共享；
-4. Revision/Evidence/关系类型；
-5. 稳定迁移与 v1.0 兼容承诺。
+v0.3 不直接同时开放去重、冲突、过时和 Catalog 治理，而是按以下顺序建立能力：
 
-自进化不属于当前记忆管理路线。
+1. 治理基础模型；
+2. Recall 可用性治理；
+3. 去重 / 合并；
+4. Revision / Supersede / Conflict；
+5. 过时治理；
+6. Catalog 治理。
+
+所有治理设计必须满足：不物理删除 Memory；不确定冲突不自动选边；模型建议与状态变更分离；操作可审计、可回滚；Catalog 调整不改变 Memory 身份；治理增量执行。
+
+v0.4 Pattern Layer 只从治理后的可信 Memory 中提炼稳定规律；v0.5+ Plugin Evolution 只基于这些可信 Memory 支撑并经过验证的成熟 Pattern 构建 Runtime 能力。两者都不属于当前 v0.2 架构，也不得绕过 v0.3 的治理基础。

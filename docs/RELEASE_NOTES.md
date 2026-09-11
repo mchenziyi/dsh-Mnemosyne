@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.2.9（消息分支兼容修复）
+
+- 修复 Mnemosyne 整理状态节点被识别为本轮最后 Chat Node，导致“在新对话中分支”按钮不可用的问题。
+- 移除 Web Conversation Node 注册和 Chat Node 插槽注入；整理状态及其远端服务仍保留在插件内部，但暂不显示 Web 状态条。
+- 不改变 V3、Recall、Consolidation 或 Session 生命周期，也不修改现有 Session 数据。
+
 ## v0.2.7（DSH 0.1.5-rc.1 兼容）
 
 - 子代理创建显式传入 `parentAgent`，保持父 Agent 对 child 的运行时所有权。
