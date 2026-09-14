@@ -13,6 +13,7 @@ export * from './governance/replay.js'
 export * from './governance/ledger-store.js'
 export * from './governance/generation.js'
 export * from './governance/projection.js'
+export * from './governance/proposal.js'
 export const name = 'dsh-mnemosyne'
 export const inject = ['llm', 'agents'] as const
 
