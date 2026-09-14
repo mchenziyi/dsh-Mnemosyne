@@ -50,7 +50,7 @@ v0.2.0 已闭环五项 MVP 能力：
 要求：
 
 - Node.js `>=22.19.0`
-- DeepSeek Harness / DSH 公开 SDK 基线 `0.1.5-rc.1`（当前适配目标；历史验收环境见 Runbook）
+- DeepSeek Harness / DSH 公开 SDK 基线 `0.1.5-rc.2`（当前适配目标；历史验收环境见 Runbook）
 
 ```bash
 dsh plugin add @cziyi/dsh-mnemosyne
