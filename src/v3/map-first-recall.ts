@@ -4,7 +4,7 @@ import { createDisclosureReceiptV3, type DisclosureReceiptV3 } from './recall-su
 
 export class SubagentUnavailableError extends Error { readonly code = 'subagent_unavailable' }
 export type MapRecallStageV3 = 'root_titles' | 'node_summary' | 'node_titles' | 'memory_summaries'
-export interface MapRecallItemV3 { ref: string; title: string; summary?: string; kind: 'node' | 'memory' }
+export interface MapRecallItemV3 { ref: string; title: string; summary?: string; kind: 'node' | 'memory'; conflicts?: readonly unknown[] }
 export interface MapRecallDecisionV3 { selected_refs: readonly string[] }
 export type MapRecallInvokerV3 = (request: { stage: MapRecallStageV3; task: string; items: readonly MapRecallItemV3[]; signal: AbortSignal }) => Promise<MapRecallDecisionV3>
 export interface MapFirstRecallResultV3 { status: 'completed' | 'no_match' | 'failed'; selected_memory_refs: string[]; contents: Array<{ ref: string; content: string }>; receipt?: DisclosureReceiptV3; fallback_used: boolean; reason_code: string | null }
@@ -18,8 +18,8 @@ function select(decision: MapRecallDecisionV3, offered: readonly string[], limit
   if (decision.selected_refs.some((ref) => typeof ref !== 'string' || !allowed.has(ref))) return fail()
   return [...decision.selected_refs].slice(0, limit)
 }
-interface Index { node_id: string; title?: string; summary?: string; children: Array<{ ref: string; title: string }>; memories: Array<{ ref: string; title: string }> }
-interface Summary { memory_id: string; title: string; summary: string }
+interface Index { node_id: string; title?: string; summary?: string; children: Array<{ ref: string; title: string }>; memories: Array<{ ref: string; title: string; conflicts?: readonly unknown[] }> }
+interface Summary { memory_id: string; title: string; summary: string; conflicts?: readonly unknown[] }
 
 export function createMapFirstRecallV3(options: { invoke: MapRecallInvokerV3; fallback: (task: string, signal: AbortSignal) => Promise<MapFirstRecallResultV3> }) {
   return { async recall(pin: PinnedGenerationV3, task: string, signal: AbortSignal, rootOffers?: readonly MapOfferV3[]): Promise<MapFirstRecallResultV3> {
@@ -63,7 +63,7 @@ export function createMapFirstRecallV3(options: { invoke: MapRecallInvokerV3; fa
       }
       if (!memoryRefs.length) return { status: 'no_match', selected_memory_refs: [], contents: [], fallback_used: false, reason_code: 'recall_no_match' }
       const summaries = memoryRefs.map((ref) => parse<Summary>(pin.files.get(`summaries/${ref}.json`)))
-      const confirmed = select(await options.invoke({ stage: 'memory_summaries', task, items: summaries.map((item) => ({ ref: item.memory_id, title: item.title, summary: item.summary, kind: 'memory' as const })), signal }), memoryRefs, 3)
+      const confirmed = select(await options.invoke({ stage: 'memory_summaries', task, items: summaries.map((item) => ({ ref: item.memory_id, title: item.title, summary: item.summary, kind: 'memory' as const, ...(item.conflicts === undefined ? {} : { conflicts: item.conflicts }) })), signal }), memoryRefs, 3)
       if (!confirmed.length) return { status: 'no_match', selected_memory_refs: [], contents: [], fallback_used: false, reason_code: 'recall_no_match' }
       const contents = confirmed.map((ref) => ({ ref, content: pin.files.get(`contents/${ref}.md`) ?? fail() }))
       const receipt = createDisclosureReceiptV3({ schema_version: 1, generation_id: pin.generation_id, project_scope_id: pin.project_scope_id, offered_refs: [...new Set([...memoryRefs])], summary_refs: confirmed, content_refs: confirmed })

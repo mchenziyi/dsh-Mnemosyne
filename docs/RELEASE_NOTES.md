@@ -1,5 +1,11 @@
 # Release Notes
 
+## Governance Foundation（当前开发基线，未作为 npm 版本发布）
+
+- Slice 1–6 已完成：协议与校验、纯 Replay、Ledger 与原子提交、版本化 Generation、Effective Projection、生产链路接入。
+- 已覆盖 Recall / Consolidation 集成、CURRENT 事务、隐藏重复 Memory 防护、Project 并发串行、崩溃一致性与进程重启 E2E。
+- Manual Smoke Test 已通过；后续 Proposal / Candidate、去重、过时治理与 Catalog Governance 仍未开始。
+
 ## v0.2.9（消息分支兼容修复）
 
 - 修复 Mnemosyne 整理状态节点被识别为本轮最后 Chat Node，导致“在新对话中分支”按钮不可用的问题。

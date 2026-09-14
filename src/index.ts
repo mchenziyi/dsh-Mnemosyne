@@ -9,6 +9,10 @@ export { Config }
 export type { Config as PluginConfig }
 export { AUDIT_COMMIT, COMPATIBILITY, CORDIS_VERSION, DSH_VERSION, SCHEMASTERY_VERSION } from './compatibility.js'
 export * from './protocol/governance.js'
+export * from './governance/replay.js'
+export * from './governance/ledger-store.js'
+export * from './governance/generation.js'
+export * from './governance/projection.js'
 export const name = 'dsh-mnemosyne'
 export const inject = ['llm', 'agents'] as const
 

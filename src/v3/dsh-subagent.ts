@@ -36,7 +36,7 @@ async function disposeWithTimeout(handle: AgentHandle): Promise<'disposed' | 'su
   return timedOut ? 'subagent_dispose_timeout' : failed ? 'subagent_dispose_failed' : 'disposed'
 }
 
-export function buildRecallSubagentPromptV3(request: { stage: string; task: string; items: readonly { ref: string; title: string; summary?: string; kind: string }[] }): string {
+export function buildRecallSubagentPromptV3(request: { stage: string; task: string; items: readonly { ref: string; title: string; summary?: string; kind: string; conflicts?: readonly unknown[] }[] }): string {
   return [
     'You are the Mnemosyne Recall Subagent.',
     'Return JSON only with exactly one key: selected_refs (an array of refs).',

@@ -6,6 +6,7 @@ import { MemoryStoreError } from '../memory-store-error.js'
 import { assertUtcTimestamp } from '../memory-fact.js'
 import { canonicalBytes, canonicalHash, compareCodePoints, sha256 } from '../protocol/canonical.js'
 import { checkPathHierarchy, ensureDirectoryChain, validateProjectRoot, validateScopeId } from '../memory-store-path.js'
+import { acquireCompilerLock } from '../generation-store.js'
 import { computeProjectScopeId } from '../runtime-scope.js'
 import { openOKFMemoryV2Store } from './okf-memory-store.js'
 import { catalogId, validateOKFCatalogV1, type OKFCatalogV1 } from './okf-catalog.js'
@@ -183,6 +184,8 @@ async function writeCurrent(root: string, generationId: string, manifestBytes: s
 
 export async function publishOKFGenerationV2(request: PublishOKFGenerationV2Request): Promise<CompiledOKFGenerationV2> {
   const root = await validRoot(request.project_root, request.project_scope_id)
+  const releaseLock = await acquireCompilerLock(root)
+  try {
   const store = openOKFMemoryV2Store({ project_root: root, project_scope_id: request.project_scope_id })
   const catalog = await store.getCatalog(request.catalog_id)
   const memoryIds = [...new Set(catalog.nodes.flatMap((node) => node.memory_refs))].sort(compareCodePoints)
@@ -209,6 +212,7 @@ export async function publishOKFGenerationV2(request: PublishOKFGenerationV2Requ
   await verifyGeneration(root, request.project_scope_id, compiled.generation_id, sha256(manifestBytes))
   await writeCurrent(root, compiled.generation_id, manifestBytes)
   return compiled
+  } finally { await releaseLock() }
 }
 
 async function verifyGeneration(root: string, scope: string, generationId: string, expectedManifestHash: string): Promise<CompiledOKFGenerationV2> {

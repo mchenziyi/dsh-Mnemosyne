@@ -6,6 +6,8 @@ import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import { computeProjectScopeId } from '../src/runtime-scope.js'
 import { openOKFMemoryV2Store } from '../src/v2/okf-memory-store.js'
+import { createGovernanceProductionRuntimeV1 } from '../src/governance/runtime.js'
+import { readCurrentVersionedGenerationV1 } from '../src/v2/versioned-generation-store.js'
 
 const execFileAsync = promisify(execFile)
 const roots: string[] = []
@@ -172,7 +174,15 @@ describe('v0.3 real DSH process restart acceptance', () => {
     const processALog = await readFile(join(projectRoot, '.dsh-mnemosyne', 'debug', 'runtime.jsonl'), 'utf8')
     const processARows = parseRuntimeRows(processALog)
     expect(lifecycleFailures(processARows), `Process A lifecycle failures: ${lifecycleFailures(processARows).join(', ')}`).toEqual([])
-    expect((await store.listMemories()).map((memory) => memory.title)).toEqual(['进程重启后恢复认证窗口经验'])
+    const storedMemories = await store.listMemories()
+    expect(storedMemories.map((memory) => memory.title)).toEqual(['进程重启后恢复认证窗口经验'])
+    const remembered = storedMemories[0]!
+    const governance = createGovernanceProductionRuntimeV1()
+    const deactivated = await governance.commit({ scope: { project_root: projectRoot, project_scope_id: scope } as never, payload: { action: 'deactivate', memory: { memory_id: remembered.memory_id, content_sha256: remembered.content_sha256 } }, evidence_refs: [{ kind: 'memory', memory_id: remembered.memory_id, content_sha256: remembered.content_sha256 }], reason_code: 'restart_e2e_deactivate', created_at: '2026-09-11T00:00:02.000Z' })
+    await governance.commit({ scope: { project_root: projectRoot, project_scope_id: scope } as never, payload: { action: 'reactivate', memory: { memory_id: remembered.memory_id, content_sha256: remembered.content_sha256 }, deactivate_event: { event_id: deactivated.event.event_id, event_sha256: deactivated.event.event_sha256 } }, evidence_refs: [{ kind: 'memory', memory_id: remembered.memory_id, content_sha256: remembered.content_sha256 }], reason_code: 'restart_e2e_reactivate', created_at: '2026-09-11T00:00:03.000Z' })
+    const governedBeforeRestart = await readCurrentVersionedGenerationV1({ project_root: projectRoot, project_scope_id: scope })
+    expect(governedBeforeRestart.kind).toBe('governed')
+    expect(governedBeforeRestart.governance_head?.sequence).toBe(2)
 
     const receiptB = join(root, 'process-b.json')
     await execFileAsync('dsh', ['--profile', 'headless', '--patch', patch, 'Process B：刷新认证时并发请求中断，该如何避免？'], {
@@ -186,6 +196,9 @@ describe('v0.3 real DSH process restart acceptance', () => {
     expect(second.recall_calls.every((call) => call.session_id.length > 0 && call.session_id !== second.parent_session_id)).toBe(true)
     expect(second.messages).toContain('[Mnemosyne Recall v3')
     expect(second.messages).toContain('进程重启后仍应恢复的完整经验')
+    const governedAfterRestart = await readCurrentVersionedGenerationV1({ project_root: projectRoot, project_scope_id: scope })
+    expect(governedAfterRestart.generation_id).toBe(governedBeforeRestart.generation_id)
+    expect(governedAfterRestart.governance_head?.sequence).toBe(2)
 
     const log = await readFile(join(projectRoot, '.dsh-mnemosyne', 'debug', 'runtime.jsonl'), 'utf8')
     const finalRows = parseRuntimeRows(log)

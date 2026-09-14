@@ -80,6 +80,10 @@ MVP 后发布运营事项：
 
 ## 四、v0.3.0：Memory Governance
 
+当前状态：**Governance Foundation COMPLETE（Slice 1–6 PASS；Manual Smoke Test PASS）**。
+这只表示基础协议、Replay、Ledger、Generation、Effective Projection 与生产接入已收口，
+不表示 v0.3 的后续治理能力已经全部完成。
+
 进入条件：v0.2 本地观察证明零操作记忆闭环有实际价值。
 
 目标不是一次性开放全部治理操作，而是先建立可验证的 Governance 基础模型，再逐步开放治理能力。

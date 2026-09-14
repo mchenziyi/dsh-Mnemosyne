@@ -3,7 +3,7 @@ import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { ResolvedScope, ScopeRuntime } from '../runtime-scope.js'
 import type { RecallRuntimeV2, RecallResultV2 } from '../v2/recall-runtime.js'
 import type { CompiledOKFGenerationV2 } from '../v2/okf-compiler.js'
-import { readCurrentOKFGenerationV2 } from '../v2/okf-compiler.js'
+import { readCurrentRecallWorldV1, type CompiledVersionedGenerationV1 } from '../v2/versioned-generation-store.js'
 import { createMapFirstRecallV3, type MapRecallDecisionV3 } from './map-first-recall.js'
 import { buildRecallSubagentPromptV3, createDshSubagentFactoryV3, runDshSubagentV3, type DshSubagentFactoryV3 } from './dsh-subagent.js'
 import { createMapContextMessageV3 } from './map-context.js'
@@ -13,6 +13,8 @@ import type { MapRecallToolRuntimeV3 } from './map-recall-tool.js'
 import type { ParentTaskSetV3 } from './subagent-lifecycle.js'
 import type { AggregateModelUsageV3 } from './model-usage.js'
 
+type RecallWorldV3 = CompiledOKFGenerationV2 | CompiledVersionedGenerationV1
+
 function taskText(messages: readonly UserMessage[]): string {
   return messages.filter((message) => message.source.kind === 'user').flatMap((message) => message.content.filter((block) => block.type === 'text').map((block) => block.text)).join('\n').slice(0, 32768)
 }
@@ -20,7 +22,7 @@ function taskText(messages: readonly UserMessage[]): string {
 export function createMapOfferPreStepHandlerV3(options: {
   scopeRuntime: ScopeRuntime
   beforeRecall?: (scope: ResolvedScope, signal: AbortSignal) => Promise<void>
-  loadWorld?: (scope: ResolvedScope) => Promise<CompiledOKFGenerationV2>
+  loadWorld?: (scope: ResolvedScope) => Promise<RecallWorldV3>
   recallToolRuntime: MapRecallToolRuntimeV3
 }) {
   return async (payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>): Promise<PreStepDecision> => {
@@ -31,9 +33,9 @@ export function createMapOfferPreStepHandlerV3(options: {
     if (resolution.status !== 'ready') return decision
     await options.beforeRecall?.(resolution.scope, payload.signal)
     if (payload.signal.aborted) return decision
-    let world: CompiledOKFGenerationV2
+    let world: RecallWorldV3
     try {
-      world = await (options.loadWorld ?? ((scope: ResolvedScope) => readCurrentOKFGenerationV2({ project_root: scope.project_root, project_scope_id: scope.project_scope_id })))(resolution.scope)
+      world = await (options.loadWorld ?? readCurrentRecallWorldV1)(resolution.scope)
     } catch { return decision }
     const pin = pinGenerationV3(world)
     const pages = createMapOfferPagesV3(pin)
@@ -61,7 +63,7 @@ export interface RecallPreStepHandlerV3Options {
   legacyRuntime: RecallRuntimeV2
   beforeRecall?: (scope: ResolvedScope, signal: AbortSignal) => Promise<void>
   onResult?: (payload: { agent: Agent; turn: number }, result: RecallResultV2) => void | Promise<void>
-  loadWorld?: (scope: ResolvedScope) => Promise<CompiledOKFGenerationV2>
+  loadWorld?: (scope: ResolvedScope) => Promise<RecallWorldV3>
   subagentFactory?: DshSubagentFactoryV3
   parentTasks?: ParentTaskSetV3
   onEvent?: (scope: ResolvedScope, event: { event: 'recall_start' | 'recall_layer' | 'recall_completed' | 'recall_no_match' | 'recall_failed' | 'recall_fallback'; stage?: string; disclosed_count?: number; selected_count?: number; reason_code?: string | null }) => void
@@ -101,7 +103,7 @@ export function createRecallPreStepHandlerV3(options: RecallPreStepHandlerV3Opti
     })
     let world
     try {
-      world = await (options.loadWorld ?? ((scope: ResolvedScope) => readCurrentOKFGenerationV2({ project_root: scope.project_root, project_scope_id: scope.project_scope_id })))(resolution.scope)
+      world = await (options.loadWorld ?? readCurrentRecallWorldV1)(resolution.scope)
     } catch (error: unknown) {
       if ((error as { code?: string }).code !== 'memory_compile_not_found') return decision
       const empty = await options.legacyRuntime.recall({ scope: resolution.scope, task, provider, model, signal: payload.signal })

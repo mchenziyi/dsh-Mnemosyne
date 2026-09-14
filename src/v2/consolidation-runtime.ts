@@ -5,6 +5,7 @@ import { assertUtcTimestamp } from '../memory-fact.js'
 import { MemoryStoreError } from '../memory-store-error.js'
 import { createMutationCoordinator, type MutationCoordinator } from '../mutation-coordinator.js'
 import {
+  catalogId,
   computeOKFCatalogNodeIdV1,
   computeOKFCatalogV1Hash,
   OKF_CATALOG_MAX_DEPTH,
@@ -13,8 +14,11 @@ import {
 } from './okf-catalog.js'
 import { computeOKFMemoryV2Hash, type OKFMemoryV2 } from './okf-memory.js'
 import { openOKFMemoryV2Store } from './okf-memory-store.js'
-import { publishOKFGenerationV2, readCurrentOKFGenerationV2 } from './okf-compiler.js'
+import { publishOKFGenerationV2 } from './okf-compiler.js'
 import { consumeStrictModelTextV2 } from './recall-runtime.js'
+import { readCurrentRecallWorldV1, readCurrentVersionedGenerationV1 } from './versioned-generation-store.js'
+import { rebuildGovernedGenerationV1 } from '../governance/runtime.js'
+import { acquireCompilerLock } from '../generation-store.js'
 
 const MAX_CONSOLIDATION_MODEL_OUTPUT_BYTES = 32768
 
@@ -222,7 +226,7 @@ function updatedCatalog(catalog: OKFCatalogV1, node: OKFCatalogNodeV1, memory: O
 async function currentCatalog(scope: ResolvedScope): Promise<OKFCatalogV1> {
   const store = openOKFMemoryV2Store({ project_root: scope.project_root, project_scope_id: scope.project_scope_id })
   try {
-    const world = await readCurrentOKFGenerationV2({ project_root: scope.project_root, project_scope_id: scope.project_scope_id })
+    const world = await readCurrentRecallWorldV1({ project_root: scope.project_root, project_scope_id: scope.project_scope_id })
     return await store.getCatalog(world.manifest.catalog_id)
   } catch (error: unknown) {
     if ((error as { code?: string }).code === 'memory_compile_not_found') throw error
@@ -271,10 +275,16 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
           }
           const existing = await store.listMemories()
           const duplicate = existing.find((memory) => memoryFingerprint(memory.project_scope_id, memory) === fingerprint)
-          const visibleMemoryRefs = new Set(catalog.nodes.flatMap((node) => node.memory_refs))
+          let governedWorld: Awaited<ReturnType<typeof readCurrentVersionedGenerationV1>> | undefined
+          try { governedWorld = await readCurrentVersionedGenerationV1({ project_root: request.scope.project_root, project_scope_id: request.scope.project_scope_id }) } catch { /* not-yet-published project */ }
+          const governed = governedWorld?.kind === 'governed'
+          const visibleMemoryRefs = governed && governedWorld
+            ? new Set(governedWorld.visible_memory_refs.map((ref) => ref.memory_id))
+            : new Set(catalog.nodes.flatMap((node) => node.memory_refs))
           if (duplicate && visibleMemoryRefs.has(duplicate.memory_id)) {
             return { status: 'noop', reason_code: 'duplicate_memory', memory_id: duplicate.memory_id }
           }
+          if (duplicate && governed && !visibleMemoryRefs.has(duplicate.memory_id)) return { status: 'failed', reason_code: 'governance_hidden_duplicate', memory_id: duplicate.memory_id }
           let current = catalog.nodes.find((node) => node.node_id === catalog.root_node_id)!
           let depth = 0
           catalogNavigation: while (true) {
@@ -387,18 +397,23 @@ export function createConsolidationRuntimeV2(options: ConsolidationRuntimeV2Opti
           const nextCatalog = updatedCatalog(catalog, current, memory, request.now)
           let catalogWrite: Awaited<ReturnType<typeof store.putCatalog>>
           let generation: Awaited<ReturnType<typeof publishOKFGenerationV2>>
+          let releaseGovernedLock: (() => Promise<void>) | undefined
           try {
+            if (governed) {
+              releaseGovernedLock = await acquireCompilerLock(request.scope.project_root)
+              const lockedWorld = await readCurrentVersionedGenerationV1({ project_root: request.scope.project_root, project_scope_id: request.scope.project_scope_id })
+              if (lockedWorld.kind !== 'governed' || lockedWorld.manifest.catalog_id !== catalogId(catalog)) return { status: 'failed', reason_code: 'memory_compile_busy' }
+            }
             await store.putMemory(memory)
             catalogWrite = await store.putCatalog(nextCatalog)
-            generation = await publishOKFGenerationV2({
-              project_root: request.scope.project_root,
-              project_scope_id: request.scope.project_scope_id,
-              catalog_id: catalogWrite.catalog_id,
-              created_at: request.now,
-            })
+            generation = governed
+              ? await rebuildGovernedGenerationV1({ scope: request.scope, catalog_id: catalogWrite.catalog_id, created_at: request.now, lock_held: true }) as Awaited<ReturnType<typeof publishOKFGenerationV2>>
+              : await publishOKFGenerationV2({ project_root: request.scope.project_root, project_scope_id: request.scope.project_scope_id, catalog_id: catalogWrite.catalog_id, created_at: request.now })
           } catch (error: unknown) {
             const reason = error instanceof MemoryStoreError ? error.code : 'consolidation_publish_failed'
             return { status: 'failed', reason_code: reason }
+          } finally {
+            await releaseGovernedLock?.()
           }
           return { status: 'created', reason_code: null, memory_id: memory.memory_id, catalog_id: catalogWrite.catalog_id, generation_id: generation.generation_id }
         } catch (error: unknown) {

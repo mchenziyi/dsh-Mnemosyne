@@ -1,6 +1,5 @@
 import { MemoryStoreError } from '../memory-store-error.js'
 import { canonicalBytes, canonicalHash, compareCodePoints } from '../protocol/canonical.js'
-import type { CompiledOKFGenerationV2 } from '../v2/okf-compiler.js'
 
 export const MAP_OFFER_SCHEMA_VERSION = 1
 export const MAP_OFFER_MAX_BYTES = 8192
@@ -17,6 +16,7 @@ export interface MapOfferEntryV3 {
   readonly ref: string
   readonly title: string
   readonly kind: 'node' | 'memory'
+  readonly conflicts?: readonly unknown[]
 }
 
 export interface MapOfferV3 {
@@ -38,7 +38,7 @@ export interface MapOfferPagesV3 {
 type IndexFile = {
   node_id: string
   children: Array<{ ref: string; title: string }>
-  memories: Array<{ ref: string; title: string }>
+  memories: Array<{ ref: string; title: string; conflicts?: readonly unknown[] }>
 }
 
 function fail(): never { throw new MemoryStoreError('memory_store_invalid_input') }
@@ -51,7 +51,7 @@ function freeze<T>(value: T): T {
   return value
 }
 
-export function pinGenerationV3(generation: CompiledOKFGenerationV2): PinnedGenerationV3 {
+export function pinGenerationV3(generation: { generation_id: string; manifest: { project_scope_id: string; catalog_id: string }; files: Map<string, string> }): PinnedGenerationV3 {
   if (!generation || !generation.manifest || !(generation.files instanceof Map)) fail()
   const source = new Map<string, string>(generation.files)
   const files: ReadonlyMap<string, string> = {
@@ -93,7 +93,7 @@ export function createMapOfferV3(pin: PinnedGenerationV3, nodeId = 'node_root', 
   const index = readIndex(pin, nodeId)
   const entries = [
     ...index.children.map((entry) => ({ ref: entry.ref, title: entry.title, kind: 'node' as const })),
-    ...index.memories.map((entry) => ({ ref: entry.ref, title: entry.title, kind: 'memory' as const })),
+    ...index.memories.map((entry) => ({ ref: entry.ref, title: entry.title, kind: 'memory' as const, ...(entry.conflicts === undefined ? {} : { conflicts: entry.conflicts }) })),
   ].sort((a, b) => compareCodePoints(a.ref, b.ref))
   const remaining = entries.slice(cursor, cursor + MAP_OFFER_PAGE_SIZE)
   const page: typeof entries = []

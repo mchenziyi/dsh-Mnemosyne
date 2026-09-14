@@ -25,7 +25,7 @@ v0.2.0 已闭环五项 MVP 能力：
 - **按需读**：严格按 `Title → Summary → Content` 渐进披露；
 - **可靠隔离**：记忆跨 Session 和进程重启持久存在，不同 Project 严格隔离。
 
-后续路线保持为 `Memory Governance → Pattern Layer → Plugin Evolution`，目前尚未开始实施。v0.3 将先建立 Governance 基础模型，再依次开放 `Recall 可用性治理 → 去重/合并 → Revision/Supersede/Conflict → 过时治理 → Catalog 治理`。治理过程不物理删除 Memory，不对不确定冲突自动选边，将模型建议与状态变更分离，并保证操作可审计、可回滚、Catalog 调整不改变 Memory 身份且可增量执行。v0.4 与 v0.5+ 分别基于治理后的可信 Memory 构建 Pattern 和 Plugin Evolution。
+后续路线保持为 `Memory Governance → Pattern Layer → Plugin Evolution`。Governance Foundation 的 Slice 1–6 已完成并通过手工 Smoke Test；这不等于完整的 v0.3 Memory Governance 已完成。后续仍按 `Recall 可用性治理 → 去重/合并 → Revision/Supersede/Conflict → 过时治理 → Catalog 治理` 逐步开放。治理过程不物理删除 Memory，不对不确定冲突自动选边，将模型建议与状态变更分离，并保证操作可审计、可回滚、Catalog 调整不改变 Memory 身份且可增量执行。v0.4 与 v0.5+ 分别基于治理后的可信 Memory 构建 Pattern 和 Plugin Evolution。
 
 ## v0.2.0 的工作方式
 

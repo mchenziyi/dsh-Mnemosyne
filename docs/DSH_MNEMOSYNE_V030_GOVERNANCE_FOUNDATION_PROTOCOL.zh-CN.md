@@ -250,6 +250,11 @@ type ResolveConflictPayloadV1 = {
 - `deactivate` 关闭 conflict，并使指定一方 inactive；
 - Foundation 不支持“按上下文分别成立”的自动 resolution；无法确定时保持 unresolved，不自动选边。
 
+全局约束：任何仍参与其他 unresolved conflict 的 Memory 必须保持 `active`。因此
+`resolve_conflict.supersede` 与 `resolve_conflict.deactivate` 只豁免正在关闭的目标
+conflict；若任一受影响 Memory 仍参与其他 unresolved conflict，整个 Event 必须拒绝。
+`resolve_conflict.dismiss` 不改变 lifecycle，即使双方仍参与其他 unresolved conflict 也允许。
+
 ### 4.4 deactivate
 
 ```ts
@@ -336,6 +341,30 @@ interface EffectiveMemoryV1 {
 ```
 
 Effective Memory 只由 Raw Memory 与 committed Ledger Replay 得出，不写回 Raw Memory。
+
+`governance_event_refs` 是完整 committed 治理历史的审计投影：包含从 genesis 到当前
+`governance_head` 之间所有在治理语义上与该 Memory 相关的 Event，无论该 Event 当前是否
+仍生效。其 semantic memory footprint 固定为：
+
+- `supersede`：`replacement` 与 `replaced`；
+- `add_conflict`：canonical conflict pair 双方；
+- `resolve_conflict`：被 resolve 的 `add_conflict` pair 双方；
+- `deactivate`、`reactivate`：payload 中的 `memory`；
+- `revert`：`target_event` 的 semantic memory footprint。
+
+Evidence-only 引用不产生治理历史归属。被 mask 的业务 Event、`revert` Event、已被
+`reactivate` 的独立 `deactivate` Event，以及已 resolve 的 `add_conflict` 与对应
+`resolve_conflict` Event 均保留在该字段中。数组不得静默去重，并按
+`GovernanceEventRefV1` comparator 排序。
+
+所有 Effective Memory 必须满足以下 invariant：
+
+```text
+unresolved_conflict_refs.length > 0
+→ lifecycle_status = active
+```
+
+任何 Event 应用后违反该 invariant，Replay 必须失败。
 
 ### 6.2 Effective Catalog
 
@@ -636,7 +665,16 @@ Recall 读取 Effective outputs；Consolidation 在 legacy 无治理时保持 le
 - 所有 unordered Governance refs 在 hash 前使用已冻结的完整 identity comparator；
 - Raw、Effective、Ledger、Generation 与 Recall 的职责边界不混用。
 
-在不新增本文范围外能力的前提下，本协议状态为：
+协议语义在 Slice 1–6 实现期间保持冻结；当前实现状态为：
+
+```text
+Slice 1–6: PASS
+Manual Smoke Test: PASS
+Governance Foundation: COMPLETE
+v0.3 Memory Governance: 仍在后续治理能力阶段
+```
+
+在不新增本文范围外能力的前提下，本协议最初实施门槛为：
 
 ```text
 READY FOR SLICE 1

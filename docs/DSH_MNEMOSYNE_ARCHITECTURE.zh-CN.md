@@ -1,6 +1,6 @@
 # dsh-Mnemosyne 当前架构
 
-> 状态：✅ v0.2.0 MVP Complete；生产入口默认使用 V3
+> 状态：✅ v0.2.0 MVP Complete；Governance Foundation Slice 1–6 Complete；生产入口默认使用 V3
 >
 > 更新日期：2026-09-10
 
@@ -244,7 +244,7 @@ Node 文件系统 API 无法对同 UID 恶意进程提供内核级目录能力�
 
 - v0.1.0：已发布的工具式技术预览，只作为历史；
 - v0.2.x：Zero-operation OKF Memory MVP 已完成；当前生产入口默认 V3，V2 仅内部 fallback，与 v0.1 数据不兼容；
-- DSH 兼容基线：`0.1.3-alpha.2`；alpha.2 的子代理 descriptor API 通过公开 Session 事件适配；
+- DSH 兼容基线：`0.1.5-rc.1`；子代理 descriptor API 通过公开 Session 事件适配；
 - 当前具体 Schema、限制和验收以 DSH_MNEMOSYNE_V020_ZERO_OPERATION_OKF_MEMORY_PLAN.zh-CN.md 为准；
 - 本地使用评估以 DSH_MNEMOSYNE_LOCAL_OBSERVATION_EVALUATION.zh-CN.md 为准；
 - 被删除的 v0.1/M0.5 执行计划仍可从 Git 历史中的 v0.1 发布提交读取，但不再作为当前设计输入。
@@ -252,6 +252,8 @@ Node 文件系统 API 无法对同 UID 恶意进程提供内核级目录能力�
 ## 十一、后续方向
 
 长期路线保持为 `Experience → Memory → Memory Governance → Pattern → Plugin Evolution`。
+
+当前 Governance Foundation 已完成 Slice 1–6 并通过 Manual Smoke Test；后续 v0.3 治理能力仍按路线逐步实施。
 
 v0.3 不直接同时开放去重、冲突、过时和 Catalog 治理，而是按以下顺序建立能力：
 
